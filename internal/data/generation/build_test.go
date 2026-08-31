@@ -302,3 +302,54 @@ func TestBuildContentReuseAcrossGenerations(t *testing.T) {
 		t.Errorf("gen3.ObjectsReused = %d, want %d", manifest3.ObjectsReused, manifest3.ObjectCount-1)
 	}
 }
+
+// TestBuildDuplicateContentWithinOneGenerationCountsChunksOnce covers a
+// GEN-003 case TestBuildContentReuseAcrossGenerations doesn't: two
+// distinct source files with byte-identical content in the SAME build.
+// resolveObjectIdentity dedups them to the same obj.ID, so their
+// content-derived chunk IDs collide too — indexObjects must count and
+// store each distinct chunk once, not once per source file, or
+// manifest.ChunkCount overstates what's actually staged in Badger and
+// validate.Structural fails on every real build with any duplicated file
+// (vendored LICENSE copies, generated boilerplate, etc.).
+func TestBuildDuplicateContentWithinOneGenerationCountsChunksOnce(t *testing.T) {
+	requireGit(t)
+	ctx := context.Background()
+	store, badgerStore := testStores(t)
+	gitCache := git.NewCache(t.TempDir())
+
+	dir := t.TempDir()
+	runGit(t, dir, "init", "-q", "-b", "main")
+	writeFile(t, dir, "README.md", "# Widget\n\nA small example package.\n")
+	writeFile(t, dir, "docs/README.md", "# Widget\n\nA small example package.\n")
+	runGit(t, dir, "add", ".")
+	runGit(t, dir, "commit", "-q", "-m", "initial")
+	runGit(t, dir, "tag", "v1.0.0")
+
+	dep := testDependency()
+	sources := []registry.Source{{ID: "repository", Type: "git", URL: dir, Ref: "v${version}", Authority: 100}}
+
+	gen, err := Create(ctx, store, badgerStore, dep)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if err := Build(ctx, gen, sources, gitCache, store, badgerStore); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	manifest, err := getManifest(ctx, badgerStore, gen.ID)
+	if err != nil {
+		t.Fatalf("getManifest: %v", err)
+	}
+	chunks, err := badgerStore.ListGenerationChunks(ctx, gen.ID)
+	if err != nil {
+		t.Fatalf("ListGenerationChunks: %v", err)
+	}
+
+	if manifest.ChunkCount != len(chunks) {
+		t.Errorf("manifest.ChunkCount = %d, actual staged chunks = %d; want equal (VAL-001 checks this exact invariant)", manifest.ChunkCount, len(chunks))
+	}
+	if manifest.ObjectsReused != 1 {
+		t.Errorf("manifest.ObjectsReused = %d, want 1 (the duplicate docs/README.md)", manifest.ObjectsReused)
+	}
+}

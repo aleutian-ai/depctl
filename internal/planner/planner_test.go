@@ -84,7 +84,7 @@ func TestPlanVersionBumpProducesSyncAndDropWithGCCandidate(t *testing.T) {
 		t.Fatalf("Plan: %v", err)
 	}
 
-	var sawSyncNew, sawDropOld, sawGCOld bool
+	var sawSyncNew, sawDropOld, sawGCOld, sawAddNew bool
 	for _, a := range actions {
 		switch a.Kind {
 		case ActionSyncVersion:
@@ -99,6 +99,10 @@ func TestPlanVersionBumpProducesSyncAndDropWithGCCandidate(t *testing.T) {
 			if a.Dependency.Version == "v1.66.0" {
 				sawGCOld = true
 			}
+		case ActionAddReference:
+			if a.Dependency.Version == "v1.67.0" {
+				sawAddNew = true
+			}
 		}
 	}
 	if !sawSyncNew {
@@ -109,6 +113,12 @@ func TestPlanVersionBumpProducesSyncAndDropWithGCCandidate(t *testing.T) {
 	}
 	if !sawGCOld {
 		t.Errorf("want GC_CANDIDATE for v1.66.0, got %+v", actions)
+	}
+	// Without this, nothing ever marks the new version as referenced —
+	// RET-001's grace-period/GC logic would eventually reap a project's
+	// own current dependency version as orphaned.
+	if !sawAddNew {
+		t.Errorf("want ADD_REFERENCE for v1.67.0 (the project's new resolved version), got %+v", actions)
 	}
 }
 

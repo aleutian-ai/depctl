@@ -269,6 +269,17 @@ func indexObjects(ctx context.Context, gen domain.Generation, objects []domain.K
 	}
 
 	sourceSet := map[string]bool{}
+	// writtenChunkIDs tracks chunk IDs already stored for gen within this
+	// call. Chunk IDs are content-derived (dchunk.ChunkID(obj.ID,
+	// ordinal, content)), so two KnowledgeObjects that GEN-003-dedup to
+	// the same obj.ID (identical content at different logical paths, or
+	// an object reused from a prior generation) produce identical chunk
+	// IDs too — without this guard, badgerStore.PutChunk silently
+	// overwrites the same key on the second occurrence while
+	// manifest.ChunkCount still increments, so the manifest's claimed
+	// count exceeds the distinct chunks actually staged and VAL-001's
+	// structural check fails every time.
+	writtenChunkIDs := map[string]bool{}
 	for _, obj := range objects {
 		id, contentHash, reused, err := resolveObjectIdentity(ctx, badgerStore, gen, obj)
 		if err != nil {
@@ -300,9 +311,13 @@ func indexObjects(ctx context.Context, gen domain.Generation, objects []domain.K
 			return fmt.Errorf("%w: chunk object %s: %v", ErrNormalization, obj.ID, err)
 		}
 		for _, c := range chunks {
+			if writtenChunkIDs[c.ID] {
+				continue
+			}
 			if err := badgerStore.PutChunk(ctx, gen.ID, c); err != nil {
 				return fmt.Errorf("%w: store chunk %s: %v", ErrNormalization, c.ID, err)
 			}
+			writtenChunkIDs[c.ID] = true
 			manifest.ChunkCount++
 		}
 	}

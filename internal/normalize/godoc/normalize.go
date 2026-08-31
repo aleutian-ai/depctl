@@ -23,12 +23,28 @@ func (n *Normalizer) Normalize(ctx context.Context, src domain.SourceSnapshot) (
 	fset := token.NewFileSet()
 	pkgs, err := parser.ParseDir(fset, src.LocalPath, nil, parser.ParseComments)
 	if err != nil {
-		return nil, fmt.Errorf("godoc: parse %s: %w", src.LocalPath, err)
+		// parser.ParseDir aborts on the first unparseable .go file in the
+		// directory, even if the rest parse fine. Real repos legitimately
+		// contain intentionally-invalid Go source (e.g. golang/tools'
+		// cmd/fiximports/testdata fixtures, which exist specifically to
+		// exercise error handling) — that's not evidence of a bug in this
+		// normalizer, it's a directory with no valid documentable package,
+		// same as the no-non-test-package case below. Skip it rather than
+		// failing the whole generation over test fixtures.
+		return nil, nil
 	}
 
-	astPkg, err := singlePackage(pkgs, src.LocalPath)
-	if err != nil {
-		return nil, err
+	astPkg, ok := singlePackage(pkgs)
+	if !ok {
+		// A directory containing only an external "foo_test" package (no
+		// importable non-test package) has nothing to document — a
+		// normal, common Go layout (integration-test-only dirs), not a
+		// content error. Skip it silently, the same way normalize.NewRegistry.
+		// Select does for a file type no normalizer recognizes, rather
+		// than failing the whole generation (Build treats a real
+		// normalizer error as fatal to every other object it already
+		// staged).
+		return nil, nil
 	}
 
 	files := make([]*ast.File, 0, len(astPkg.Files))
@@ -82,8 +98,9 @@ func (n *Normalizer) Normalize(ctx context.Context, src domain.SourceSnapshot) (
 
 // singlePackage picks the non-"_test" package from parser.ParseDir's
 // result — a directory can also yield an external "foo_test" package,
-// which isn't the API surface being documented.
-func singlePackage(pkgs map[string]*ast.Package, dir string) (*ast.Package, error) {
+// which isn't the API surface being documented. ok is false if dir has
+// no non-test package (e.g. an integration-test-only directory).
+func singlePackage(pkgs map[string]*ast.Package) (pkg *ast.Package, ok bool) {
 	var names []string
 	for name := range pkgs {
 		if !strings.HasSuffix(name, "_test") {
@@ -92,9 +109,9 @@ func singlePackage(pkgs map[string]*ast.Package, dir string) (*ast.Package, erro
 	}
 	sort.Strings(names)
 	if len(names) == 0 {
-		return nil, fmt.Errorf("godoc: no non-test package found in %s", dir)
+		return nil, false
 	}
-	return pkgs[names[0]], nil
+	return pkgs[names[0]], true
 }
 
 // symbolObject builds the KnowledgeObject for one exported symbol.

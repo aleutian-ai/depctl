@@ -97,6 +97,12 @@ func Plan(ctx context.Context, project domain.Project, resolution domain.Resolut
 			actions = append(actions,
 				Action{Kind: ActionDropReference, ProjectID: project.ID, Dependency: oldDep, Reason: "version changed"},
 				Action{Kind: ActionGCCandidate, ProjectID: project.ID, Dependency: oldDep, Reason: "no longer referenced by this project (provisional — see RET-001)"},
+				// Without this, nothing ever marks the new version as
+				// referenced: RET-001's grace-period/GC logic sees zero
+				// references for the project's now-current version and
+				// would eventually reap it as orphaned, even though it's
+				// exactly what this project depends on.
+				Action{Kind: ActionAddReference, ProjectID: project.ID, Dependency: dv, Reason: reason},
 			)
 			if !activeGenerations[GenerationKey(dv)] {
 				actions = append(actions, Action{Kind: ActionSyncVersion, ProjectID: project.ID, Dependency: dv, Reason: reason})

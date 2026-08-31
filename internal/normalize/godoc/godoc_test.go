@@ -21,6 +21,53 @@ func fixtureSnapshot(t *testing.T) domain.SourceSnapshot {
 	return domain.SourceSnapshot{LocalPath: abs, LogicalPath: "simplepkg"}
 }
 
+// TestExternalTestOnlyDirectorySkippedNotErrored covers a directory
+// whose only Go files are an external "foo_test" package (no
+// importable non-test package) — a normal Go layout (e.g.
+// integration-test-only dirs) with nothing to document, not a content
+// error. Normalize must return zero objects and a nil error so
+// generation.Build (which treats any normalizer error as fatal to the
+// whole generation) doesn't abort real syncs over this.
+func TestExternalTestOnlyDirectorySkippedNotErrored(t *testing.T) {
+	dir, err := filepath.Abs(filepath.Join("testdata", "sources", "testonlypkg"))
+	if err != nil {
+		t.Fatalf("abs path: %v", err)
+	}
+	n := New()
+	got, err := n.Normalize(context.Background(), domain.SourceSnapshot{LocalPath: dir, LogicalPath: "testonlypkg"})
+	if err != nil {
+		t.Fatalf("Normalize: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("Normalize returned %d objects, want 0", len(got))
+	}
+}
+
+// TestUnparseableFixtureSkippedNotErrored covers a directory containing
+// a .go file that doesn't parse (e.g. golang/tools' cmd/fiximports
+// testdata, which intentionally ships invalid Go source to exercise
+// error handling). parser.ParseDir aborts on the first such file — not
+// evidence of a bug in this normalizer, just a directory with no valid
+// documentable package. Skip it rather than failing the whole
+// generation.
+func TestUnparseableFixtureSkippedNotErrored(t *testing.T) {
+	// Written at run time, not checked in under testdata/, so this
+	// deliberately-invalid .go file never lands in the working tree for
+	// gofmt/go vet's own recursive walk to trip over.
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "bad.go"), nil, 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	n := New()
+	got, err := n.Normalize(context.Background(), domain.SourceSnapshot{LocalPath: dir, LogicalPath: "unparseable"})
+	if err != nil {
+		t.Fatalf("Normalize: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("Normalize returned %d objects, want 0", len(got))
+	}
+}
+
 func TestSupportsRequiresGoFiles(t *testing.T) {
 	n := New()
 	if !n.Supports(fixtureSnapshot(t)) {
