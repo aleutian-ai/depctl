@@ -23,6 +23,16 @@ go build -o build/ragctl ./cmd/ragctl
 
 `ragctl` is designed to run natively on macOS and Linux — see [ADR-010](docs/adr/ADR-010-native-first-execution-model.md) for why: commands that touch your real project directories and toolchains (`scan`, `plan`, `sync`, `watch`) need direct host access, so the native binary is the primary way to run `ragctl`.
 
+## Using your own docs repo, offline, with a local model
+
+If you want `ragctl` to index a plain git repo of documents you own
+(not a package-manager dependency) and serve it over MCP to a local
+model (e.g. via Ollama) with zero network access — see
+[docs/offline-quickstart.md](docs/offline-quickstart.md) for the full,
+tested walkthrough: pulling models ahead of time, standing up Qdrant
+locally, wiring your docs repo in via a registry manifest, syncing, and
+pointing an MCP client at `ragctl serve`.
+
 ## Running in a container
 
 The container is reserved for the long-running `serve` daemon and for cross-platform testing — not required for day-to-day use.
@@ -43,6 +53,7 @@ hack/test-linux.sh                                       # Linux, via Podman + A
 
 ## Docs
 
+- [docs/offline-quickstart.md](docs/offline-quickstart.md) — index your own docs repo and query it offline via a local model over MCP.
 - [docs/architecture.md](docs/architecture.md) — current implemented architecture, updated as tickets land.
 - [docs/adr/](docs/adr/) — architecture decision records.
 - [docs/tickets/](docs/tickets/README.md) — the full build plan, split into `planned/` (v0.1 critical path) and `backlog/` (deferred epics).
