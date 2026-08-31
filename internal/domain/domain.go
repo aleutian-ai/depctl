@@ -98,6 +98,20 @@ type KnowledgeObject struct {
 	Metadata    map[string]string
 }
 
+// Chunk is a retrieval-sized slice of a KnowledgeObject's content,
+// produced by a Chunker (see internal/data/chunk). ID is derived
+// deterministically from ObjectID+Ordinal+Content (CHUNK-001's ChunkID),
+// so a chunk whose boundaries shift due to an upstream edit gets a new
+// ID rather than silently reusing stale content under an old one.
+type Chunk struct {
+	ID          string
+	ObjectID    string
+	Ordinal     int
+	Content     []byte
+	ContentHash string
+	Metadata    map[string]string
+}
+
 // Resolution is the canonical output of a Resolver.Resolve call (see
 // internal/resolver) and the shape persisted by the control store. Defined
 // here, not in internal/resolver, because storage/planner/every ecosystem

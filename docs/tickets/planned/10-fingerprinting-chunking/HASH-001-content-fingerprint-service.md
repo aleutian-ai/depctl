@@ -37,6 +37,6 @@ Provide a single deterministic BLAKE3-based fingerprint function over (source id
 - Documented whitespace cases: content with `\r\n` vs `\n` — since normalizer is expected to have already normalized, this test verifies the *normalizer's* output feeding HASH-001 produces identical hashes for equivalent source line-ending variants (integration-style test spanning NORM-002 + HASH-001).
 
 ## Acceptance criteria
-- [ ] Same input → same hash, verified by unit test.
-- [ ] Whitespace normalization rules documented in a code comment on `Fingerprint`.
-- [ ] Normalizer version change → distinct ID, verified by unit test.
+- [x] Same input → same hash, verified by unit test.
+- [x] Whitespace normalization rules documented in a code comment on `Fingerprint`.
+- [x] Normalizer version change → distinct ID, verified by unit test.

@@ -35,5 +35,5 @@ Derive a deterministic, human-inspectable ID for each `KnowledgeObject` from its
 - Two different digests never collide in a large-N property test (e.g. 10k random digests, no duplicate IDs).
 
 ## Acceptance criteria
-- [ ] ID generation is deterministic and collision-free in practice.
-- [ ] ID format documented and matches the `ko_<base32>` convention used elsewhere in storage keys.
+- [x] ID generation is deterministic and collision-free in practice.
+- [x] ID format documented and matches the `ko_<base32>` convention used elsewhere in storage keys.

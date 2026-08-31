@@ -110,6 +110,19 @@ func TestNestedHeadingsGoldenSnapshot(t *testing.T) {
 	}
 }
 
+// TestHeadingBeforeH1DoesNotStealTitle reproduces a real-world bug found
+// normalizing spf13/cobra's actual README: an H3 sponsor callout inside
+// an HTML block appears before the document's real "# Overview" H1. The
+// level-skip clamp (needed so an out-of-order heading doesn't index out
+// of range on the breadcrumb stack) was also feeding title detection,
+// so the H3 got silently promoted to "the title" instead of Overview.
+func TestHeadingBeforeH1DoesNotStealTitle(t *testing.T) {
+	obj := normalizeFixture(t, "skewed-heading.md", "README.md")
+	if obj.Title != "Overview" {
+		t.Errorf("Title = %q, want \"Overview\" (the real H1, not the earlier out-of-order H3)", obj.Title)
+	}
+}
+
 func TestEmptyDocumentGetsParseWarning(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "empty.md")

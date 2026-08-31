@@ -126,3 +126,88 @@ practices/architecture	jamesmh/architecture_decision_record
 practices/architecture	oasisprotocol/adrs
 
 practices/systems	everysoftware/design-patterns
+
+# Hypermedia/browser-native corpus: bias toward HTML/CSS/HTTP standards
+# and htmx over SPA-framework JS — prefer browser-native first, htmx
+# second, minimal vanilla JS third. mdn/content covers HTML, CSS, and JS
+# reference material together, so it's listed once (under html-css) even
+# though it's relevant to all three categories here — fetch-corpus names
+# each checkout by repo basename, not a custom alias, so a second clone
+# of the same repo under practices/javascript would just be a duplicate
+# ~1GB+ mirror, not distinct content.
+practices/htmx	bigskysoftware/htmx
+
+practices/html-css	mdn/content
+practices/html-css	whatwg/html
+practices/html-css	w3c/csswg-drafts
+practices/html-css	whatwg/dom
+practices/html-css	whatwg/fetch
+
+practices/javascript	javascript-tutorial/en.javascript.info
+practices/javascript	getify/You-Dont-Know-JS
+
+# GIS/spatial corpus: split into core geospatial primitives, spatial
+# statistics, databases/query engines, GIS applications/algorithms,
+# geospatial ML, Go-side geometry/indexing/services, and tutorials.
+# Several of these (OSGeo/gdal, OSGeo/PROJ, OSGeo/grass, qgis/QGIS,
+# duckdb/duckdb) are large, long-history C/C++ codebases — expect
+# full-mirror sizes well beyond the typical repo here, same caveat as
+# golang/go and python/cpython under practices/.
+gis/python	geopandas/geopandas
+gis/python	shapely/shapely
+gis/python	rasterio/rasterio
+gis/python	pyproj4/pyproj
+gis/python	pysal/libpysal
+gis/python	pysal/esda
+gis/python	pysal/spreg
+gis/python	pysal/spopt
+gis/python	pysal/pointpats
+gis/python	pysal/giddy
+gis/python	pysal/segregation
+gis/python	pysal/momepy
+gis/python	pysal/spaghetti
+gis/python	pysal/tobler
+gis/python	pysal/spml
+gis/python	scikit-mobility/scikit-mobility
+
+gis/core	OSGeo/gdal
+gis/core	OSGeo/PROJ
+gis/core	libgeos/geos
+gis/core	libspatialindex/libspatialindex
+gis/core	google/s2geometry
+gis/core	uber/h3
+gis/core	mapbox/tippecanoe
+
+gis/databases	postgis/postgis
+gis/databases	duckdb/duckdb
+gis/databases	duckdb/duckdb-spatial
+
+gis/apps	qgis/QGIS
+gis/apps	OSGeo/grass
+gis/apps	jblindsay/whitebox-tools
+
+gis/ml	microsoft/torchgeo
+gis/ml	raster-foundry/raster-vision
+gis/ml	makepath/xarray-spatial
+gis/ml	corteva/rioxarray
+gis/ml	xarray-contrib/xvec
+
+gis/go	orb-community/orb
+gis/go	paulmach/go.geo
+gis/go	twpayne/go-geom
+gis/go	tidwall/geojson
+gis/go	tidwall/rtree
+gis/go	golang/geo
+gis/go	uber/h3-go
+gis/go	akhenakh/geoserver
+gis/go	omniscale/imposm3
+gis/go	go-spatial/geom
+gis/go	go-spatial/proj
+gis/go	go-spatial/tegola
+
+gis/tutorials	opengeos/python-geospatial
+gis/tutorials	jorisvandenbossche/geopandas-tutorial
+gis/tutorials	geopandas/scipy2018-geospatial-data
+gis/tutorials	opengeos/pyqgis-cookbook
+gis/tutorials	ITC-CRIB/training-resources
+gis/tutorials	AlexArcPy/python-for-gis-progression-path

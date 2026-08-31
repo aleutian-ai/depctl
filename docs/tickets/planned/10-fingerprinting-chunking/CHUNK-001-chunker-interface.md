@@ -41,5 +41,5 @@ Define the shared `Chunker` interface used by content-type-specific chunkers (Ma
 - `Registry.Select` dispatches based on content type correctly (with two fake chunkers registered).
 
 ## Acceptance criteria
-- [ ] Interface compiles, used by a fake implementation in tests.
-- [ ] Chunk ID scheme is deterministic and documented.
+- [x] Interface compiles, used by a fake implementation in tests.
+- [x] Chunk ID scheme is deterministic and documented.

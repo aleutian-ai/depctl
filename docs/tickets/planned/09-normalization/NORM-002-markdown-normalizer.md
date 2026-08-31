@@ -45,3 +45,11 @@ Parse `.md` (and plain `.mdx`) files into structured `KnowledgeObject`s, extract
 - [x] Nested headings preserved in metadata.
 - [x] Fenced Go/Python code blocks extracted with correct language tags.
 - [x] Golden snapshot test passes and is wired into CI.
+
+## Post-implementation fix (found by real-world normalization)
+
+Running the normalizer against a real README (`spf13/cobra`'s, via `hack/normalize-preview`, `~/offline-knowledge`) surfaced a title-detection bug the fixture tests didn't catch: the document's `Title` came back as `"Warp, the AI terminal for devs"` — a sponsor callout rendered as an `### H3` inside an HTML `<div>` block, appearing before the doc's real `# Overview` heading — instead of `"Overview"`.
+
+Root cause: the heading-level clamp that keeps an out-of-order heading (e.g. an H3 appearing before any H1/H2) from indexing out of range on the breadcrumb stack was reused, unmodified, for title detection too. The clamp legitimately treats a stray first-seen H3 as "one level deep" for breadcrumb purposes, but that clamped value was also what the `level == 1` title check compared against — so any out-of-order heading that happened to be first in the document got silently promoted to "the title," regardless of its real level in the source.
+
+Fixed in `internal/normalize/markdown/normalize.go`: title detection now checks the heading's real, unclamped `h.Level == 1` — only a genuine `# ...` can ever become the title. The breadcrumb stack still uses the clamped value, since that behavior (best-effort nesting for malformed documents, not an error) is still correct for that purpose. Regression test: `TestHeadingBeforeH1DoesNotStealTitle` (`testdata/sources/markdown/skewed-heading.md`), reproducing the exact cobra README shape.

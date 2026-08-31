@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"aleutian-ai/ragctl/internal/domain"
+	"aleutian-ai/ragctl/internal/normalize"
 )
 
 // Normalize parses the Go package directory at src.LocalPath and emits
@@ -56,7 +57,7 @@ func (n *Normalizer) Normalize(ctx context.Context, src domain.SourceSnapshot) (
 			Title:       docPkg.Name,
 			Version:     src.Version,
 			Commit:      src.Commit,
-			Content:     []byte(docPkg.Doc),
+			Content:     normalize.NormalizeLineEndings([]byte(docPkg.Doc)),
 			Metadata:    map[string]string{"package": docPkg.Name},
 		})
 	}
@@ -119,7 +120,7 @@ func symbolObject(src domain.SourceSnapshot, fset *token.FileSet, pkgName, name,
 		Title:       name,
 		Version:     src.Version,
 		Commit:      src.Commit,
-		Content:     []byte(docText),
+		Content:     normalize.NormalizeLineEndings([]byte(docText)),
 		Metadata:    metadata,
 	}
 }

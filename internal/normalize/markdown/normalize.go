@@ -13,6 +13,7 @@ import (
 	"github.com/yuin/goldmark/text"
 
 	"aleutian-ai/ragctl/internal/domain"
+	"aleutian-ai/ragctl/internal/normalize"
 )
 
 // Normalize reads src's materialized file and extracts title, heading
@@ -25,6 +26,7 @@ func (n *Normalizer) Normalize(ctx context.Context, src domain.SourceSnapshot) (
 	if err != nil {
 		return nil, fmt.Errorf("markdown: read %s: %w", src.LocalPath, err)
 	}
+	raw = normalize.NormalizeLineEndings(raw)
 
 	extracted, err := extract(raw)
 	if err != nil {
@@ -89,16 +91,23 @@ func extract(source []byte) (extraction, error) {
 		switch node.Kind() {
 		case ast.KindHeading:
 			h := node.(*ast.Heading)
-			level := h.Level
-			if level-1 > len(headingStack) {
-				// A level skip (e.g. H1 straight to H3) — treat as one
-				// deeper than the current stack rather than erroring.
-				level = len(headingStack) + 1
+			stackLevel := h.Level
+			if stackLevel-1 > len(headingStack) {
+				// A level skip (e.g. H1 straight to H3, or a stray H3
+				// before any H1/H2 at all — seen in the wild in a
+				// real README with a sponsor callout using ### ahead of
+				// the actual # heading) — treat as one deeper than the
+				// current stack for breadcrumb purposes, rather than
+				// erroring or indexing out of range.
+				stackLevel = len(headingStack) + 1
 			}
-			headingStack = append(append([]string{}, headingStack[:level-1]...), nodeText(h, source))
+			headingStack = append(append([]string{}, headingStack[:stackLevel-1]...), nodeText(h, source))
 			path := strings.Join(headingStack, " > ")
 			result.headings = append(result.headings, path)
-			if level == 1 && result.title == "" {
+			// Title detection uses the heading's real (unclamped) level —
+			// only a genuine "# ..." can become the title, never a
+			// deeper heading that got clamped for breadcrumb purposes.
+			if h.Level == 1 && result.title == "" {
 				result.title = nodeText(h, source)
 			}
 		case ast.KindFencedCodeBlock:

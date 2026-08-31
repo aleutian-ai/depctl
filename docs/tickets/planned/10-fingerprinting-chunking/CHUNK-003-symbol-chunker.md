@@ -39,5 +39,11 @@ Chunk Go-doc-derived `KnowledgeObject`s (from NORM-004) one exported API symbol 
 - Package doc object → one chunk with package-level metadata (symbol field empty/omitted).
 
 ## Acceptance criteria
-- [ ] One chunk per symbol object, metadata correctly populated.
-- [ ] Package-level doc objects handled distinctly from symbol-level objects.
+- [x] One chunk per symbol object, metadata correctly populated.
+- [x] Package-level doc objects handled distinctly from symbol-level objects.
+
+## Post-implementation fix (found by real-world sweeping)
+
+`hack/chunk-sweep`, run against ~22k real `KnowledgeObject`s from `~/offline-knowledge`, found 6,287 of 56,942 chunks (~11%) had completely empty `Content`. Root cause: NORM-004's `Content` is deliberately just the symbol's doc comment (per its own ticket's design), which is empty for any exported symbol without one — a very common real-world case (undocumented getters, simple constants, etc.), confirmed via samples like `func CreateAuthorizationToken(taskID, runID, jobID int64) (string, error)` with zero doc text. This chunker passed that empty `Content` straight through even though `Metadata["signature"]` — real, useful information about the symbol — was sitting right there unused, producing a chunk with zero signal for the embedding/retrieval stages that will eventually consume it.
+
+Fixed in `internal/data/chunk/symbol/symbol.go`: when `obj.Content` is empty (after trimming), `Chunk` now falls back to a non-empty stand-in built from metadata — the signature if present, else `package.symbol`, else whichever single field is available. This only affects the emitted `Content`; `Metadata["signature"]`/etc. are unchanged, and `ContentHash`/`ChunkID` are computed from the same fallback content actually shipped, so identity stays consistent. Regression tests: `TestUndocumentedSymbolFallsBackToSignature`, `TestUndocumentedSymbolWithNoSignatureFallsBackToPackageDotSymbol`. Re-running the sweep after the fix: 0 empty chunks across the same ~57k chunks.

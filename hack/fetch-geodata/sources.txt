@@ -1,0 +1,78 @@
+# Real-world geospatial datasets: Census TIGER/Line 2025 (Northeast +
+# California), NOAA nautical charts and maritime boundaries (West
+# Coast). One line per source: "<category> <url>". category becomes a
+# subdirectory of -root; the downloaded zip's basename (extension
+# stripped) becomes the extraction directory name there.
+#
+# Deliberately NOT included: NOAA BlueTopo bathymetry — it's an S3-hosted,
+# tile-based dataset (s3://noaa-ocs-nationalbathymetry-pds/) too large to
+# blindly bulk-sync; list the bucket with the AWS CLI to pick specific
+# CA/OR/WA tiles instead: `aws s3 ls --no-sign-request s3://noaa-ocs-nationalbathymetry-pds/BlueTopo/`
+#
+# Run with: go run ./hack/fetch-geodata [-root DIR] [-concurrency N]
+
+# TIGER/Line 2025 — technical documentation (schema/field reference,
+# not raw geometry — the kind of "metadata about the dataset" that's
+# legitimate RAG content later, unlike the shapefiles themselves)
+data/gis/us/tiger-docs	https://www2.census.gov/geo/pdfs/maps-data/data/tiger/tgrshp2025/TGRSHP2025_TechDoc.pdf
+
+# TIGER/Line 2025 — national boundaries
+data/gis/us/tiger-2025	https://www2.census.gov/geo/tiger/TIGER2025/STATE/tl_2025_us_state.zip
+data/gis/us/tiger-2025	https://www2.census.gov/geo/tiger/TIGER2025/COUNTY/tl_2025_us_county.zip
+
+# TIGER/Line 2025 — California (FIPS 06)
+data/gis/us/tiger-2025/CA	https://www2.census.gov/geo/tiger/TIGER2025/TRACT/tl_2025_06_tract.zip
+data/gis/us/tiger-2025/CA	https://www2.census.gov/geo/tiger/TIGER2025/PLACE/tl_2025_06_place.zip
+data/gis/us/tiger-2025/CA	https://www2.census.gov/geo/tiger/TIGER2025/PRIMARYSECONDARYROADS/tl_2025_06_prisecroads.zip
+
+# TIGER/Line 2025 — New Jersey (FIPS 34)
+data/gis/us/tiger-2025/NJ	https://www2.census.gov/geo/tiger/TIGER2025/TRACT/tl_2025_34_tract.zip
+data/gis/us/tiger-2025/NJ	https://www2.census.gov/geo/tiger/TIGER2025/PLACE/tl_2025_34_place.zip
+data/gis/us/tiger-2025/NJ	https://www2.census.gov/geo/tiger/TIGER2025/PRIMARYSECONDARYROADS/tl_2025_34_prisecroads.zip
+
+# TIGER/Line 2025 — New York (FIPS 36)
+data/gis/us/tiger-2025/NY	https://www2.census.gov/geo/tiger/TIGER2025/TRACT/tl_2025_36_tract.zip
+data/gis/us/tiger-2025/NY	https://www2.census.gov/geo/tiger/TIGER2025/PLACE/tl_2025_36_place.zip
+data/gis/us/tiger-2025/NY	https://www2.census.gov/geo/tiger/TIGER2025/PRIMARYSECONDARYROADS/tl_2025_36_prisecroads.zip
+
+# TIGER/Line 2025 — Connecticut (FIPS 09)
+data/gis/us/tiger-2025/CT	https://www2.census.gov/geo/tiger/TIGER2025/TRACT/tl_2025_09_tract.zip
+data/gis/us/tiger-2025/CT	https://www2.census.gov/geo/tiger/TIGER2025/PLACE/tl_2025_09_place.zip
+data/gis/us/tiger-2025/CT	https://www2.census.gov/geo/tiger/TIGER2025/PRIMARYSECONDARYROADS/tl_2025_09_prisecroads.zip
+
+# TIGER/Line 2025 — Rhode Island (FIPS 44)
+data/gis/us/tiger-2025/RI	https://www2.census.gov/geo/tiger/TIGER2025/TRACT/tl_2025_44_tract.zip
+data/gis/us/tiger-2025/RI	https://www2.census.gov/geo/tiger/TIGER2025/PLACE/tl_2025_44_place.zip
+data/gis/us/tiger-2025/RI	https://www2.census.gov/geo/tiger/TIGER2025/PRIMARYSECONDARYROADS/tl_2025_44_prisecroads.zip
+
+# TIGER/Line 2025 — Massachusetts (FIPS 25)
+data/gis/us/tiger-2025/MA	https://www2.census.gov/geo/tiger/TIGER2025/TRACT/tl_2025_25_tract.zip
+data/gis/us/tiger-2025/MA	https://www2.census.gov/geo/tiger/TIGER2025/PLACE/tl_2025_25_place.zip
+data/gis/us/tiger-2025/MA	https://www2.census.gov/geo/tiger/TIGER2025/PRIMARYSECONDARYROADS/tl_2025_25_prisecroads.zip
+
+# TIGER/Line 2025 — Vermont (FIPS 50)
+data/gis/us/tiger-2025/VT	https://www2.census.gov/geo/tiger/TIGER2025/TRACT/tl_2025_50_tract.zip
+data/gis/us/tiger-2025/VT	https://www2.census.gov/geo/tiger/TIGER2025/PLACE/tl_2025_50_place.zip
+data/gis/us/tiger-2025/VT	https://www2.census.gov/geo/tiger/TIGER2025/PRIMARYSECONDARYROADS/tl_2025_50_prisecroads.zip
+
+# TIGER/Line 2025 — New Hampshire (FIPS 33)
+data/gis/us/tiger-2025/NH	https://www2.census.gov/geo/tiger/TIGER2025/TRACT/tl_2025_33_tract.zip
+data/gis/us/tiger-2025/NH	https://www2.census.gov/geo/tiger/TIGER2025/PLACE/tl_2025_33_place.zip
+data/gis/us/tiger-2025/NH	https://www2.census.gov/geo/tiger/TIGER2025/PRIMARYSECONDARYROADS/tl_2025_33_prisecroads.zip
+
+# TIGER/Line 2025 — Maine (FIPS 23)
+data/gis/us/tiger-2025/ME	https://www2.census.gov/geo/tiger/TIGER2025/TRACT/tl_2025_23_tract.zip
+data/gis/us/tiger-2025/ME	https://www2.census.gov/geo/tiger/TIGER2025/PLACE/tl_2025_23_place.zip
+data/gis/us/tiger-2025/ME	https://www2.census.gov/geo/tiger/TIGER2025/PRIMARYSECONDARYROADS/tl_2025_23_prisecroads.zip
+
+# NOAA nautical ENCs (S-57 vector charts: bathymetry/depth, coastlines,
+# navigation aids, channels, obstructions, landmarks, marine boundaries)
+data/gis/maritime-west-coast/enc	https://charts.noaa.gov/ENCs/CA_ENCs.zip
+data/gis/maritime-west-coast/enc	https://charts.noaa.gov/ENCs/OR_ENCs.zip
+data/gis/maritime-west-coast/enc	https://charts.noaa.gov/ENCs/WA_ENCs.zip
+data/gis/maritime-west-coast/enc	https://charts.noaa.gov/ENCs/CustomPackage_PS.zip
+data/gis/maritime-west-coast/enc	https://charts.noaa.gov/ENCs/CustomPackage_SF.zip
+
+# NOAA U.S. maritime limits and boundaries (territorial sea, contiguous
+# zone, EEZ) — national, but small
+data/gis/maritime-west-coast/boundaries	https://maritimeboundaries.noaa.gov/downloads/USMaritimeLimitsAndBoundariesSHP.zip

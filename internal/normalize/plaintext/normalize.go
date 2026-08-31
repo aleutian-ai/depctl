@@ -9,6 +9,7 @@ import (
 	"unicode/utf8"
 
 	"aleutian-ai/ragctl/internal/domain"
+	"aleutian-ai/ragctl/internal/normalize"
 )
 
 // Normalize reads src's materialized file and produces a single
@@ -18,6 +19,7 @@ func (n *Normalizer) Normalize(ctx context.Context, src domain.SourceSnapshot) (
 	if err != nil {
 		return nil, fmt.Errorf("plaintext: read %s: %w", src.LocalPath, err)
 	}
+	raw = normalize.NormalizeLineEndings(raw)
 
 	content := strings.TrimSpace(string(raw))
 	metadata := map[string]string{}

@@ -40,6 +40,16 @@ Chunk Markdown-derived `KnowledgeObject`s primarily by heading section, splittin
 - Chunk IDs stable across repeated runs on identical input.
 
 ## Acceptance criteria
-- [ ] Sections under the size limit produce exactly one chunk.
-- [ ] Oversized sections split at paragraph boundaries with heading path preserved.
-- [ ] Chunk IDs are deterministic across repeated chunking of identical content.
+- [x] Sections under the size limit produce exactly one chunk.
+- [x] Oversized sections split at paragraph boundaries with heading path preserved.
+- [x] Chunk IDs are deterministic across repeated chunking of identical content.
+
+## Post-implementation fix (found by unit tests, before shipping)
+
+The first implementation included a section's heading line directly inside the text handed to paragraph-splitting. For an oversized section, `strings.Split(body, "\n\n")` then treated the heading line as its own "paragraph" — since it's always followed by a blank line before the real content — so it became an isolated, bodyless chunk (e.g. a chunk containing only `"# Title"`) whenever the first real paragraph pushed the running total over `maxChunkBytes`. A single-oversized-paragraph test (`TestSingleOversizedParagraphAllowedToExceedLimit`) caught this immediately: a 5000-byte paragraph under a heading produced 2 chunks instead of the expected 1.
+
+Fixed by separating a section's heading line from its body structurally (`section.headingLine` / `section.body` instead of one combined string) and only ever prepending the heading line to the *first* resulting packed part (`internal/data/chunk/markdown/sections.go`'s `packSection`/`joinNonEmpty`) — never letting it become a standalone paragraph in its own right. All 8 tests pass, including the real-world-shaped `TestFencedCodeHashNotMistakenForHeading` and `TestHeadingPathThreadedThroughNestedHeadings` regression coverage.
+
+## Post-implementation real-world findings (hack/chunk-sweep, ~57k chunks across ~22k real objects)
+
+A full corpus sweep (see `docs/architecture.md`'s testing notes) found 0 chunk errors, 0 duplicate chunk IDs, and 122 chunks (~0.2%) exceeding 5× `maxChunkBytes` — all single blank-line-free blocks (giant Markdown tables in generated SQL/API reference docs, changelog entries with no internal paragraph breaks) hitting exactly the ticket's own documented accepted edge case ("allow slight overage only if a single paragraph itself exceeds the limit"). The largest observed: a 67KB single "paragraph" in `cockroach/docs/generated/sql/operators.md` (a giant reference table). No fix applied — building line-level fallback splitting for this case would cross into the "smart semantic splitter" the ticket's simplicity constraint explicitly rules out; documenting the real magnitude here instead of silently accepting it.
