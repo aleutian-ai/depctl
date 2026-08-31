@@ -1,0 +1,20 @@
+apiVersion: ragctl.dev/v1alpha1
+kind: KnowledgePackage
+metadata:
+  name: pydantic
+match:
+  ecosystems: [python]
+  packages: [pydantic]
+version:
+  strategy: semver-tag
+  repository: pydantic/pydantic
+sources:
+  - id: repository
+    type: git
+    url: https://github.com/pydantic/pydantic
+    ref: "v${version}"
+    authority: 100
+  - id: docs
+    type: website
+    url: https://docs.pydantic.dev
+    authority: 90

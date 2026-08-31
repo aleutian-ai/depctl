@@ -1,0 +1,23 @@
+[
+  {
+    "title": "simplepkg",
+    "content_type": "package_doc"
+  },
+  {
+    "title": "Config",
+    "content_type": "symbol_doc"
+  },
+  {
+    "title": "DefaultTimeout",
+    "content_type": "symbol_doc"
+  },
+  {
+    "title": "Describe",
+    "content_type": "symbol_doc",
+    "receiver": "Config"
+  },
+  {
+    "title": "Greet",
+    "content_type": "symbol_doc"
+  }
+]

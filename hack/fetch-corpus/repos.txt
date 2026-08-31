@@ -1,0 +1,128 @@
+# Repo corpus for exercising ragctl's resolvers and (later) its
+# acquisition layer against real projects. One line per repo:
+#   <ecosystem/category>  <org>/<repo>
+# "ecosystem" is just a corpus subdirectory name here, not necessarily
+# something ragctl's resolvers recognize (e.g. "research" holds reference
+# material with no package manifest of its own).
+#
+# Run with: go run ./hack/fetch-corpus [-root DIR] [-concurrency N]
+
+go	ollama/ollama
+go	kubernetes/kubernetes
+go	moby/moby
+go	gin-gonic/gin
+go	caddyserver/caddy
+go	spf13/cobra
+go	etcd-io/etcd
+go	prometheus/prometheus
+go	go-gorm/gorm
+go	hashicorp/terraform
+go	pocketbase/pocketbase
+go	cockroachdb/cockroach
+go	syncthing/syncthing
+go	rclone/rclone
+go	charmbracelet/bubbletea
+go	aquasecurity/trivy
+go	minio/minio
+go	cli/cli
+go	filosottile/mkcert
+go	nektos/act
+go	junegunn/fzf
+go	hashicorp/consul
+go	milvus-io/milvus
+go	wailsapp/wails
+go	derailed/k9s
+go	fatedier/frp
+go	ethereum/go-ethereum
+go	photoprism/photoprism
+go	v2fly/v2ray-core
+go	AdguardTeam/AdGuardHome
+go	schollz/croc
+go	mattermost/mattermost
+go	AlistGo/alist
+go	IceWhaleTech/CasaOS
+go	harness/drone
+go	gohugoio/hugo
+go	influxdata/influxdb
+go	traefik/traefik
+go	go-gitea/gitea
+go	dgraph-io/badger
+go	etcd-io/bbolt
+go	blevesearch/bleve
+go	cockroachdb/pebble
+go	grpc/grpc-go
+go	protocolbuffers/protobuf-go
+go	connectrpc/connect-go
+go	fsnotify/fsnotify
+go	zeebo/blake3
+go	google/go-cmp
+go	testcontainers/testcontainers-go
+go	open-telemetry/opentelemetry-go
+go	prometheus/client_golang
+go	cloudflare/circl
+go	tink-crypto/tink-go
+go	apache/arrow-go
+go	parquet-go/parquet-go
+
+python	pytorch/pytorch
+python	scikit-learn/scikit-learn
+python	pandas-dev/pandas
+python	numpy/numpy
+python	psf/requests
+python	scrapy/scrapy
+python	django/django
+python	pallets/flask
+python	fastapi/fastapi
+python	langchain-ai/langchain
+python	microsoft/autogen
+python	open-webui/open-webui
+python	vllm-project/vllm
+python	openai/whisper
+python	apache/airflow
+python	pydantic/pydantic
+python	Textualize/rich
+python	streamlit/streamlit
+python	sqlalchemy/sqlalchemy
+python	sympy/sympy
+python	networkx/networkx
+python	python-poetry/poetry
+python	astral-sh/uv
+python	explosion/spaCy
+python	python-pillow/Pillow
+python	pallets/click
+python	celery/celery
+
+research	donnemartin/system-design-primer
+research	TheAlgorithms/Go
+research	TheAlgorithms/Python
+research	codecrafters-io/build-your-own-x
+research	ByteByteGoHq/system-design-101
+
+# "How to write good Go/Python" material, as distinct from application
+# repos above: official docs/style-guide/stdlib source, production-grade
+# style and code-review guides, and architecture/ADR methodology. Prefer
+# cloning the repo behind a guide over scraping its rendered site
+# wherever one exists — same "source over scraped HTML" preference as
+# GIT-001's own design. Large mirrors: golang/go and python/cpython carry
+# their full history (EnsureMirror always does a full --mirror clone, not
+# --depth 1, so historical tags stay resolvable later) — expect ~1GB+
+# each in the mirror cache.
+practices/go	golang/website
+practices/go	google/styleguide
+practices/go	uber-go/guide
+practices/go	ardanlabs/gotraining
+practices/go	golang/go
+practices/go	golang/go.wiki
+practices/go	gonzaloserrano/go-code-review
+
+practices/python	python/devguide
+practices/python	realpython/python-guide
+practices/python	cosmicpython/book
+practices/python	cosmicpython/code
+practices/python	RefactoringGuru/design-patterns-python
+practices/python	python/cpython
+
+practices/architecture	jamesmh/architecture_decision_record
+practices/architecture	oasisprotocol/adrs
+
+practices/systems	everysoftware/design-patterns

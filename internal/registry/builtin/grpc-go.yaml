@@ -1,0 +1,20 @@
+apiVersion: ragctl.dev/v1alpha1
+kind: KnowledgePackage
+metadata:
+  name: grpc-go
+match:
+  ecosystems: [go]
+  packages: [google.golang.org/grpc]
+version:
+  strategy: semver-tag
+  repository: grpc/grpc-go
+sources:
+  - id: repository
+    type: git
+    url: https://github.com/grpc/grpc-go
+    ref: "v${version}"
+    authority: 100
+  - id: package-docs
+    type: godoc
+    module: google.golang.org/grpc
+    authority: 95

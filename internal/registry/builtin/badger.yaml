@@ -1,0 +1,20 @@
+apiVersion: ragctl.dev/v1alpha1
+kind: KnowledgePackage
+metadata:
+  name: badger
+match:
+  ecosystems: [go]
+  packages: [github.com/dgraph-io/badger/v4]
+version:
+  strategy: semver-tag
+  repository: dgraph-io/badger
+sources:
+  - id: repository
+    type: git
+    url: https://github.com/dgraph-io/badger
+    ref: "v${version}"
+    authority: 100
+  - id: package-docs
+    type: godoc
+    module: github.com/dgraph-io/badger/v4
+    authority: 95

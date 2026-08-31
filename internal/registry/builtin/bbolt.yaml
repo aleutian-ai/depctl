@@ -1,0 +1,20 @@
+apiVersion: ragctl.dev/v1alpha1
+kind: KnowledgePackage
+metadata:
+  name: bbolt
+match:
+  ecosystems: [go]
+  packages: [go.etcd.io/bbolt]
+version:
+  strategy: semver-tag
+  repository: etcd-io/bbolt
+sources:
+  - id: repository
+    type: git
+    url: https://github.com/etcd-io/bbolt
+    ref: "v${version}"
+    authority: 100
+  - id: package-docs
+    type: godoc
+    module: go.etcd.io/bbolt
+    authority: 95

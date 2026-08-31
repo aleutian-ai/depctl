@@ -1,0 +1,20 @@
+apiVersion: ragctl.dev/v1alpha1
+kind: KnowledgePackage
+metadata:
+  name: fastapi
+match:
+  ecosystems: [python]
+  packages: [fastapi]
+version:
+  strategy: semver-tag
+  repository: fastapi/fastapi
+sources:
+  - id: repository
+    type: git
+    url: https://github.com/fastapi/fastapi
+    ref: "v${version}"
+    authority: 100
+  - id: docs
+    type: website
+    url: https://fastapi.tiangolo.com
+    authority: 90

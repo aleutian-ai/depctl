@@ -1,0 +1,20 @@
+apiVersion: ragctl.dev/v1alpha1
+kind: KnowledgePackage
+metadata:
+  name: protobuf-go
+match:
+  ecosystems: [go]
+  packages: [google.golang.org/protobuf]
+version:
+  strategy: semver-tag
+  repository: protocolbuffers/protobuf-go
+sources:
+  - id: repository
+    type: git
+    url: https://github.com/protocolbuffers/protobuf-go
+    ref: "v${version}"
+    authority: 100
+  - id: package-docs
+    type: godoc
+    module: google.golang.org/protobuf
+    authority: 95

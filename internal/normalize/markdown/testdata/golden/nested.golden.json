@@ -1,0 +1,8 @@
+{
+  "title": "Docs",
+  "content_type": "markdown",
+  "logical_path": "docs/nested.md",
+  "metadata": {
+    "headings": "Docs|Docs > Getting Started|Docs > Getting Started > Installation|Docs > Getting Started > Configuration|Docs > Reference"
+  }
+}
