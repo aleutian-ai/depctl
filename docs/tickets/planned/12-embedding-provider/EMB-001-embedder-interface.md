@@ -50,4 +50,4 @@ type EmbeddingIdentity struct {
 - Interface compiles against a fake in-memory embedder used by downstream tests (VEC-*, VAL-*).
 
 ## Acceptance criteria
-- [ ] `internal/embedding` package defines `Embedder` and `EmbeddingIdentity` with no provider-specific code.
+- [x] `internal/embedding` package defines `Embedder` and `EmbeddingIdentity` with no provider-specific code.

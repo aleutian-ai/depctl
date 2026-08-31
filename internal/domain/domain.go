@@ -112,6 +112,36 @@ type Chunk struct {
 	Metadata    map[string]string
 }
 
+// Generation is one dependency version's knowledge snapshot as it moves
+// through acquisition, normalization, and indexing (see
+// docs/tickets/planned/11-generation-builder). ID is a ULID ("gen_"
+// prefixed) — generations are lifecycle entities, not content-addressed,
+// so unlike KnowledgeObject/Chunk their ID carries no derived identity.
+type Generation struct {
+	ID         string
+	Dependency DependencyVersion
+	State      GenerationState
+	Error      string // set when State == GenFailed
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
+}
+
+// BackendReplica tracks one (generation, backend, embedding model)
+// tuple's replication progress into a vector backend — the bookkeeping
+// validation/promotion (VAL-*) needs to know a candidate generation's
+// vector data is actually present and correct before promoting it.
+type BackendReplica struct {
+	ID             string // ULID
+	GenerationID   string
+	BackendName    string
+	EmbeddingModel string
+	Dimensions     int
+	Status         string // "pending", "replicating", "complete", "failed"
+	PointCount     int
+	LastError      string
+	UpdatedAt      time.Time
+}
+
 // Resolution is the canonical output of a Resolver.Resolve call (see
 // internal/resolver) and the shape persisted by the control store. Defined
 // here, not in internal/resolver, because storage/planner/every ecosystem

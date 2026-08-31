@@ -39,5 +39,10 @@ Drive a `PLANNED` generation through source acquisition, normalization, fingerpr
 - Normalizer error on one file does not silently drop the whole source — decide and test: fail whole generation for v0.1 (simplest, matches "deterministic behavior" principle).
 
 ## Acceptance criteria
-- [ ] State transitions `PLANNED → ACQUIRING → NORMALIZING → INDEXING` are observable via `GetGeneration` during a build.
-- [ ] Failure at any stage leaves generation in `FAILED` with a stored error message.
+- [x] State transitions `PLANNED → ACQUIRING → NORMALIZING → INDEXING` are observable via `GetGeneration` during a build.
+- [x] Failure at any stage leaves generation in `FAILED` with a stored error message.
+
+## Post-implementation note
+`Build`'s `sources` parameter is `[]registry.Source` (REG-001's manifest shape — `ID`/`Type`/`URL`/`Ref`/`Module`/`Authority`), not `[]domain.KnowledgeSource` as sketched here: `domain.KnowledgeSource` was never actually built (only sketched as a comment in CORE-001), and `registry.Match` already returns exactly the shape a generation build needs. Adding a second, redundant type just to match the ticket's literal signature would have meant a translation step with no consumer benefit. Only `type: "git"` sources are acquired (via GIT-001/002) — a `type: "godoc"` manifest entry is informational for v0.1: it's naturally covered by walking the same worktree a `git` source already materialized and finding `.go` files there, not a separate acquisition. Non-`git`/`godoc` source types (e.g. `website`) are out of scope until their own acquisition milestone exists, per GEN-002's own dependency list (GIT-002, NORM-002, NORM-004 only).
+
+A source's `Ref` template (e.g. `"v${version}"`) has `${version}` substituted with the dependency version stripped of any leading `v` before resolution, so both Go's `v1.2.3` and a bare-version ecosystem's `1.2.3` land on the same tag shape — this substitution rule wasn't specified anywhere in REG-001/GIT-002/GEN-002 and had to be decided here; documented in `internal/data/generation/build.go`'s `gitRef`.

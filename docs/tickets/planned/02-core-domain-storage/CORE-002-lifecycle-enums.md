@@ -63,5 +63,5 @@ Pure functions — no I/O, no errors returned from the transition-check function
 - Table test asserting a representative set of invalid transitions (e.g. `ACTIVE → DISCOVERED`, `SUCCEEDED → PENDING`) return `false`.
 
 ## Acceptance criteria
-- [ ] Both enums and their constants exist.
-- [ ] Invalid transitions are rejected by unit tests (not just by convention).
+- [x] Both enums and their constants exist.
+- [x] Invalid transitions are rejected by unit tests (not just by convention).

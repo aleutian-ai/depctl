@@ -33,5 +33,5 @@ Before storing a newly normalized `KnowledgeObject`, look up its content hash in
 - Changing one file's content produces exactly one new object; the rest are reused.
 
 ## Acceptance criteria
-- [ ] Repeated generation build over unchanged sources creates zero new Badger objects.
-- [ ] Manifest exposes `objects_reused` and `objects_created` counts.
+- [x] Repeated generation build over unchanged sources creates zero new Badger objects.
+- [x] Manifest exposes `objects_reused` and `objects_created` counts.

@@ -48,5 +48,5 @@ vector:
 - Unit tests for request/response marshaling against a fake HTTP server (no container needed for these).
 
 ## Acceptance criteria
-- [ ] testcontainers integration test passes: inserting two versions of same package, filtered query returns only the requested version.
-- [ ] `EnsureNamespace` is safely callable multiple times.
+- [x] testcontainers integration test passes: inserting two versions of same package, filtered query returns only the requested version.
+- [x] `EnsureNamespace` is safely callable multiple times.

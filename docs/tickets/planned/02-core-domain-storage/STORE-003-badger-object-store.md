@@ -74,7 +74,10 @@ Iterators (`ListGenerationChunks`, `DeleteGeneration`) must always call `it.Clos
 - Iterator resource test: run `ListGenerationChunks` in a loop (e.g. 100x) under `-race` and confirm no goroutine/fd leak (can pair with `goleak` if already wired in; otherwise assert no error from repeated calls).
 
 ## Acceptance criteria
-- [ ] Restart persistence test passes.
-- [ ] Batch write test passes.
-- [ ] Generation delete test passes.
-- [ ] Iterators do not leak resources (all `Close()`d, verified by test).
+- [x] Restart persistence test passes.
+- [x] Batch write test passes.
+- [x] Generation delete test passes.
+- [x] Iterators do not leak resources (all `Close()`d, verified by test).
+
+## Post-implementation note
+The keyspace list named `hash/<content-hash>` (the object dedup index) but the Design block's method list didn't name explicit getter/setter methods for it. Added `PutContentHashIndex`/`GetContentHashIndex` (`internal/data/badger/hashindex.go`) for GEN-003 to use — same `Get`/`Put`-on-a-prefixed-key shape as every other keyspace here, no new abstraction.

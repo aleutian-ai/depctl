@@ -28,6 +28,10 @@ Same ticket format as `planned/`: each epic has an `INDEX.md`, each ticket is se
 31. [31-llamaindex-adapter](31-llamaindex-adapter/INDEX.md) — external normalizer protocol, example sidecar
 32. [32-client-integration-examples](32-client-integration-examples/INDEX.md) — LibreChat, Goose, generic MCP client docs
 
+## Dataset asset handling
+
+33. [33-dataset-descriptors](33-dataset-descriptors/INDEX.md) — `dataset.json` provenance sidecars for raw non-git datasets (`hack/fetch-geodata`), HTTP hashing, optional GDAL spatial inspection, snapshot comparison. Not sourced from the original implementation plan doc — added after the corpus grew a `data/*` category of raw datasets; see [[ragctl-rag-scope-raw-data-vs-docs]] for why these stay out of the RAG pipeline and out of the knowledge registry.
+
 ## Ticket ID prefixes in this directory
 
-`PY / NODE / RUST / JAVA / HTTP / VEC (010-014) / EVAL / OBS / EXT / SEC / LOCAL / LLAMA / CLIENT` — these match the task IDs used in the implementation plan directly.
+`PY / NODE / RUST / JAVA / HTTP / VEC (010-014) / EVAL / OBS / EXT / SEC / LOCAL / LLAMA / CLIENT / DATA` — these match the task IDs used in the implementation plan directly, except `DATA` (see above).

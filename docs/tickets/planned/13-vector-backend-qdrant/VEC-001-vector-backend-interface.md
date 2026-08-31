@@ -51,4 +51,4 @@ type Capabilities struct {
 - Interface compiles against a fake in-memory backend used by VAL-* and MCP-* tests.
 
 ## Acceptance criteria
-- [ ] `internal/backend` package defines `VectorBackend`, `Capabilities`, `Namespace`, `UpsertRequest`, `DeleteRequest`, `QueryRequest`, `QueryResult` with no Qdrant-specific code.
+- [x] `internal/backend` package defines `VectorBackend`, `Capabilities`, `Namespace`, `UpsertRequest`, `DeleteRequest`, `QueryRequest`, `QueryResult` with no Qdrant-specific code.

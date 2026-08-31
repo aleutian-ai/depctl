@@ -36,5 +36,8 @@ Cache embeddings in Badger keyed by chunk content hash + provider + model + norm
 - Manifest counters reflect reused vs generated correctly.
 
 ## Acceptance criteria
-- [ ] Second identical generation build performs zero live embedding calls.
-- [ ] Switching embedding model produces fresh embeddings, not stale cached ones.
+- [x] Second identical generation build performs zero live embedding calls.
+- [x] Switching embedding model produces fresh embeddings, not stale cached ones.
+
+## Post-implementation note
+Verified directly against `CachingEmbedder` (`TestEmbedSameChunkTwiceCallsInnerOnce`, `TestModelChangeIsCacheMiss`), not through an actual `generation.Build` run — `Build` (GEN-002) doesn't call an embedder at all yet, embedding is still a separate, unwired stage per GEN-002's own non-goals. `Counts()` exposes `reused`/`generated` for whichever future step (part of the vector-backend replication epic, VEC-*) drives embedding during a build and feeds them into the generation manifest's `objects_reused`-style counters — not added to `generation.Manifest` in this ticket since there's no caller yet.

@@ -45,5 +45,5 @@ embedding:
 - Optional live integration test gated behind an env var (e.g. `RAGCTL_TEST_OLLAMA=1`), skipped by default in CI.
 
 ## Acceptance criteria
-- [ ] Fake-server unit tests pass without any live Ollama instance.
-- [ ] Context cancellation aborts an in-flight embed call.
+- [x] Fake-server unit tests pass without any live Ollama instance.
+- [x] Context cancellation aborts an in-flight embed call.
