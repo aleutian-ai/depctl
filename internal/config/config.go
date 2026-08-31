@@ -72,6 +72,10 @@ type ServerConfig struct {
 
 type MCPServerConfig struct {
 	Enabled bool `yaml:"enabled"`
+	// EnableSyncTool gates the sync_project MCP tool (MCP-003) — off by
+	// default so a read-only agent client can never trigger network
+	// activity/writes just by having the tool visible to it.
+	EnableSyncTool bool `yaml:"enable_sync_tool"`
 }
 
 type HTTPServerConfig struct {

@@ -5,6 +5,7 @@ import (
 
 	"aleutian-ai/ragctl/internal/config"
 	bboltstore "aleutian-ai/ragctl/internal/control/bbolt"
+	badgerstore "aleutian-ai/ragctl/internal/data/badger"
 )
 
 // controlDBPath and badgerDirPath centralize the on-disk layout under the
@@ -43,4 +44,14 @@ func openControlStore() (*bboltstore.Store, error) {
 		return nil, err
 	}
 	return bboltstore.Open(path)
+}
+
+// openDataStore opens the Badger data-plane store at its default
+// location. Callers are responsible for closing it.
+func openDataStore() (*badgerstore.Store, error) {
+	path, err := badgerDirPath()
+	if err != nil {
+		return nil, err
+	}
+	return badgerstore.Open(path)
 }

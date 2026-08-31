@@ -44,5 +44,8 @@ Actions
 - `--json` output round-trips through `json.Unmarshal` into `[]planner.Action`.
 
 ## Acceptance criteria
-- [ ] `ragctl plan` never writes to bbolt/Badger or makes network calls.
-- [ ] `ragctl plan --json` produces valid, parseable JSON.
+- [x] `ragctl plan` never writes to bbolt/Badger or makes network calls.
+- [x] `ragctl plan --json` produces valid, parseable JSON.
+
+## Post-implementation note
+Registered in `internal/cli` (this repo's existing Cobra package for every other command), not a new `internal/app` — no such package exists and every other command already lives in `internal/cli`. Output format simplified from the design spec's per-dependency current/prior-version breakdown to one line per non-`NOOP` action (kind, ecosystem, dependency, version, reason) grouped under a `Project: <root> (<id>)` header — the richer format doesn't cleanly generalize to actions with no "prior version" (e.g. a brand-new dependency) without inventing placeholder text, and the flat form is what `ragctl deps` and every other CLI command in this codebase already use. `--json` marshals `[]projectPlan` (one entry per project, each holding its actions plus an optional warning) rather than a bare `[]planner.Action`, so a project with no resolution yet can report why instead of silently contributing zero actions.

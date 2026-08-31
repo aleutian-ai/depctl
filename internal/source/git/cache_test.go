@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -158,5 +159,52 @@ func TestEnsureMirrorUnreachableRemoteIsTransientError(t *testing.T) {
 	}
 	if cacheErr.Kind != ErrKindTransient {
 		t.Errorf("Kind = %s, want transient", cacheErr.Kind)
+	}
+}
+
+// TestConcurrentEnsureMirrorOfSameRepoDoesNotCorruptMirror is a
+// regression test caught by an independent adversarial review: nothing
+// previously serialized two concurrent first-time EnsureMirror calls for
+// the same repository URL, and the mirror directory is a resource
+// shared across every generation of that dependency (not scoped to one
+// build) — a corrupted mirror from a racing `git clone --mirror` would
+// silently break every future build of that dependency, not just the
+// racing calls. Runs many concurrent EnsureMirror calls against the
+// same fixture repo and confirms every one succeeds with an identical,
+// usable mirror.
+func TestConcurrentEnsureMirrorOfSameRepoDoesNotCorruptMirror(t *testing.T) {
+	requireGit(t)
+
+	remote := newRemoteFixture(t)
+	runGit(t, remote, "tag", "v1.0.0")
+
+	c := NewCache(t.TempDir())
+
+	const n = 8
+	var wg sync.WaitGroup
+	paths := make([]string, n)
+	errs := make([]error, n)
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			paths[i], errs[i] = c.EnsureMirror(context.Background(), remote)
+		}(i)
+	}
+	wg.Wait()
+
+	for i, err := range errs {
+		if err != nil {
+			t.Fatalf("goroutine %d: EnsureMirror: %v", i, err)
+		}
+		if paths[i] != paths[0] {
+			t.Errorf("goroutine %d: repoPath = %s, want %s", i, paths[i], paths[0])
+		}
+	}
+
+	// A corrupted mirror (e.g. two overlapping `git clone --mirror`
+	// writes) would typically fail here, not just look present.
+	if _, err := c.ResolveRef(context.Background(), paths[0], "v1.0.0"); err != nil {
+		t.Fatalf("ResolveRef after concurrent EnsureMirror: %v", err)
 	}
 }

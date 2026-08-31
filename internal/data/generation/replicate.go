@@ -10,6 +10,7 @@ import (
 	"aleutian-ai/ragctl/internal/data/badger"
 	"aleutian-ai/ragctl/internal/domain"
 	"aleutian-ai/ragctl/internal/embedding"
+	"aleutian-ai/ragctl/internal/registry"
 )
 
 // defaultReplicateBatchSize bounds how many chunks are embedded and
@@ -32,7 +33,24 @@ const defaultReplicateBatchSize = 64
 // itself is cheap to repeat if embedder is wrapped in
 // internal/embedding/cache.CachingEmbedder, since unchanged chunk
 // content will hit its cache.
-func Replicate(ctx context.Context, gen domain.Generation, embedder embedding.Embedder, vb backend.VectorBackend, ns backend.Namespace, store *bbolt.Store, badgerStore *badger.Store) error {
+//
+// sources is the dependency's *current* registry match (the same list
+// Build was called with, or a freshly re-resolved one) — used to stamp
+// each point's SourceType/Authority from the current source config
+// rather than from whichever object happens to be stored, for the same
+// reason gen.Dependency (not obj.Dependency) is used for version: GEN-003
+// content reuse means a chunk's parent KnowledgeObject may have been
+// created by an earlier generation under whatever source
+// config was current then, and authority is user/registry-configurable
+// (see internal/registry's Loader — a user override can change it
+// between syncs). A source present in the object but absent from
+// sources (e.g. removed from config since acquisition) falls back to
+// the object's own stored fields rather than losing that metadata.
+func Replicate(ctx context.Context, gen domain.Generation, sources []registry.Source, embedder embedding.Embedder, vb backend.VectorBackend, ns backend.Namespace, store *bbolt.Store, badgerStore *badger.Store) error {
+	sourcesByID := make(map[string]registry.Source, len(sources))
+	for _, s := range sources {
+		sourcesByID[s.ID] = s
+	}
 	replica := domain.BackendReplica{
 		GenerationID:   gen.ID,
 		BackendName:    vb.Name(),
@@ -59,7 +77,7 @@ func Replicate(ctx context.Context, gen domain.Generation, embedder embedding.Em
 		end := min(start+defaultReplicateBatchSize, len(chunks))
 		batch := chunks[start:end]
 
-		points, err := embedBatch(ctx, embedder, badgerStore, objectCache, gen, batch)
+		points, err := embedBatch(ctx, embedder, badgerStore, objectCache, gen, sourcesByID, batch)
 		if err != nil {
 			return failReplica(ctx, store, &replica, err)
 		}
@@ -84,18 +102,18 @@ func Replicate(ctx context.Context, gen domain.Generation, embedder embedding.Em
 }
 
 // embedBatch resolves each chunk's parent KnowledgeObject (cached across
-// calls, since many chunks share one object) for its source_type/
-// authority, embeds the chunks' text, and returns one backend.Point per
-// chunk.
+// calls, since many chunks share one object), embeds the chunks' text,
+// and returns one backend.Point per chunk.
 //
-// Ecosystem/Dependency/Version on the resulting point come from gen, not
-// from the object's own obj.Dependency field: GEN-003's content reuse
-// means an object can be shared by multiple generations at different
-// versions, so obj.Dependency only reflects whichever generation first
-// created it — using it here would silently mislabel a reused chunk's
-// vector with a stale version, defeating the whole point of the
-// "generation"/"version" metadata filters VAL-003 relies on.
-func embedBatch(ctx context.Context, embedder embedding.Embedder, badgerStore *badger.Store, objectCache map[string]domain.KnowledgeObject, gen domain.Generation, chunks []domain.Chunk) ([]backend.Point, error) {
+// Every metadata field on the resulting point — ecosystem, dependency,
+// version, generation, source_type, authority — comes from gen and
+// sourcesByID (the current generation's own state), never read directly
+// off the object: GEN-003 content reuse means an object's stored fields
+// only reflect whichever generation first created it, so trusting them
+// here would silently mislabel a reused chunk's vector with stale
+// metadata — the same failure mode already found and fixed for Version;
+// SourceType/Authority had the identical bug and are fixed the same way.
+func embedBatch(ctx context.Context, embedder embedding.Embedder, badgerStore *badger.Store, objectCache map[string]domain.KnowledgeObject, gen domain.Generation, sourcesByID map[string]registry.Source, chunks []domain.Chunk) ([]backend.Point, error) {
 	texts := make([]string, len(chunks))
 	for i, c := range chunks {
 		texts[i] = string(c.Content)
@@ -120,6 +138,11 @@ func embedBatch(ctx context.Context, embedder embedding.Embedder, badgerStore *b
 			objectCache[c.ObjectID] = obj
 		}
 
+		sourceType, authority := obj.SourceType, obj.Authority
+		if s, ok := sourcesByID[obj.SourceID]; ok {
+			sourceType, authority = s.Type, s.Authority
+		}
+
 		points[i] = backend.Point{
 			ID:     c.ID,
 			Vector: vectors[i],
@@ -128,8 +151,8 @@ func embedBatch(ctx context.Context, embedder embedding.Embedder, badgerStore *b
 				Dependency: gen.Dependency.Dependency.Name,
 				Version:    gen.Dependency.Version,
 				Generation: gen.ID,
-				SourceType: obj.SourceType,
-				Authority:  obj.Authority,
+				SourceType: sourceType,
+				Authority:  authority,
 			},
 		}
 	}

@@ -39,5 +39,8 @@ promotion:
 - Thresholds configurable via config and respected in the check.
 
 ## Acceptance criteria
-- [ ] Guardrails are configurable, not hardcoded.
-- [ ] A generation with an implausible count drop is blocked from promotion.
+- [x] Guardrails are configurable, not hardcoded.
+- [x] A generation with an implausible count drop is blocked from promotion.
+
+## Post-implementation note
+`MaxParserErrorRate` is implemented and checked, but under the current `generation.Build` (GEN-002), the rate it checks against is always `0`: GEN-002 deliberately fails the *whole* generation on any single normalizer error rather than tolerating a per-file failure rate (a decision GEN-002's own Tests section made explicitly). So there's never a generation with a nonzero parse-error rate for this check to catch today — it's wired up and config-parity-complete for whenever a future version of `Build` starts tolerating partial per-file failures, but it's not exercised by anything real yet. Documented in code (`internal/lifecycle/validate/sanity.go`'s doc comment on `Sanity`) rather than silently dropped, since dropping it would have understated what the config shape promises.

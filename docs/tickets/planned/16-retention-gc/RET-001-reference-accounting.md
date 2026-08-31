@@ -57,6 +57,9 @@ The planner (PLAN-001) calls `AddReference`/`RemoveReference` when it computes `
 - Removing the last reference leaves count 0 (RET-002 is responsible for what happens next).
 
 ## Acceptance criteria
-- [ ] Two projects using same version create two references.
-- [ ] Removing one does not make the version GC eligible (count still > 0).
-- [ ] References survive a store restart (bbolt persistence).
+- [x] Two projects using same version create two references.
+- [x] Removing one does not make the version GC eligible (count still > 0).
+- [x] References survive a store restart (bbolt persistence).
+
+## Post-implementation note
+This ticket rewrote the interim `VersionReference` model epic 15 (PLAN-001..003) shipped as a deliberate simplification — its own post-implementation note flagged this exact gap. Key shape changed from `<project-id>|<ecosystem>|<package>` (one row per project+dependency, current version only) to RET-001's `<ecosystem>|<package>|<version>|<project-id>|<reason>` (multiple reasons, multiple projects, multiple simultaneously-referenced versions per dependency — what RET-002/003 actually need). `AddReference`/`RemoveReference`/`CountReferences`/`ListReferences` match the ticket's method list exactly; two extra methods were added because something has to answer questions RET-001's own method list doesn't cover: `ListProjectReferences(ctx, projectID)` (full bucket scan, filtered to `Reason == "project"`) is what the planner (PLAN-001) diffs a fresh `Resolution` against — project ID is the key's *last* segment, not a prefix, so this can't be a prefix seek; `ListAllReferences(ctx)` (full bucket scan, no filter) is what RET-003's `PlanGC` uses to discover the GC candidate set, since the `dependency_versions` bucket its design assumes was never built (see STORE-001's own gap note) — every `(ecosystem, package, version)` a project has ever resolved to already has at least one reference row, making this bucket the closest thing to that enumeration that actually exists in this codebase. Both scans are full-bucket, not prefix-scoped, but stay within RET-001's own "no reference-count caching layer... small keyspace" simplicity constraint.

@@ -67,7 +67,7 @@ func TestReplicateEmbedsAndUpsertsAllChunks(t *testing.T) {
 	vb := backendtest.New()
 	ns := backend.Namespace{Name: "ragctl", Dimensions: 4, Distance: "cosine"}
 
-	if err := Replicate(ctx, gen, embedder, vb, ns, store, badgerStore); err != nil {
+	if err := Replicate(ctx, gen, sources, embedder, vb, ns, store, badgerStore); err != nil {
 		t.Fatalf("Replicate: %v", err)
 	}
 
@@ -128,7 +128,7 @@ func TestReplicateFailureMarksReplicaFailedWithError(t *testing.T) {
 	vb := backendtest.New()
 	ns := backend.Namespace{Name: "ragctl", Dimensions: 4}
 
-	err = Replicate(ctx, gen, embedder, vb, ns, store, badgerStore)
+	err = Replicate(ctx, gen, sources, embedder, vb, ns, store, badgerStore)
 	if err == nil {
 		t.Fatal("Replicate succeeded, want error")
 	}
@@ -162,7 +162,7 @@ func TestReplicateWithNoChunksCompletesWithZeroPoints(t *testing.T) {
 	vb := backendtest.New()
 	ns := backend.Namespace{Name: "ragctl", Dimensions: 4}
 
-	if err := Replicate(ctx, gen, embedder, vb, ns, store, badgerStore); err != nil {
+	if err := Replicate(ctx, gen, nil, embedder, vb, ns, store, badgerStore); err != nil {
 		t.Fatalf("Replicate: %v", err)
 	}
 
@@ -236,7 +236,7 @@ func TestReplicatePointsUseGenerationVersionNotStaleObjectVersion(t *testing.T) 
 	embedder := &fakeEmbedder{dims: 4}
 	vb := backendtest.New()
 	ns := backend.Namespace{Name: "ragctl", Dimensions: 4}
-	if err := Replicate(ctx, gen2, embedder, vb, ns, store, badgerStore); err != nil {
+	if err := Replicate(ctx, gen2, sources, embedder, vb, ns, store, badgerStore); err != nil {
 		t.Fatalf("Replicate gen2: %v", err)
 	}
 
@@ -255,6 +255,81 @@ func TestReplicatePointsUseGenerationVersionNotStaleObjectVersion(t *testing.T) 
 	for _, p := range result.Points {
 		if p.Metadata.Version != "v1.0.1" {
 			t.Errorf("point %s has version %s, want v1.0.1 (gen2's version, even for a reused object)", p.ID, p.Metadata.Version)
+		}
+	}
+}
+
+// TestReplicatePointsUseCurrentSourceAuthorityNotStaleObjectAuthority is
+// the same regression class as the Version test above, for
+// Authority/SourceType: a reused object's own obj.Authority/SourceType
+// reflect whichever generation first created it. Authority is
+// user/registry-configurable (a source's authority can change between
+// syncs — see internal/registry's Loader user-override support), so
+// Replicate must stamp every point from the *current* sources list, not
+// from the object's stale stored fields.
+func TestReplicatePointsUseCurrentSourceAuthorityNotStaleObjectAuthority(t *testing.T) {
+	requireGit(t)
+	ctx := context.Background()
+	store, badgerStore := testStores(t)
+	gitCache := git.NewCache(t.TempDir())
+
+	repoDir := newFixtureRepo(t)
+	dep := testDependency()
+	originalSources := []registry.Source{{ID: "repository", Type: "git", URL: repoDir, Ref: "v${version}", Authority: 100}}
+
+	gen1, err := Create(ctx, store, badgerStore, dep)
+	if err != nil {
+		t.Fatalf("Create gen1: %v", err)
+	}
+	if err := Build(ctx, gen1, originalSources, gitCache, store, badgerStore); err != nil {
+		t.Fatalf("Build gen1: %v", err)
+	}
+
+	// Re-sync the exact same dependency version — every object is
+	// reused unchanged from gen1 — but with the registry source's
+	// authority bumped in config, simulating a user override applied
+	// between syncs.
+	updatedSources := []registry.Source{{ID: "repository", Type: "git", URL: repoDir, Ref: "v${version}", Authority: 42}}
+	gen2, err := Create(ctx, store, badgerStore, dep)
+	if err != nil {
+		t.Fatalf("Create gen2: %v", err)
+	}
+	if err := Build(ctx, gen2, updatedSources, gitCache, store, badgerStore); err != nil {
+		t.Fatalf("Build gen2: %v", err)
+	}
+	manifest2, err := getManifest(ctx, badgerStore, gen2.ID)
+	if err != nil {
+		t.Fatalf("getManifest gen2: %v", err)
+	}
+	if manifest2.ObjectsReused == 0 {
+		t.Fatal("gen2 reused no objects from gen1 — test setup didn't exercise the reuse path")
+	}
+
+	embedder := &fakeEmbedder{dims: 4}
+	vb := backendtest.New()
+	ns := backend.Namespace{Name: "ragctl", Dimensions: 4}
+	if err := Replicate(ctx, gen2, updatedSources, embedder, vb, ns, store, badgerStore); err != nil {
+		t.Fatalf("Replicate gen2: %v", err)
+	}
+
+	result, err := vb.Query(ctx, backend.QueryRequest{
+		Namespace: ns.Name,
+		Vector:    make([]float32, 4),
+		TopK:      1000,
+		Filter:    &backend.Filter{Generation: gen2.ID},
+	})
+	if err != nil {
+		t.Fatalf("Query: %v", err)
+	}
+	if len(result.Points) == 0 {
+		t.Fatal("no points found for gen2")
+	}
+	for _, p := range result.Points {
+		if p.Metadata.Authority != 42 {
+			t.Errorf("point %s has authority %d, want 42 (current source config, even for a reused object)", p.ID, p.Metadata.Authority)
+		}
+		if p.Metadata.SourceType != "git" {
+			t.Errorf("point %s has source_type %q, want git", p.ID, p.Metadata.SourceType)
 		}
 	}
 }

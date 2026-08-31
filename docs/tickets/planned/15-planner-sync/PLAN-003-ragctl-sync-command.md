@@ -39,5 +39,10 @@ Execute the actions produced by the planner: for each `SYNC_VERSION` action, run
 - `--offline` skips network-requiring actions and reports them distinctly from failures.
 
 ## Acceptance criteria
-- [ ] No-change sync performs zero backend writes (test-verified, not just documented).
-- [ ] Failed dependency sync does not block independent dependency syncs.
+- [x] No-change sync performs zero backend writes (test-verified, not just documented).
+- [x] Failed dependency sync does not block independent dependency syncs.
+
+## Post-implementation notes
+- **A real bug caught by writing the "no-change sync performs zero backend writes" test literally, not just documenting it**: the first implementation built the embedder/vector-backend/git-cache pipeline (and probed `embedder.Dimensions` — a live HTTP call) unconditionally whenever `--offline` wasn't set, regardless of whether the computed plan actually contained any `SYNC_VERSION` action. A genuinely no-op sync (nothing changed) would still have made a live network call. Fixed by building the pipeline lazily — only on the first `SYNC_VERSION` action that actually needs it, via a `getPipeline()` closure memoizing the result across the run. `TestSyncNoOpPlanMakesNoNetworkCalls` (`internal/cli/sync_test.go`) is the regression test: it seeds a `VersionReference` matching the resolved version exactly (forcing a `NOOP`, not a `SYNC_VERSION`), then runs `sync` *without* `--offline` and asserts it returns within 10s rather than hanging on an unreachable configured endpoint.
+- `--force` only overrides a `Sanity` (VAL-002) failure, never `Structural` (VAL-001) or `VersionCorrectness` (VAL-003) — the ticket's "Sanity-threshold failures block promotion unless `--force` is set" is taken literally: structural/version-correctness failures indicate the replica itself is broken, not an implausible-but-legitimate count change, and are never forceable.
+- Reference-count/GC logic (RET-001, epic 16) doesn't exist yet, so `ADD_REFERENCE`/`DROP_REFERENCE` execution here is the interim simplification the ticket itself flags ("this ticket calls into it") reduced to direct `PutVersionReference`/`DeleteVersionReference` calls with first-seen/last-seen bookkeeping — no reference counting across projects, no GC eligibility computed from it.

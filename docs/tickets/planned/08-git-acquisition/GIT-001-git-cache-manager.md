@@ -48,3 +48,6 @@ Maintain a local bare-mirror Git cache per repository, fetching tags/refs on dem
 - [x] Initial fetch creates a bare mirror at the documented path convention.
 - [x] Incremental fetch updates tags without re-cloning.
 - [x] `ResolveRef` works purely from local cache after a fetch (no repeated network calls).
+
+## Post-implementation fix (epic 14 adversarial review)
+`EnsureMirror` had no locking around its check-then-clone sequence. Two concurrent first-time `EnsureMirror` calls for the same repository URL (a real possibility once a planner drives multiple dependency builds concurrently, epic 15) could both pass the `os.Stat` miss and both run `git clone --mirror` into the same target directory at once — and the mirror is a resource shared across every generation of that dependency, not scoped to one build, so a corrupted mirror from a race would silently break every future build of that dependency, not just the racing calls. Fixed with a per-repo-path `sync.Mutex` (`Cache.lockMirror`), held for the whole check-then-clone sequence. Regression test: `TestConcurrentEnsureMirrorOfSameRepoDoesNotCorruptMirror` runs 8 concurrent `EnsureMirror` calls against one fixture repo and confirms every one succeeds with an identical, usable mirror (`ResolveRef` against it afterward, not just presence).

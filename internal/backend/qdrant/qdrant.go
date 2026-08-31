@@ -170,22 +170,40 @@ func (c *Client) upsertBatch(ctx context.Context, collection string, points []ba
 }
 
 // Delete removes points by ID, by Filter, or both.
+//
+// IDs and Filter are sent as two separate requests, never combined into
+// one selector body: Qdrant's points_delete API takes a "one of
+// {points, filter}" selector, and empirically (verified against a real
+// v1.13.1 server, not just its docs) sending both fields in one request
+// body silently deletes only by ID and drops the filter entirely — a
+// real bug caught by an independent adversarial review of this package,
+// not by the original unit tests, which only asserted on the outgoing
+// request's JSON shape and never checked against a live server what
+// that shape actually does.
 func (c *Client) Delete(ctx context.Context, req backend.DeleteRequest) error {
-	sel := pointsSelector{}
 	if len(req.IDs) > 0 {
-		sel.Points = make([]string, len(req.IDs))
+		ids := make([]string, len(req.IDs))
 		for i, id := range req.IDs {
-			sel.Points[i] = pointID(id)
+			ids[i] = pointID(id)
+		}
+		body, err := json.Marshal(pointsSelector{Points: ids})
+		if err != nil {
+			return &Error{Op: "Delete", Kind: ErrBackendRequest, Cause: err}
+		}
+		if err := c.do(ctx, http.MethodPost, "/collections/"+req.Namespace+"/points/delete", body, "Delete", nil); err != nil {
+			return err
 		}
 	}
 	if req.Filter != nil {
-		sel.Filter = filterFrom(req.Filter)
+		body, err := json.Marshal(pointsSelector{Filter: filterFrom(req.Filter)})
+		if err != nil {
+			return &Error{Op: "Delete", Kind: ErrBackendRequest, Cause: err}
+		}
+		if err := c.do(ctx, http.MethodPost, "/collections/"+req.Namespace+"/points/delete", body, "Delete", nil); err != nil {
+			return err
+		}
 	}
-	body, err := json.Marshal(sel)
-	if err != nil {
-		return &Error{Op: "Delete", Kind: ErrBackendRequest, Cause: err}
-	}
-	return c.do(ctx, http.MethodPost, "/collections/"+req.Namespace+"/points/delete", body, "Delete", nil)
+	return nil
 }
 
 // Query returns the TopK nearest points to req.Vector, constrained by

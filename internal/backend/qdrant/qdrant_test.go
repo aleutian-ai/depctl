@@ -170,10 +170,17 @@ func TestQueryAppliesFilterAndParsesResults(t *testing.T) {
 	}
 }
 
-func TestDeleteByIDsAndFilter(t *testing.T) {
-	var got pointsSelector
+// TestDeleteByIDsAndFilterSendsTwoSeparateRequests is a regression test:
+// Qdrant's points_delete selector is a "one of {points, filter}", and
+// empirically (verified against a real server) combining both into one
+// request body silently drops the filter. Delete must send IDs and
+// Filter as two independent requests rather than one combined selector.
+func TestDeleteByIDsAndFilterSendsTwoSeparateRequests(t *testing.T) {
+	var got []pointsSelector
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewDecoder(r.Body).Decode(&got)
+		var sel pointsSelector
+		json.NewDecoder(r.Body).Decode(&sel)
+		got = append(got, sel)
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer srv.Close()
@@ -187,11 +194,31 @@ func TestDeleteByIDsAndFilter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
-	if len(got.Points) != 1 {
-		t.Errorf("got %d point IDs, want 1", len(got.Points))
+	if len(got) != 2 {
+		t.Fatalf("got %d requests, want 2 (one for IDs, one for filter)", len(got))
 	}
-	if got.Filter == nil || got.Filter.Must[0].Key != "generation" {
-		t.Errorf("filter = %+v, want generation match", got.Filter)
+	if len(got[0].Points) != 1 || got[0].Filter != nil {
+		t.Errorf("first request = %+v, want IDs only, no filter", got[0])
+	}
+	if got[1].Filter == nil || got[1].Filter.Must[0].Key != "generation" || len(got[1].Points) != 0 {
+		t.Errorf("second request = %+v, want filter only, no points", got[1])
+	}
+}
+
+func TestDeleteWithOnlyIDsSendsOneRequest(t *testing.T) {
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL)
+	if err := c.Delete(context.Background(), backend.DeleteRequest{Namespace: "ragctl", IDs: []string{"chk_abc"}}); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	if calls != 1 {
+		t.Errorf("calls = %d, want 1", calls)
 	}
 }
 

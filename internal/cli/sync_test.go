@@ -1,0 +1,208 @@
+package cli
+
+import (
+	"bytes"
+	"context"
+	"strings"
+	"testing"
+	"time"
+
+	"aleutian-ai/ragctl/internal/domain"
+)
+
+func TestSyncDryRunPerformsNoWrites(t *testing.T) {
+	isolateEnv(t)
+	requireGo(t)
+	runInitForTest(t)
+	scanDepFixture(t)
+
+	cmd := NewRootCmd()
+	cmd.SetArgs([]string{"sync", "--dry-run"})
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("sync --dry-run: %v", err)
+	}
+	if !strings.Contains(out.String(), "ADD_REFERENCE") {
+		t.Errorf("dry-run output missing plan content:\n%s", out.String())
+	}
+
+	// No reference should have been recorded — dry-run must not write.
+	store, err := openControlStore()
+	if err != nil {
+		t.Fatalf("openControlStore: %v", err)
+	}
+	defer store.Close()
+	refs, err := store.ListAllReferences(context.Background())
+	if err != nil {
+		t.Fatalf("ListAllReferences: %v", err)
+	}
+	if len(refs) != 0 {
+		t.Errorf("ListAllReferences after dry-run = %+v, want none (no state written)", refs)
+	}
+}
+
+func TestSyncOfflineSkipsSyncVersionButRecordsReference(t *testing.T) {
+	isolateEnv(t)
+	requireGo(t)
+	runInitForTest(t)
+	root := scanDepFixture(t)
+
+	cmd := NewRootCmd()
+	cmd.SetArgs([]string{"sync", "--offline"})
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("sync --offline: %v", err)
+	}
+	if !strings.Contains(out.String(), "SKIP (offline)") {
+		t.Errorf("offline sync output missing skip line:\n%s", out.String())
+	}
+
+	// Find the project ID that was scanned.
+	store, err := openControlStore()
+	if err != nil {
+		t.Fatalf("openControlStore: %v", err)
+	}
+	defer store.Close()
+	projects, err := store.ListProjects(context.Background())
+	if err != nil {
+		t.Fatalf("ListProjects: %v", err)
+	}
+	var projectID string
+	for _, p := range projects {
+		if p.Root == root {
+			projectID = p.ID
+		}
+	}
+	if projectID == "" {
+		t.Fatalf("scanned project %s not found among %+v", root, projects)
+	}
+
+	// Reference bookkeeping doesn't need the network, so it must still
+	// have happened even in offline mode.
+	refs, err := store.ListProjectReferences(context.Background(), projectID)
+	if err != nil {
+		t.Fatalf("ListProjectReferences: %v", err)
+	}
+	if len(refs) != 1 || refs[0].Package != "example.com/foo" || refs[0].Version == "" {
+		t.Errorf("ListProjectReferences = %+v, want one reference to example.com/foo with a version", refs)
+	}
+}
+
+func TestSyncNoOpAfterOfflineSyncPerformsNoFurtherReferenceChanges(t *testing.T) {
+	isolateEnv(t)
+	requireGo(t)
+	runInitForTest(t)
+	scanDepFixture(t)
+
+	first := NewRootCmd()
+	first.SetArgs([]string{"sync", "--offline"})
+	first.SetOut(new(bytes.Buffer))
+	if err := first.Execute(); err != nil {
+		t.Fatalf("first sync --offline: %v", err)
+	}
+
+	// Second run should be a NOOP for the reference (nothing changed) —
+	// still reports the SYNC_VERSION as skipped (offline), since sync
+	// state isn't accounted for without a real backend, but must not
+	// error or duplicate reference records.
+	second := NewRootCmd()
+	second.SetArgs([]string{"sync", "--offline"})
+	var out bytes.Buffer
+	second.SetOut(&out)
+	if err := second.Execute(); err != nil {
+		t.Fatalf("second sync --offline: %v", err)
+	}
+}
+
+// TestSyncNoOpPlanMakesNoNetworkCalls is the literal PLAN-003 acceptance
+// criterion: a no-change sync performs zero backend/network writes. It
+// seeds a VersionReference matching the resolved version exactly, so
+// planner.Plan produces a NOOP (not a SYNC_VERSION), then runs `sync`
+// WITHOUT --offline. If the embedder/vector-backend pipeline were built
+// unconditionally (the bug this test guards against — an earlier version
+// probed embedder.Dimensions on every non-offline run regardless of
+// whether anything needed it), this would hang or fail trying to reach
+// the configured Ollama/Qdrant endpoints; since nothing in the plan
+// needs the pipeline, it must never be constructed at all.
+func TestSyncNoOpPlanMakesNoNetworkCalls(t *testing.T) {
+	isolateEnv(t)
+	requireGo(t)
+	runInitForTest(t)
+	root := scanDepFixture(t)
+
+	store, err := openControlStore()
+	if err != nil {
+		t.Fatalf("openControlStore: %v", err)
+	}
+	projects, err := store.ListProjects(context.Background())
+	if err != nil {
+		t.Fatalf("ListProjects: %v", err)
+	}
+	var project domain.Project
+	for _, p := range projects {
+		if p.Root == root {
+			project = p
+		}
+	}
+	if project.ID == "" {
+		t.Fatalf("scanned project %s not found", root)
+	}
+	resolution, err := store.GetResolution(context.Background(), project.ID)
+	if err != nil {
+		t.Fatalf("GetResolution: %v", err)
+	}
+	if len(resolution.Dependencies) != 1 {
+		t.Fatalf("resolution.Dependencies = %+v, want exactly 1", resolution.Dependencies)
+	}
+	dep := resolution.Dependencies[0]
+
+	if err := store.AddReference(context.Background(), domain.VersionReference{
+		ProjectID: project.ID,
+		Ecosystem: dep.Dependency.Ecosystem,
+		Package:   dep.Dependency.Name,
+		Version:   dep.Version,
+		Reason:    domain.ReferenceReasonProject,
+	}); err != nil {
+		t.Fatalf("AddReference: %v", err)
+	}
+	store.Close()
+
+	cmd := NewRootCmd()
+	cmd.SetArgs([]string{"sync"}) // deliberately NOT --offline
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	done := make(chan error, 1)
+	go func() { done <- cmd.Execute() }()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("sync: %v\noutput: %s", err, out.String())
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("sync did not return within 10s — the pipeline was probably built (and is hanging on a network call) for a plan with no work to do")
+	}
+	if !strings.Contains(out.String(), "0 synced, 0 failed, 0 skipped") {
+		t.Errorf("sync summary = %q, want a genuine no-op (0/0/0)", out.String())
+	}
+}
+
+func TestSyncDependencyFilter(t *testing.T) {
+	isolateEnv(t)
+	requireGo(t)
+	runInitForTest(t)
+	scanDepFixture(t)
+
+	cmd := NewRootCmd()
+	cmd.SetArgs([]string{"sync", "--offline", "--dependency", "does-not-exist"})
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("sync --offline --dependency: %v", err)
+	}
+	if strings.Contains(out.String(), "example.com/foo") {
+		t.Errorf("--dependency filter should have excluded example.com/foo:\n%s", out.String())
+	}
+}

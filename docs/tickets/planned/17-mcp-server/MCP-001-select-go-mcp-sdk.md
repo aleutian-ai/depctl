@@ -35,6 +35,6 @@ N/A (research/decision ticket).
 - `go build ./...` succeeds with the new dependency and empty skeleton package.
 
 ## Acceptance criteria
-- [ ] ADR written recording the chosen SDK and rationale.
-- [ ] No MCP/protocol types leak into `internal/domain` or other non-`internal/mcp` packages.
-- [ ] Repository builds cleanly with the new dependency added.
+- [x] ADR written recording the chosen SDK and rationale.
+- [x] No MCP/protocol types leak into `internal/domain` or other non-`internal/mcp` packages.
+- [x] Repository builds cleanly with the new dependency added.

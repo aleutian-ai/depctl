@@ -132,3 +132,84 @@ func TestQdrantIntegrationVersionFilteredQuery(t *testing.T) {
 		t.Errorf("got %d points after delete, want 0", len(result.Points))
 	}
 }
+
+// TestQdrantIntegrationDeleteByIDsAndFilterTogether is a regression test
+// for a real bug an adversarial review caught: sending both req.IDs and
+// req.Filter on one DeleteRequest silently deleted only by ID and
+// dropped the filter, because Qdrant's points_delete selector is a "one
+// of {points, filter}" and combining both into a single request body
+// only ever applies whichever field the server's untagged deserializer
+// matches first. Delete now issues two separate requests; this proves
+// both actually take effect against a real server, not just that the
+// combined-request JSON was shaped correctly (which the old,
+// insufficient unit test verified and which passed even with the bug
+// present).
+func TestQdrantIntegrationDeleteByIDsAndFilterTogether(t *testing.T) {
+	requireContainerRuntime(t)
+	t.Setenv("TESTCONTAINERS_RYUK_DISABLED", "true")
+	ctx := context.Background()
+
+	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+		ContainerRequest: testcontainers.ContainerRequest{
+			Image:        "qdrant/qdrant:v1.13.1",
+			ExposedPorts: []string{"6333/tcp"},
+			WaitingFor:   wait.ForHTTP("/healthz").WithPort("6333/tcp").WithStartupTimeout(60 * time.Second),
+		},
+		Started: true,
+	})
+	if err != nil {
+		t.Fatalf("start qdrant container: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := container.Terminate(context.Background()); err != nil {
+			t.Logf("terminate qdrant container: %v", err)
+		}
+	})
+
+	host, err := container.Host(ctx)
+	if err != nil {
+		t.Fatalf("container host: %v", err)
+	}
+	port, err := container.MappedPort(ctx, "6333")
+	if err != nil {
+		t.Fatalf("mapped port: %v", err)
+	}
+	c := New(fmt.Sprintf("http://%s:%s", host, port.Port()))
+
+	ns := backend.Namespace{Name: "ragctl", Dimensions: 4, Distance: "cosine"}
+	if err := c.EnsureNamespace(ctx, ns); err != nil {
+		t.Fatalf("EnsureNamespace: %v", err)
+	}
+
+	err = c.Upsert(ctx, backend.UpsertRequest{
+		Namespace: ns.Name,
+		Points: []backend.Point{
+			{ID: "chk_by_id", Vector: []float32{1, 0, 0, 0}, Metadata: backend.PointMetadata{Ecosystem: "go", Dependency: "widget", Version: "v1.0.0", Generation: "gen_a"}},
+			{ID: "chk_by_filter_1", Vector: []float32{1, 0, 0, 0}, Metadata: backend.PointMetadata{Ecosystem: "go", Dependency: "widget", Version: "v0.9.0", Generation: "gen_old"}},
+			{ID: "chk_by_filter_2", Vector: []float32{1, 0, 0, 0}, Metadata: backend.PointMetadata{Ecosystem: "go", Dependency: "widget", Version: "v0.9.0", Generation: "gen_old"}},
+			{ID: "chk_survivor", Vector: []float32{1, 0, 0, 0}, Metadata: backend.PointMetadata{Ecosystem: "go", Dependency: "widget", Version: "v1.0.0", Generation: "gen_a"}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Upsert: %v", err)
+	}
+
+	// One call, deleting one point by explicit ID AND two more via a
+	// filter that matches neither of those IDs — both must take effect.
+	err = c.Delete(ctx, backend.DeleteRequest{
+		Namespace: ns.Name,
+		IDs:       []string{"chk_by_id"},
+		Filter:    &backend.Filter{Generation: "gen_old"},
+	})
+	if err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+
+	result, err := c.Query(ctx, backend.QueryRequest{Namespace: ns.Name, Vector: []float32{1, 0, 0, 0}, TopK: 10})
+	if err != nil {
+		t.Fatalf("Query: %v", err)
+	}
+	if len(result.Points) != 1 || result.Points[0].ID != "chk_survivor" {
+		t.Fatalf("remaining points = %+v, want exactly [chk_survivor]", result.Points)
+	}
+}

@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"context"
@@ -33,11 +34,35 @@ const defaultLocalTimeout = 30 * time.Second
 // package.
 type Cache struct {
 	root string
+
+	mirrorLocksMu sync.Mutex
+	mirrorLocks   map[string]*sync.Mutex
 }
 
 // NewCache returns a Cache rooted at dir, e.g. "<data-dir>/git".
 func NewCache(dir string) *Cache {
-	return &Cache{root: dir}
+	return &Cache{root: dir, mirrorLocks: map[string]*sync.Mutex{}}
+}
+
+// lockMirror serializes every EnsureMirror call for the same repoPath,
+// so two concurrent first-time acquisitions of the same repository (a
+// real possibility once a planner drives multiple dependency builds
+// concurrently) can't both run `git clone --mirror` into the same
+// target directory at once — a shared resource across every generation
+// of that dependency, not scoped to one build, so a corrupted mirror
+// here would silently break every future build of that dependency, not
+// just the racing ones. Returns an unlock func to defer.
+func (c *Cache) lockMirror(repoPath string) func() {
+	c.mirrorLocksMu.Lock()
+	l, ok := c.mirrorLocks[repoPath]
+	if !ok {
+		l = &sync.Mutex{}
+		c.mirrorLocks[repoPath] = l
+	}
+	c.mirrorLocksMu.Unlock()
+
+	l.Lock()
+	return l.Unlock
 }
 
 // EnsureMirror clones rawURL as a bare mirror under the cache root if one
@@ -48,6 +73,7 @@ func (c *Cache) EnsureMirror(ctx context.Context, rawURL string) (string, error)
 	if err != nil {
 		return "", &CacheError{Op: "EnsureMirror", Kind: ErrKindPermanent, Cause: err}
 	}
+	defer c.lockMirror(repoPath)()
 
 	if _, statErr := os.Stat(repoPath); statErr == nil {
 		return repoPath, nil

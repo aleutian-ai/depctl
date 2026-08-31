@@ -34,5 +34,5 @@ func VersionCorrectness(ctx context.Context, backend backend.VectorBackend, gen 
 - Corrupt fixture (manually insert a wrong-version point) → check fails and reports it.
 
 ## Acceptance criteria
-- [ ] Smoke test is deterministic (same generation → same result every run).
-- [ ] Test proves cross-version isolation using two real indexed versions of one dependency.
+- [x] Smoke test is deterministic (same generation → same result every run).
+- [x] Test proves cross-version isolation using two real indexed versions of one dependency.

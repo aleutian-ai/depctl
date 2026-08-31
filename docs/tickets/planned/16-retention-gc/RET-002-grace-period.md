@@ -44,6 +44,9 @@ This logic lives in the planner/reference-accounting call site (wherever `Remove
 - A version with an active `latest` or `manual_pin` reference does not get a `grace_period` reference added when its project reference drops.
 
 ## Acceptance criteria
-- [ ] Default grace period is 14 days.
-- [ ] Grace period is configurable via `retention.grace_period`.
-- [ ] Last project reference disappearing adds a `grace_period` reference automatically.
+- [x] Default grace period is 14 days.
+- [x] Grace period is configurable via `retention.grace_period`.
+- [x] Last project reference disappearing adds a `grace_period` reference automatically.
+
+## Post-implementation note
+Implemented as `retention.DropReference` (`internal/retention/retention.go`), not inline at each `RemoveReference` call site — one function wrapping "remove, then check if anything else still references it, then add grace if not," called from `internal/cli/sync.go`'s `DROP_REFERENCE` handling. The grace *duration* is deliberately not a parameter to `DropReference`: only `LastSeenAt` gets stored on the grace reference, and the duration is applied once, later, at `PlanGC`'s eligibility-check time (`retention.EffectiveGracePeriod`) — baking a duration into the stored reference at drop time would freeze it to whatever was configured then, even if the user changes `retention.grace_period` before GC actually runs. `EffectiveGracePeriod(configured time.Duration) time.Duration` is where "missing/zero config defaults to 14 days" actually lives, since that's the only place a duration value is consumed for a real decision.

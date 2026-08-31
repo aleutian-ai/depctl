@@ -59,4 +59,12 @@ func Plan(ctx context.Context, project domain.Project, resolution domain.Resolut
 - Dependency removed from go.mod → `DROP_REFERENCE`.
 
 ## Acceptance criteria
-- [ ] `Plan` is a pure function covered by table-driven unit tests, no bbolt/network access inside it.
+- [x] `Plan` is a pure function covered by table-driven unit tests, no bbolt/network access inside it.
+
+## Post-implementation note
+Two inputs the sketched signature didn't show turned out necessary to keep `Plan` actually pure:
+
+- `reg *registry.Registry` instead of `registryMatches map[string]registry.Match` — `registry.Match` isn't a type this codebase has; `Registry.Match(eco, pkg) (Manifest, bool)` already is the lookup, and it's a pure in-memory operation once the registry is loaded (loading itself, I/O, happens in the caller, before `Plan` is invoked).
+- `activeGenerations map[string]bool` — "if a dependency version has no active generation yet → SYNC_VERSION" requires knowing whether a generation is already promoted, which `Plan`'s own inputs (one project's resolution + references) can't answer; the caller checks `bbolt.Store.GetActiveGeneration` per dependency version and passes the answer in as a map (keyed by the new `GenerationKey` helper), so `Plan` itself never touches storage.
+
+`GC_CANDIDATE`/`RETAIN_VERSION` are also narrower than the design implies, per this ticket's own non-goals: every version this project drops is marked `GC_CANDIDATE` unconditionally (the correct conservative default), and `RETAIN_VERSION` is never actually emitted — a single project's diff structurally can't prove another project still references a version being dropped here; that requires epic 16's cross-project reference counting (RET-001), which doesn't exist yet. `RETAIN_VERSION` stays in the `ActionKind` enum for RET-001 to produce once it has fleet-wide data.

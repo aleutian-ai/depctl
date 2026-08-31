@@ -54,5 +54,8 @@ Iterate the `dependency_versions` bucket (from STORE-001), call `ListReferences`
 - Version with grace reference not yet expired → not eligible.
 
 ## Acceptance criteria
-- [ ] Eligibility requires all four conditions (no project refs, not latest, not pinned, grace expired) plus not-active.
-- [ ] Deterministic given the same store state and `now`.
+- [x] Eligibility requires all four conditions (no project refs, not latest, not pinned, grace expired) plus not-active.
+- [x] Deterministic given the same store state and `now`.
+
+## Post-implementation note
+`PlanGC` gained a `backendName string` parameter not shown in the sketch — checking "not the active generation" needs one, since active-generation pointers are backend-scoped (VEC-003's `GetActiveGeneration`), and `PlanGC` can't guess which backend the caller means. The candidate set itself is discovered via `ControlStore.ListAllReferences` rather than "iterate the `dependency_versions` bucket" — see RET-001's note for why that bucket doesn't exist. `ControlStore` (this package's own narrow interface, matching this codebase's consumer-side-interface convention) is satisfied structurally by `*bbolt.Store`; tests use a hand-written `fakeStore` instead, to isolate `PlanGC`'s eligibility logic (including the active-generation check) from needing a real bbolt file per test case.

@@ -50,3 +50,6 @@ vector:
 ## Acceptance criteria
 - [x] testcontainers integration test passes: inserting two versions of same package, filtered query returns only the requested version.
 - [x] `EnsureNamespace` is safely callable multiple times.
+
+## Post-implementation fix
+An independent adversarial review flagged that `Delete`'s original implementation combined `req.IDs` and `req.Filter` into one `pointsSelector` request body when both were set. Verified empirically against a real Qdrant v1.13.1 container (not just the docs): Qdrant's `points_delete` selector is a "one of `{points, filter}`" shape, and sending both fields in one request body silently deletes only by ID and drops the filter entirely — no error, no warning. Fixed by issuing two separate requests when both `IDs` and `Filter` are set. Regression coverage: a unit test (`TestDeleteByIDsAndFilterSendsTwoSeparateRequests`) asserting the two-request shape, and a new real-container integration test (`TestQdrantIntegrationDeleteByIDsAndFilterTogether`) proving both actually take effect — the old `TestDeleteByIDsAndFilter` unit test had passed throughout, since it only checked the outgoing request's JSON shape against an `httptest` fake that just echoed 200 OK, never against real Qdrant semantics.

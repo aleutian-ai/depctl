@@ -35,3 +35,38 @@ func (s *Store) GetGeneration(ctx context.Context, id string) (domain.Generation
 	})
 	return g, err
 }
+
+// DeleteGenerationRecord removes the generation record with the given
+// ID. Deleting an already-absent record is not an error — GC (RET-004)
+// steps are idempotent by design, so a retried delete after a partial
+// prior run must succeed silently.
+func (s *Store) DeleteGenerationRecord(ctx context.Context, id string) error {
+	return s.db.Update(func(tx *bolt.Tx) error {
+		return tx.Bucket([]byte(generationsBucket)).Delete([]byte(id))
+	})
+}
+
+// ListGenerationsByDependencyVersion returns every generation recorded
+// for (ecosystem, pkg, version) — GC (RET-004) needs this to find which
+// generation IDs' Badger data to delete for a GC-eligible version, since
+// no index from (ecosystem, package, version) to generation ID exists
+// (the `generations` bucket is keyed by generation ID only); a full
+// bucket scan is the substitute, same "small keyspace" tradeoff already
+// made for references (RET-001's ListAllReferences) and GC candidate
+// discovery (RET-003's PlanGC).
+func (s *Store) ListGenerationsByDependencyVersion(ctx context.Context, ecosystem domain.Ecosystem, pkg, version string) ([]domain.Generation, error) {
+	var gens []domain.Generation
+	err := s.db.View(func(tx *bolt.Tx) error {
+		return tx.Bucket([]byte(generationsBucket)).ForEach(func(k, v []byte) error {
+			var g domain.Generation
+			if err := json.Unmarshal(v, &g); err != nil {
+				return fmt.Errorf("unmarshal generation %s: %w", k, err)
+			}
+			if g.Dependency.Dependency.Ecosystem == ecosystem && g.Dependency.Dependency.Name == pkg && g.Dependency.Version == version {
+				gens = append(gens, g)
+			}
+			return nil
+		})
+	})
+	return gens, err
+}

@@ -51,6 +51,13 @@ If interrupted mid-run, re-invoking `ragctl gc` re-claims any `PENDING`/`RETRY` 
 - Orphaned/unreferenced version removed end-to-end; referenced version untouched.
 
 ## Acceptance criteria
-- [ ] Deletion order: vector replica → Badger → bbolt.
-- [ ] GC is restartable and idempotent (re-run after partial failure completes cleanly).
-- [ ] `--dry-run` performs no mutations.
+- [x] Deletion order: vector replica → Badger → bbolt.
+- [x] GC is restartable and idempotent (re-run after partial failure completes cleanly).
+- [x] `--dry-run` performs no mutations.
+
+## Post-implementation note
+`SyncJob`/`Job` (CORE-002's own design) had never actually been built — only the `JobState` enum existed (`internal/domain/lifecycle.go`), the `jobs` bbolt bucket was provisioned but unused, and CORE-001's `SyncJob` was still just a comment pointing at CORE-002. Built the minimum this ticket needs: `domain.Job` (ID, Type, Dependency, State, LastError, timestamps) plus `Store.PutJob`/`GetJob` — no generic scheduler, no job-type registry, matching the ticket's own "reuse the existing job system... a GC run is just jobs of type `gc`" instruction as literally as possible given "the existing job system" was mostly not there yet. Job IDs are deterministic (`gc.JobID`, BLAKE3 over type+dependency+version, not a ULID) specifically so re-running `ragctl gc` against the same candidate finds and resumes the same job rather than creating a duplicate — the restartability this ticket requires.
+
+Two bbolt primitives RET-004's design assumed but didn't name a method for were added: `ListGenerationsByDependencyVersion` (full `generations` bucket scan — no index from dependency+version to generation ID exists, same "small keyspace" tradeoff as RET-001/003) and `DeleteAllReferences` (RET-001's `RemoveReference` only removes one project's reference; step 4 needs every remaining reference — including the `grace_period` one — gone).
+
+Verified end-to-end against real bbolt, real Badger, and `backendtest.Backend` (not a live Qdrant — `internal/backend/qdrant` itself is already proven separately against a real container in epic 13): `TestGCEndToEndRemovesOrphanedVersionLeavesReferencedVersionUntouched` builds and replicates two real generations of the same dependency via `generation.Build`/`Replicate`, drops and grace-expires one, runs `PlanGC` + `Run`, and confirms the orphaned version's data is gone from all three stores while the referenced version's chunks/points/records are untouched — plus a re-run proving idempotency. `TestRunResumesAfterPartialFailure` and `TestRunFailureMarksJobFailedAndDoesNotBlockOtherCandidates` use a hand-written fake `ControlStore`/`DataStore` to simulate the specific interruption points (Badger-delete failure, list failure) the ticket's Tests section describes, without needing to actually break a real store mid-operation.

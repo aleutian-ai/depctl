@@ -46,6 +46,11 @@ Wire into `cmd/ragctl` `serve` command behind `server.mcp.enabled: true` config 
 - Integration test: start MCP server, call `search_dependency_docs` over stdio transport, verify response shape.
 
 ## Acceptance criteria
-- [ ] All five always-on tools implemented and callable.
-- [ ] `sync_project` present but disabled by default; enabling it via config makes it callable.
-- [ ] Tool responses carry the evidence-not-instruction label where supported.
+- [x] All five always-on tools implemented and callable.
+- [x] `sync_project` present but disabled by default; enabling it via config makes it callable.
+- [x] Tool responses carry the evidence-not-instruction label where supported.
+
+## Post-implementation note
+`sync_project` is a write/execute operation, categorically different from `internal/query.Service`'s read-only search methods, so it doesn't fit that service. Rather than duplicate `internal/cli/sync.go`'s orchestration (plan → build → replicate → validate → promote) inside `internal/mcp`, `runSync`'s core execution logic was extracted into an exported `cli.RunSync(ctx, store, badgerStore, cfg, projectID, dependency string, offline, force bool, out io.Writer) (synced, failed, skipped int, err error)` — `internal/cli`'s cobra handler now calls it too, so there's exactly one sync-execution code path, not two. `internal/mcp` defines a narrow `SyncTrigger` interface (consumer-side, per this codebase's convention) that `ragctl serve` (`internal/cli/serve.go`) satisfies with a small adapter wrapping `RunSync` against the already-open `*bbolt.Store`/`*badger.Store` the server holds for the whole process lifetime — `RunSync` never opens its own Badger handle, since Badger only allows one open handle per directory per process, and the MCP server already holds one open for `query.Service`.
+
+`ragctl serve` wires stdio transport only for v0.1 — the SDK also supports Streamable HTTP (and MCP-001 chose it partly *for* that support), but nothing in this epic's tickets required HTTP specifically, and stdio is what most local agent-client integrations (Claude Code, Claude Desktop-style subprocess spawning) actually use. HTTP serving is a natural, low-risk follow-up whenever a concrete client needs it — the SDK already supports it, this is a config/wiring gap, not a redesign.

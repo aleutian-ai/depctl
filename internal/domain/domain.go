@@ -142,6 +142,60 @@ type BackendReplica struct {
 	UpdatedAt      time.Time
 }
 
+// Job is a restartable background unit of work — currently only GC
+// (RET-004) uses this, via Type "gc": re-invoking `ragctl gc` re-claims
+// any PENDING/RETRY gc job by its deterministic ID and resumes it,
+// rather than starting over or duplicating work.
+type Job struct {
+	ID         string // deterministic, derived from (Type, Dependency) — see internal/lifecycle/gc.JobID
+	Type       string // "gc"
+	Dependency DependencyVersion
+	State      JobState
+	LastError  string
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
+}
+
+// ReferenceReason identifies why a VersionReference exists — the
+// eligibility rule retention (RET-003) applies depends on which reasons
+// are present for a version, not just whether any reference exists.
+type ReferenceReason string
+
+const (
+	// ReferenceReasonProject means a registered project's resolved
+	// dependencies currently include this exact version.
+	ReferenceReasonProject ReferenceReason = "project"
+	// ReferenceReasonLatest pins a version as the ecosystem/package's
+	// current "latest," independent of any project referencing it.
+	ReferenceReasonLatest ReferenceReason = "latest"
+	// ReferenceReasonManualPin marks a version as user-pinned, never
+	// GC-eligible regardless of grace expiry.
+	ReferenceReasonManualPin ReferenceReason = "manual_pin"
+	// ReferenceReasonGracePeriod is added automatically (RET-002) when a
+	// version's last project reference drops, keeping it retained until
+	// LastSeenAt + the configured grace period elapses.
+	ReferenceReasonGracePeriod ReferenceReason = "grace_period"
+)
+
+// gracePeriodProjectID is the synthetic ProjectID a grace_period
+// reference uses, since it isn't scoped to any one project.
+const GracePeriodProjectID = "_grace"
+
+// VersionReference records one reason Ecosystem/Package at Version is
+// currently retained — a project depending on it, a "latest"/pin policy,
+// or an active grace period. Multiple reasons (and multiple projects)
+// can reference the same version at once; retention (RET-001..003) uses
+// the full set to decide GC eligibility.
+type VersionReference struct {
+	ProjectID   string
+	Ecosystem   Ecosystem
+	Package     string
+	Version     string
+	Reason      ReferenceReason
+	FirstSeenAt time.Time
+	LastSeenAt  time.Time
+}
+
 // Resolution is the canonical output of a Resolver.Resolve call (see
 // internal/resolver) and the shape persisted by the control store. Defined
 // here, not in internal/resolver, because storage/planner/every ecosystem
