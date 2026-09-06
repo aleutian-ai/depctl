@@ -76,6 +76,19 @@ type SourceSnapshot struct {
 	Metadata    map[string]string
 }
 
+// TrustClass classifies how much a downstream consumer (an agent reading
+// MCP search results) should trust a KnowledgeObject's content, distinct
+// from Authority's numeric ranking among sources for the same package.
+type TrustClass string
+
+const (
+	TrustOfficial   TrustClass = "official"   // registry-declared official docs/release source
+	TrustRepository TrustClass = "repository" // the package's own source repository
+	TrustCommunity  TrustClass = "community"
+	TrustUser       TrustClass = "user"
+	TrustUnknown    TrustClass = "unknown" // no registry match determined this object's provenance
+)
+
 // KnowledgeObject is normalized, retrieval-shaped content extracted from
 // a SourceSnapshot by a Normalizer. Chunk-level splitting happens later
 // (CHUNK-*); a KnowledgeObject is normalization's unit of output.
@@ -85,6 +98,7 @@ type KnowledgeObject struct {
 	SourceID    string
 	SourceURI   string
 	SourceType  string
+	TrustClass  TrustClass
 	ContentType string
 	LogicalPath string
 	Title       string
@@ -96,6 +110,20 @@ type KnowledgeObject struct {
 	Content     []byte
 	ContentHash string
 	Metadata    map[string]string
+}
+
+// Validate reports whether obj carries the minimum provenance metadata
+// every downstream consumer relies on — an empty SourceURI or TrustClass
+// means content could be surfaced to an agent with no way to reason
+// about where it came from or how much to trust it.
+func (obj KnowledgeObject) Validate() error {
+	if obj.SourceURI == "" {
+		return fmt.Errorf("knowledge object %s: SourceURI is empty", obj.ID)
+	}
+	if obj.TrustClass == "" {
+		return fmt.Errorf("knowledge object %s: TrustClass is empty", obj.ID)
+	}
+	return nil
 }
 
 // Chunk is a retrieval-sized slice of a KnowledgeObject's content,

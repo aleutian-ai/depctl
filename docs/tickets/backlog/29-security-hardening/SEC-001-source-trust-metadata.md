@@ -45,6 +45,11 @@ Normalization fails fast (typed error) if trust class cannot be determined and i
 - `Validate()` rejects an object with empty `TrustClass`.
 
 ## Acceptance criteria
-- [ ] `TrustClass` field added and populated by every normalizer.
-- [ ] `Validate()` enforces non-empty trust metadata.
-- [ ] Unit tests cover the classification rules above.
+- [x] `TrustClass` field added and populated by every normalizer.
+- [x] `Validate()` enforces non-empty trust metadata.
+- [x] Unit tests cover the classification rules above.
+
+## Post-implementation note
+`TrustClass` is assigned in `generation.appendAttributed` (`internal/data/generation/build.go`), not inside each normalizer — normalizers (NORM-002..005) never see the registry `Source` at all (only a `SourceSnapshot`), so `SourceType`/`Authority` were already being attributed post-hoc at that single call site, and `TrustClass` follows the same pattern rather than duplicating classification logic across four normalizers. `trustClassForSourceType` maps `git`/`godoc` → `repository` and `website`/`github-releases` → `official`; a source type this codebase doesn't recognize (which today only means an empty string, since `syncVersion` currently requires a registry match before `Build` ever runs — see the still-open "no-registry-match fallback" design question) falls back to `unknown`. `TrustCommunity`/`TrustUser` are defined but unused — nothing yet produces a `KnowledgeObject` through a non-built-in-registry path; they're reserved for whatever mechanism eventually lets a source be added outside the reviewed/built-in tier.
+
+`Validate()` is called in `indexObjects` immediately before `PutKnowledgeObject` (only for newly-created objects — a GEN-003-reused object was already validated when first created, so re-validating it would be redundant), returning `ErrNormalization` on failure to match this package's existing error-wrapping convention rather than a bare error.

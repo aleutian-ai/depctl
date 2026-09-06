@@ -238,9 +238,28 @@ func appendAttributed(objects []domain.KnowledgeObject, dep domain.DependencyVer
 		obj.Dependency = dep
 		obj.SourceType = source.Type
 		obj.Authority = source.Authority
+		obj.TrustClass = trustClassForSourceType(source.Type)
 		objects = append(objects, obj)
 	}
 	return objects
+}
+
+// trustClassForSourceType maps a registry.Source's type to the
+// TrustClass SEC-001 requires every KnowledgeObject to carry. git/godoc
+// both derive directly from the package's own repository; website and
+// github-releases are registry-declared official sources. TrustCommunity
+// and TrustUser are assigned elsewhere, by whatever future mechanism
+// lets a manifest be added outside the built-in/reviewed tier — nothing
+// currently produces an object through that path.
+func trustClassForSourceType(sourceType string) domain.TrustClass {
+	switch sourceType {
+	case "git", "godoc":
+		return domain.TrustRepository
+	case "website", "github-releases":
+		return domain.TrustOfficial
+	default:
+		return domain.TrustUnknown
+	}
 }
 
 func hasGoFiles(dir string) bool {
@@ -291,6 +310,9 @@ func indexObjects(ctx context.Context, gen domain.Generation, objects []domain.K
 		if reused {
 			manifest.ObjectsReused++
 		} else {
+			if err := obj.Validate(); err != nil {
+				return fmt.Errorf("%w: %v", ErrNormalization, err)
+			}
 			if err := badgerStore.PutKnowledgeObject(ctx, obj); err != nil {
 				return fmt.Errorf("%w: store object %s: %v", ErrNormalization, obj.ID, err)
 			}

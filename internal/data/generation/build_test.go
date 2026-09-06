@@ -353,3 +353,44 @@ func TestBuildDuplicateContentWithinOneGenerationCountsChunksOnce(t *testing.T) 
 		t.Errorf("manifest.ObjectsReused = %d, want 1 (the duplicate docs/README.md)", manifest.ObjectsReused)
 	}
 }
+
+// TestTrustClassForSourceType covers SEC-001's classification rules:
+// git/godoc sources derive directly from the package's own repository;
+// website/github-releases are registry-declared official sources; an
+// unrecognized (including empty, i.e. no registry match) source type
+// falls back to unknown rather than a zero value Validate() would reject.
+func TestTrustClassForSourceType(t *testing.T) {
+	cases := []struct {
+		sourceType string
+		want       domain.TrustClass
+	}{
+		{"git", domain.TrustRepository},
+		{"godoc", domain.TrustRepository},
+		{"website", domain.TrustOfficial},
+		{"github-releases", domain.TrustOfficial},
+		{"", domain.TrustUnknown},
+		{"something-unrecognized", domain.TrustUnknown},
+	}
+	for _, c := range cases {
+		if got := trustClassForSourceType(c.sourceType); got != c.want {
+			t.Errorf("trustClassForSourceType(%q) = %q, want %q", c.sourceType, got, c.want)
+		}
+	}
+}
+
+// TestAppendAttributedSetsTrustClassFromSourceType is the ticket's own
+// example case: an object derived from a registry git source gets
+// TrustRepository.
+func TestAppendAttributedSetsTrustClassFromSourceType(t *testing.T) {
+	dep := testDependency()
+	source := registry.Source{ID: "repository", Type: "git", URL: "https://example.com/repo", Authority: 100}
+	objs := []domain.KnowledgeObject{{ID: "obj_1", SourceURI: "https://example.com/repo/README.md"}}
+
+	got := appendAttributed(nil, dep, source, objs)
+	if len(got) != 1 {
+		t.Fatalf("appendAttributed returned %d objects, want 1", len(got))
+	}
+	if got[0].TrustClass != domain.TrustRepository {
+		t.Errorf("TrustClass = %q, want %q", got[0].TrustClass, domain.TrustRepository)
+	}
+}
