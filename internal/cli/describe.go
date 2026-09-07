@@ -9,7 +9,6 @@ import (
 	"io"
 	"os"
 	"sort"
-	"strings"
 	"text/tabwriter"
 	"time"
 
@@ -62,9 +61,20 @@ type PackageEntry struct {
 type SourceEntry struct {
 	ID         string            `json:"id"`
 	Type       string            `json:"type"`
-	URL        string            `json:"url"`
+	URL        string            `json:"url,omitempty"`
+	Module     string            `json:"module,omitempty"` // set instead of URL for type "godoc"
 	Authority  int               `json:"authority"`
 	TrustClass domain.TrustClass `json:"trust_class"`
+}
+
+// Location returns whichever of URL/Module this source actually has —
+// a "godoc" source has no URL of its own, it documents whatever Go
+// files show up in the package's git source worktree (see GEN-002).
+func (s SourceEntry) Location() string {
+	if s.URL != "" {
+		return s.URL
+	}
+	return s.Module
 }
 
 func newDescribeCmd() *cobra.Command {
@@ -73,15 +83,11 @@ func newDescribeCmd() *cobra.Command {
 	var jsonOut bool
 
 	cmd := &cobra.Command{
-		Use:   "describe [ecosystem/package]",
+		Use:   "describe [alias | ecosystem package]",
 		Short: "Describe what knowledge ragctl has: packages, sources, and how much content backs each",
-		Args:  cobra.MaximumNArgs(1),
+		Args:  cobra.MaximumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			var filter string
-			if len(args) == 1 {
-				filter = args[0]
-			}
-			return runDescribe(cmd, filter, htmlOut, outPath, jsonOut)
+			return runDescribe(cmd, args, htmlOut, outPath, jsonOut)
 		},
 	}
 	cmd.Flags().BoolVar(&htmlOut, "html", false, "write a static HTML report instead of printing text")
@@ -90,7 +96,19 @@ func newDescribeCmd() *cobra.Command {
 	return cmd
 }
 
-func runDescribe(cmd *cobra.Command, filter string, htmlOut bool, outPath string, jsonOut bool) error {
+// runDescribe interprets args per DESC-001's three forms:
+//   - none: fleet-wide, every (ecosystem, package) ragctl has been asked
+//     to reference.
+//   - one: a registry manifest alias (its metadata.name — the same short
+//     name every manifest already has, e.g. "badger") — resolved to
+//     every (ecosystem, package) pair that manifest's match declares.
+//   - two: an exact (ecosystem, package) pair, for cases with no
+//     registry manifest at all (an alias has nothing to resolve) or to
+//     disambiguate. Never one joined "<ecosystem>/<package>" string — a
+//     Go module path (e.g. github.com/dgraph-io/badger/v4) contains
+//     slashes itself, which made a single argument ambiguous for
+//     exactly the ecosystem most likely to need this command.
+func runDescribe(cmd *cobra.Command, args []string, htmlOut bool, outPath string, jsonOut bool) error {
 	ctx := context.Background()
 
 	store, err := openControlStore()
@@ -115,7 +133,18 @@ func runDescribe(cmd *cobra.Command, filter string, htmlOut bool, outPath string
 		return fmt.Errorf("load registry: %w", err)
 	}
 
-	report, err := buildReport(ctx, store, badgerStore, reg, backendName, filter)
+	var filterPairs []depPair
+	switch len(args) {
+	case 1:
+		filterPairs, err = aliasPairs(reg, args[0])
+		if err != nil {
+			return err
+		}
+	case 2:
+		filterPairs = []depPair{{ecosystem: domain.Ecosystem(args[0]), pkg: args[1]}}
+	}
+
+	report, err := buildReport(ctx, store, badgerStore, reg, backendName, filterPairs)
 	if err != nil {
 		return err
 	}
@@ -137,18 +166,35 @@ func runDescribe(cmd *cobra.Command, filter string, htmlOut bool, outPath string
 		fmt.Fprintf(cmd.OutOrStdout(), "wrote %s\n", outPath)
 		return nil
 	default:
-		printDescribeText(cmd, report, filter != "")
+		printDescribeText(cmd, report, len(filterPairs) > 0)
 		return nil
 	}
 }
 
-// buildReport gathers every describe row. filter, if non-empty, must be
-// "<ecosystem>/<package>" and scopes the report to that one pair;
-// otherwise every (ecosystem, package) pair ragctl has ever been asked
-// to reference (across every project) is included, per DESC-001's
-// design — this is "what's been asked for," not a dump of the entire
-// registry catalog (that's `ragctl registry list`).
-func buildReport(ctx context.Context, store *bboltstore.Store, badgerStore *badgerstore.Store, reg *registry.Registry, backendName, filter string) (Report, error) {
+// aliasPairs resolves a registry manifest's short name (metadata.name)
+// to every (ecosystem, package) pair its match declares — usually
+// exactly one, but a manifest may list several of either.
+func aliasPairs(reg *registry.Registry, alias string) ([]depPair, error) {
+	m, ok := reg.Manifest(alias)
+	if !ok {
+		return nil, fmt.Errorf("no registry manifest named %q — see `ragctl registry list` for available names, or use `ragctl describe <ecosystem> <package>`", alias)
+	}
+	var pairs []depPair
+	for _, eco := range m.Match.Ecosystems {
+		for _, pkg := range m.Match.Packages {
+			pairs = append(pairs, depPair{ecosystem: eco, pkg: pkg})
+		}
+	}
+	return pairs, nil
+}
+
+// buildReport gathers every describe row. filterPairs, if non-empty,
+// scopes the report to exactly those pairs; otherwise every (ecosystem,
+// package) pair ragctl has ever been asked to reference (across every
+// project) is included, per DESC-001's design — this is "what's been
+// asked for," not a dump of the entire registry catalog (that's
+// `ragctl registry list`).
+func buildReport(ctx context.Context, store *bboltstore.Store, badgerStore *badgerstore.Store, reg *registry.Registry, backendName string, filterPairs []depPair) (Report, error) {
 	report := Report{
 		GeneratedAt: time.Now(),
 		Registry: RegistrySummary{
@@ -157,14 +203,8 @@ func buildReport(ctx context.Context, store *bboltstore.Store, badgerStore *badg
 		},
 	}
 
-	var pairs []depPair
-	if filter != "" {
-		eco, pkg, err := parsePackageFilter(filter)
-		if err != nil {
-			return Report{}, err
-		}
-		pairs = []depPair{{ecosystem: eco, pkg: pkg}}
-	} else {
+	pairs := filterPairs
+	if len(pairs) == 0 {
 		refs, err := store.ListAllReferences(ctx)
 		if err != nil {
 			return Report{}, fmt.Errorf("list references: %w", err)
@@ -207,14 +247,6 @@ func distinctPairs(refs []domain.VersionReference) []depPair {
 	return pairs
 }
 
-func parsePackageFilter(filter string) (domain.Ecosystem, string, error) {
-	eco, pkg, ok := strings.Cut(filter, "/")
-	if !ok || eco == "" || pkg == "" {
-		return "", "", fmt.Errorf("invalid package filter %q, want \"<ecosystem>/<package>\"", filter)
-	}
-	return domain.Ecosystem(eco), pkg, nil
-}
-
 // buildPackageEntry assembles one PackageEntry. A package with no
 // registry match, or with a match but no active generation, is a normal
 // result here — not an error — since surfacing exactly that gap is
@@ -229,6 +261,7 @@ func buildPackageEntry(ctx context.Context, store *bboltstore.Store, badgerStore
 				ID:         s.ID,
 				Type:       s.Type,
 				URL:        s.URL,
+				Module:     s.Module,
 				Authority:  s.Authority,
 				TrustClass: generation.TrustClassForSourceType(s.Type),
 			})
@@ -310,7 +343,7 @@ func printPackageDetail(out io.Writer, p PackageEntry) {
 		fmt.Fprintln(out, "  no registry manifest")
 	}
 	for _, s := range p.Sources {
-		fmt.Fprintf(out, "  source %-12s type=%-16s authority=%-4d trust=%s\n  %s\n", s.ID, s.Type, s.Authority, s.TrustClass, s.URL)
+		fmt.Fprintf(out, "  source %-12s type=%-16s authority=%-4d trust=%s\n  %s\n", s.ID, s.Type, s.Authority, s.TrustClass, s.Location())
 	}
 	if p.ActiveVersion == "" {
 		fmt.Fprintln(out, "  never synced (no active generation)")
@@ -349,7 +382,7 @@ var describeHTMLTemplate = template.Must(template.New("describe").Parse(`<!docty
   <td>{{.Ecosystem}}</td>
   <td>{{.Package}}</td>
   <td>{{if .ActiveVersion}}{{.ActiveVersion}}{{else}}—{{end}}</td>
-  <td>{{if .ManifestMatch}}{{range .Sources}}<div class="trust-{{.TrustClass}}">{{.Type}} <code>{{.URL}}</code> (authority {{.Authority}}, {{.TrustClass}})</div>{{end}}{{else}}<span class="warn">no manifest</span>{{end}}</td>
+  <td>{{if .ManifestMatch}}{{range .Sources}}<div class="trust-{{.TrustClass}}">{{.Type}} <code>{{.Location}}</code> (authority {{.Authority}}, {{.TrustClass}})</div>{{end}}{{else}}<span class="warn">no manifest</span>{{end}}</td>
   <td>{{if .ChunkCount}}{{.ChunkCount}}{{else}}—{{end}}</td>
   <td>{{if .ReplicaStatus}}{{.ReplicaStatus}}{{else}}—{{end}}</td>
 </tr>{{end}}

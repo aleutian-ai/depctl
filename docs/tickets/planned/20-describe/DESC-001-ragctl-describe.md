@@ -95,3 +95,8 @@ Verified against this session's real 20-repo `ragctl-core-*` corpus (real bbolt/
 
 `TrustClassForSourceType` (SEC-001) was exported from `internal/data/generation` to `internal/cli` for reuse rather than duplicating the mapping — the ticket's simplicity constraint already called for reusing the declared mapping instead of measuring actual object trust classes from Badger.
 
+Two real usability issues found dogfooding this against the actual corpus, both fixed post-initial-implementation:
+
+1. The design's single `"<ecosystem>/<package>"` argument, split on the first `/`, silently produced the wrong pair for a Go module path (module paths contain slashes themselves — `go github.com/dgraph-io/badger/v4` split into ecosystem=`github.com`, package=`dgraph-io/badger/v4`, matching nothing). Fixed by making ecosystem and package two separate positional arguments (`ragctl describe <ecosystem> <package>`) — a single positional argument is never ambiguously parsed now, it's routed to alias resolution instead (below).
+2. Typing the full ecosystem+package pair was reported as a pain for routine use. Every registry manifest already has a short human name (`metadata.name`, e.g. `badger`) used nowhere else at query time — `ragctl describe <alias>` now resolves it via the registry's existing `Manifest(name)` lookup (no new concept, no new storage) to every `(ecosystem, package)` pair that manifest's `match` declares, falling back to the exact two-argument form for dependencies with no registry manifest at all (nothing to alias).
+

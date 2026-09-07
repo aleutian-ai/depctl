@@ -120,7 +120,7 @@ func TestBuildReportCoversActiveManifestOnlyAndUnmappedPackages(t *testing.T) {
 		t.Fatalf("AddReference pkg-unmapped: %v", err)
 	}
 
-	report, err := buildReport(ctx, store, badgerStore, reg, "qdrant", "")
+	report, err := buildReport(ctx, store, badgerStore, reg, "qdrant", nil)
 	if err != nil {
 		t.Fatalf("buildReport: %v", err)
 	}
@@ -176,7 +176,7 @@ func TestBuildReportFilterScopesToOnePackage(t *testing.T) {
 	reg := describeTestRegistry(t, "pkg-active")
 	seedActiveGeneration(t, store, badgerStore, domain.EcosystemNode, "pkg-active", "1.0.0", 7)
 
-	report, err := buildReport(ctx, store, badgerStore, reg, "qdrant", "node/pkg-active")
+	report, err := buildReport(ctx, store, badgerStore, reg, "qdrant", []depPair{{ecosystem: domain.EcosystemNode, pkg: "pkg-active"}})
 	if err != nil {
 		t.Fatalf("buildReport: %v", err)
 	}
@@ -185,9 +185,55 @@ func TestBuildReportFilterScopesToOnePackage(t *testing.T) {
 	}
 }
 
-func TestParsePackageFilterRejectsMissingSlash(t *testing.T) {
-	if _, _, err := parsePackageFilter("no-slash-here"); err == nil {
-		t.Error("parsePackageFilter(no slash) = nil error, want error")
+// TestAliasPairsResolvesManifestName covers the short-alias UX: a single
+// positional argument is looked up as a registry manifest's own
+// metadata.name (every manifest already has one) rather than requiring
+// the full "<ecosystem> <package>" pair to be typed out — this is also
+// what avoids the real bug a single joined "<ecosystem>/<package>"
+// string had: a Go module path (e.g. github.com/dgraph-io/badger/v4)
+// contains slashes itself, so guessing at a split was never safe;
+// resolving through the registry's own name index sidesteps that
+// entirely.
+func TestAliasPairsResolvesManifestName(t *testing.T) {
+	reg := describeTestRegistry(t, "pkg-active")
+
+	pairs, err := aliasPairs(reg, "pkg-active")
+	if err != nil {
+		t.Fatalf("aliasPairs: %v", err)
+	}
+	want := []depPair{{ecosystem: domain.EcosystemNode, pkg: "pkg-active"}}
+	if len(pairs) != 1 || pairs[0] != want[0] {
+		t.Errorf("aliasPairs(pkg-active) = %+v, want %+v", pairs, want)
+	}
+}
+
+func TestAliasPairsUnknownNameReturnsClearError(t *testing.T) {
+	reg := describeTestRegistry(t, "pkg-active")
+	if _, err := aliasPairs(reg, "does-not-exist"); err == nil {
+		t.Error("aliasPairs(unknown) = nil error, want error")
+	}
+}
+
+func TestDescribeAliasAndExactPairAgree(t *testing.T) {
+	ctx := context.Background()
+	store, badgerStore := describeTestStores(t)
+	reg := describeTestRegistry(t, "pkg-active")
+	seedActiveGeneration(t, store, badgerStore, domain.EcosystemNode, "pkg-active", "1.0.0", 9)
+
+	byAlias, err := aliasPairs(reg, "pkg-active")
+	if err != nil {
+		t.Fatalf("aliasPairs: %v", err)
+	}
+	viaAlias, err := buildReport(ctx, store, badgerStore, reg, "qdrant", byAlias)
+	if err != nil {
+		t.Fatalf("buildReport via alias: %v", err)
+	}
+	viaExact, err := buildReport(ctx, store, badgerStore, reg, "qdrant", []depPair{{ecosystem: domain.EcosystemNode, pkg: "pkg-active"}})
+	if err != nil {
+		t.Fatalf("buildReport via exact pair: %v", err)
+	}
+	if len(viaAlias.Packages) != 1 || len(viaExact.Packages) != 1 || viaAlias.Packages[0].ChunkCount != viaExact.Packages[0].ChunkCount {
+		t.Errorf("alias and exact-pair reports disagree: %+v vs %+v", viaAlias.Packages, viaExact.Packages)
 	}
 }
 
@@ -200,7 +246,7 @@ func TestReportJSONRoundTrips(t *testing.T) {
 		t.Fatalf("AddReference: %v", err)
 	}
 
-	report, err := buildReport(ctx, store, badgerStore, reg, "qdrant", "")
+	report, err := buildReport(ctx, store, badgerStore, reg, "qdrant", nil)
 	if err != nil {
 		t.Fatalf("buildReport: %v", err)
 	}
