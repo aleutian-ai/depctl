@@ -116,6 +116,20 @@ type Status struct {
 	TotalDependencies       int
 	WithActiveGeneration    int
 	WithoutActiveGeneration int
+	// Projects lists every registered project's real ID (what
+	// project_id must actually be, e.g. "proj_...") alongside its root
+	// path — an agent otherwise has no way to discover a project's ID
+	// from its filesystem path, since MCP tools take the ID, not the
+	// path a user would naturally type or an agent would infer from cwd.
+	Projects []ProjectRef
+}
+
+// ProjectRef is a registered project's ID and root path — the minimum
+// an MCP caller needs to resolve "the project I'm in" to a usable
+// project_id for every other tool.
+type ProjectRef struct {
+	ID   string
+	Root string
 }
 
 // DataStore is the narrow slice of *badger.Store this package needs.

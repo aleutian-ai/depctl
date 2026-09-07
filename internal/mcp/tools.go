@@ -34,7 +34,7 @@ func registerTools(sdk *sdkmcp.Server, deps Deps) {
 
 	sdkmcp.AddTool(sdk, &sdkmcp.Tool{
 		Name:        "knowledge_status",
-		Description: "Summarize how much of the registered fleet's dependencies have synced knowledge available.",
+		Description: "Summarize how much of the registered fleet's dependencies have synced knowledge available, and list every registered project with its real project_id. Call this first if you don't already know the current project's project_id — every other tool requires the exact ID (e.g. \"proj_...\"), not a directory name or path.",
 	}, knowledgeStatusHandler(deps.Query))
 
 	sdkmcp.AddTool(sdk, &sdkmcp.Tool{
@@ -195,12 +195,18 @@ func getReleaseChangesHandler(svc *query.Service) sdkmcp.ToolHandlerFor[GetRelea
 
 type KnowledgeStatusIn struct{}
 
+type ProjectRefOut struct {
+	ProjectID string `json:"project_id"`
+	Root      string `json:"root"`
+}
+
 type KnowledgeStatusOut struct {
-	TotalProjects           int    `json:"total_projects"`
-	TotalDependencies       int    `json:"total_dependencies"`
-	WithActiveGeneration    int    `json:"with_active_generation"`
-	WithoutActiveGeneration int    `json:"without_active_generation"`
-	Note                    string `json:"note"`
+	TotalProjects           int             `json:"total_projects"`
+	TotalDependencies       int             `json:"total_dependencies"`
+	WithActiveGeneration    int             `json:"with_active_generation"`
+	WithoutActiveGeneration int             `json:"without_active_generation"`
+	Projects                []ProjectRefOut `json:"projects"`
+	Note                    string          `json:"note"`
 }
 
 func knowledgeStatusHandler(svc *query.Service) sdkmcp.ToolHandlerFor[KnowledgeStatusIn, KnowledgeStatusOut] {
@@ -209,10 +215,16 @@ func knowledgeStatusHandler(svc *query.Service) sdkmcp.ToolHandlerFor[KnowledgeS
 		if err != nil {
 			return nil, KnowledgeStatusOut{}, toolError(err)
 		}
+		var projects []ProjectRefOut
+		for _, p := range status.Projects {
+			projects = append(projects, ProjectRefOut{ProjectID: p.ID, Root: p.Root})
+		}
 		return nil, KnowledgeStatusOut{
 			TotalProjects: status.TotalProjects, TotalDependencies: status.TotalDependencies,
 			WithActiveGeneration: status.WithActiveGeneration, WithoutActiveGeneration: status.WithoutActiveGeneration,
-			Note: securityNote,
+			Projects: projects,
+			Note: securityNote + ". project_id here is the exact value every other tool's project_id argument requires — " +
+				"resolve your project by matching \"root\" against the current working directory, not by guessing an ID from the directory name.",
 		}, nil
 	}
 }

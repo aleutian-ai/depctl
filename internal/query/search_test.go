@@ -373,4 +373,12 @@ func TestStatusTalliesActiveAndPendingGenerations(t *testing.T) {
 	if status.WithActiveGeneration != 1 || status.WithoutActiveGeneration != 1 {
 		t.Errorf("WithActiveGeneration=%d WithoutActiveGeneration=%d, want 1 and 1", status.WithActiveGeneration, status.WithoutActiveGeneration)
 	}
+
+	byID := map[string]string{}
+	for _, p := range status.Projects {
+		byID[p.ID] = p.Root
+	}
+	if byID["proj_1"] != "/repo1" || byID["proj_2"] != "/repo2" {
+		t.Errorf("Projects = %+v, want proj_1->/repo1 and proj_2->/repo2 (both listed even though proj_2 is unresolved)", status.Projects)
+	}
 }

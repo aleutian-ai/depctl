@@ -19,6 +19,7 @@ func (s *Service) Status(ctx context.Context) (Status, error) {
 
 	status := Status{TotalProjects: len(projects)}
 	for _, p := range projects {
+		status.Projects = append(status.Projects, ProjectRef{ID: p.ID, Root: p.Root})
 		resolution, err := s.control.GetResolution(ctx, p.ID)
 		if err != nil {
 			continue // not yet resolved — nothing to tally for this project

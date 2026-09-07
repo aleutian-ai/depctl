@@ -248,6 +248,9 @@ func TestKnowledgeStatusHandler(t *testing.T) {
 	if out.TotalProjects != 1 || out.WithActiveGeneration != 1 {
 		t.Errorf("out = %+v, unexpected", out)
 	}
+	if len(out.Projects) != 1 || out.Projects[0].ProjectID != "proj_1" || out.Projects[0].Root != "/repo" {
+		t.Errorf("Projects = %+v, want [{proj_1 /repo}] — this is what an agent needs to resolve a real project_id from a directory path", out.Projects)
+	}
 }
 
 func TestSyncProjectHandlerDisabledByDefault(t *testing.T) {
