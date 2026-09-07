@@ -44,14 +44,24 @@ type PackageEntry struct {
 	Ecosystem     domain.Ecosystem `json:"ecosystem"`
 	Package       string           `json:"package"`
 	ManifestMatch bool             `json:"manifest_match"`
-	Sources       []SourceEntry    `json:"sources,omitempty"`
-	ActiveVersion string           `json:"active_version,omitempty"`
-	GenerationID  string           `json:"generation_id,omitempty"`
-	ChunkCount    int              `json:"chunk_count,omitempty"`
-	ObjectCount   int              `json:"object_count,omitempty"`
-	ObjectsReused int              `json:"objects_reused,omitempty"`
-	ReplicaStatus string           `json:"replica_status,omitempty"`
-	ReplicaPoints int              `json:"replica_points,omitempty"`
+	// Alias is the matched manifest's metadata.name — what
+	// `ragctl describe <alias>` resolves back to this row — empty when
+	// ManifestMatch is false. Manifest names are already unique within
+	// one loaded registry (REG-002's loader dedupes by name, last
+	// source wins), but nothing stops two DIFFERENT names from looking
+	// similar (a locally-added "bbolt" versus the built-in manifest for
+	// the real go.etcd.io/bbolt are both valid, distinct names) — showing
+	// the exact alias here is what lets a person notice that before
+	// guessing wrong.
+	Alias         string        `json:"alias,omitempty"`
+	Sources       []SourceEntry `json:"sources,omitempty"`
+	ActiveVersion string        `json:"active_version,omitempty"`
+	GenerationID  string        `json:"generation_id,omitempty"`
+	ChunkCount    int           `json:"chunk_count,omitempty"`
+	ObjectCount   int           `json:"object_count,omitempty"`
+	ObjectsReused int           `json:"objects_reused,omitempty"`
+	ReplicaStatus string        `json:"replica_status,omitempty"`
+	ReplicaPoints int           `json:"replica_points,omitempty"`
 }
 
 // SourceEntry is one registry-declared source, with the TrustClass its
@@ -256,6 +266,7 @@ func buildPackageEntry(ctx context.Context, store *bboltstore.Store, badgerStore
 
 	if manifest, ok := reg.Match(eco, pkg); ok {
 		entry.ManifestMatch = true
+		entry.Alias = manifest.Metadata.Name
 		for _, s := range manifest.Sources {
 			entry.Sources = append(entry.Sources, SourceEntry{
 				ID:         s.ID,
@@ -314,7 +325,7 @@ func printDescribeText(cmd *cobra.Command, report Report, drillDown bool) {
 	}
 
 	tw := tabwriter.NewWriter(out, 0, 2, 2, ' ', 0)
-	fmt.Fprintln(tw, "ECOSYSTEM\tPACKAGE\tACTIVE VERSION\tSOURCES\tCHUNKS\tREPLICA")
+	fmt.Fprintln(tw, "ECOSYSTEM\tPACKAGE\tALIAS\tACTIVE VERSION\tSOURCES\tCHUNKS\tREPLICA")
 	for _, p := range report.Packages {
 		version := p.ActiveVersion
 		if version == "" {
@@ -324,6 +335,10 @@ func printDescribeText(cmd *cobra.Command, report Report, drillDown bool) {
 		if !p.ManifestMatch {
 			sources = "no manifest"
 		}
+		alias := p.Alias
+		if alias == "" {
+			alias = "-"
+		}
 		chunks := "-"
 		if p.ChunkCount > 0 {
 			chunks = fmt.Sprintf("%d", p.ChunkCount)
@@ -332,7 +347,7 @@ func printDescribeText(cmd *cobra.Command, report Report, drillDown bool) {
 		if replica == "" {
 			replica = "-"
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", p.Ecosystem, p.Package, version, sources, chunks, replica)
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", p.Ecosystem, p.Package, alias, version, sources, chunks, replica)
 	}
 	tw.Flush()
 }
@@ -341,6 +356,8 @@ func printPackageDetail(out io.Writer, p PackageEntry) {
 	fmt.Fprintf(out, "%s/%s\n", p.Ecosystem, p.Package)
 	if !p.ManifestMatch {
 		fmt.Fprintln(out, "  no registry manifest")
+	} else {
+		fmt.Fprintf(out, "  alias: %s\n", p.Alias)
 	}
 	for _, s := range p.Sources {
 		fmt.Fprintf(out, "  source %-12s type=%-16s authority=%-4d trust=%s\n  %s\n", s.ID, s.Type, s.Authority, s.TrustClass, s.Location())
@@ -377,10 +394,11 @@ var describeHTMLTemplate = template.Must(template.New("describe").Parse(`<!docty
 <p>{{.Registry.ManifestCount}} manifest(s) loaded{{if .Registry.Warnings}}, {{len .Registry.Warnings}} warning(s){{end}}</p>
 {{range .Registry.Warnings}}<p class="warn">! {{.}}</p>{{end}}
 <table>
-<tr><th>Ecosystem</th><th>Package</th><th>Active version</th><th>Sources</th><th>Chunks</th><th>Replica</th></tr>
+<tr><th>Ecosystem</th><th>Package</th><th>Alias</th><th>Active version</th><th>Sources</th><th>Chunks</th><th>Replica</th></tr>
 {{range .Packages}}<tr>
   <td>{{.Ecosystem}}</td>
   <td>{{.Package}}</td>
+  <td>{{if .Alias}}<code>{{.Alias}}</code>{{else}}—{{end}}</td>
   <td>{{if .ActiveVersion}}{{.ActiveVersion}}{{else}}—{{end}}</td>
   <td>{{if .ManifestMatch}}{{range .Sources}}<div class="trust-{{.TrustClass}}">{{.Type}} <code>{{.Location}}</code> (authority {{.Authority}}, {{.TrustClass}})</div>{{end}}{{else}}<span class="warn">no manifest</span>{{end}}</td>
   <td>{{if .ChunkCount}}{{.ChunkCount}}{{else}}—{{end}}</td>

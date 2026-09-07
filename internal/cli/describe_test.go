@@ -137,6 +137,9 @@ func TestBuildReportCoversActiveManifestOnlyAndUnmappedPackages(t *testing.T) {
 	if !active.ManifestMatch {
 		t.Error("pkg-active: ManifestMatch = false, want true")
 	}
+	if active.Alias != "pkg-active" {
+		t.Errorf("pkg-active: Alias = %q, want \"pkg-active\"", active.Alias)
+	}
 	if active.ActiveVersion != "1.0.0" {
 		t.Errorf("pkg-active: ActiveVersion = %q, want 1.0.0", active.ActiveVersion)
 	}
@@ -167,6 +170,9 @@ func TestBuildReportCoversActiveManifestOnlyAndUnmappedPackages(t *testing.T) {
 	}
 	if len(unmapped.Sources) != 0 {
 		t.Errorf("pkg-unmapped: Sources = %+v, want empty", unmapped.Sources)
+	}
+	if unmapped.Alias != "" {
+		t.Errorf("pkg-unmapped: Alias = %q, want empty (no registry entry to name it)", unmapped.Alias)
 	}
 }
 
