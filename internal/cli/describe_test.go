@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -120,7 +122,7 @@ func TestBuildReportCoversActiveManifestOnlyAndUnmappedPackages(t *testing.T) {
 		t.Fatalf("AddReference pkg-unmapped: %v", err)
 	}
 
-	report, err := buildReport(ctx, store, badgerStore, reg, "qdrant", nil)
+	report, err := buildReport(ctx, store, badgerStore, reg, "qdrant", nil, false)
 	if err != nil {
 		t.Fatalf("buildReport: %v", err)
 	}
@@ -182,7 +184,7 @@ func TestBuildReportFilterScopesToOnePackage(t *testing.T) {
 	reg := describeTestRegistry(t, "pkg-active")
 	seedActiveGeneration(t, store, badgerStore, domain.EcosystemNode, "pkg-active", "1.0.0", 7)
 
-	report, err := buildReport(ctx, store, badgerStore, reg, "qdrant", []depPair{{ecosystem: domain.EcosystemNode, pkg: "pkg-active"}})
+	report, err := buildReport(ctx, store, badgerStore, reg, "qdrant", []depPair{{ecosystem: domain.EcosystemNode, pkg: "pkg-active"}}, false)
 	if err != nil {
 		t.Fatalf("buildReport: %v", err)
 	}
@@ -230,11 +232,11 @@ func TestDescribeAliasAndExactPairAgree(t *testing.T) {
 	if err != nil {
 		t.Fatalf("aliasPairs: %v", err)
 	}
-	viaAlias, err := buildReport(ctx, store, badgerStore, reg, "qdrant", byAlias)
+	viaAlias, err := buildReport(ctx, store, badgerStore, reg, "qdrant", byAlias, false)
 	if err != nil {
 		t.Fatalf("buildReport via alias: %v", err)
 	}
-	viaExact, err := buildReport(ctx, store, badgerStore, reg, "qdrant", []depPair{{ecosystem: domain.EcosystemNode, pkg: "pkg-active"}})
+	viaExact, err := buildReport(ctx, store, badgerStore, reg, "qdrant", []depPair{{ecosystem: domain.EcosystemNode, pkg: "pkg-active"}}, false)
 	if err != nil {
 		t.Fatalf("buildReport via exact pair: %v", err)
 	}
@@ -252,7 +254,7 @@ func TestReportJSONRoundTrips(t *testing.T) {
 		t.Fatalf("AddReference: %v", err)
 	}
 
-	report, err := buildReport(ctx, store, badgerStore, reg, "qdrant", nil)
+	report, err := buildReport(ctx, store, badgerStore, reg, "qdrant", nil, false)
 	if err != nil {
 		t.Fatalf("buildReport: %v", err)
 	}
@@ -298,5 +300,52 @@ func TestDescribeHTMLIsWellFormedAndContainsPackageNames(t *testing.T) {
 		if !strings.Contains(out, name) {
 			t.Errorf("HTML output missing package name %q", name)
 		}
+	}
+}
+
+// TestBuildPackageEntryChecksLivenessWhenRequested covers DESC-ADV-001:
+// --check-liveness annotates each source with a real reachability
+// result; without it, Liveness stays nil (no network call at all,
+// verified by the other tests in this file never passing true).
+func TestBuildPackageEntryChecksLivenessWhenRequested(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	dir := t.TempDir()
+	manifestYAML := fmt.Sprintf(`apiVersion: ragctl.dev/v1alpha1
+kind: KnowledgePackage
+metadata:
+  name: pkg-live
+match:
+  ecosystems: [node]
+  packages: [pkg-live]
+version:
+  strategy: none
+sources:
+  - id: docs
+    type: website
+    url: %s
+    authority: 100
+`, srv.URL)
+	if err := os.WriteFile(filepath.Join(dir, "pkg-live.yaml"), []byte(manifestYAML), 0o644); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+	reg, err := registry.NewLoader(dir, "").Load(context.Background())
+	if err != nil {
+		t.Fatalf("load registry: %v", err)
+	}
+
+	store, badgerStore := describeTestStores(t)
+	entry, err := buildPackageEntry(context.Background(), store, badgerStore, reg, "qdrant", domain.EcosystemNode, "pkg-live", true)
+	if err != nil {
+		t.Fatalf("buildPackageEntry: %v", err)
+	}
+	if len(entry.Sources) != 1 || entry.Sources[0].Liveness == nil {
+		t.Fatalf("Sources = %+v, want one source with Liveness populated", entry.Sources)
+	}
+	if !entry.Sources[0].Liveness.Reachable {
+		t.Errorf("Liveness.Reachable = false, want true; Error = %s", entry.Sources[0].Liveness.Error)
 	}
 }

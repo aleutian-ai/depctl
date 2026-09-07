@@ -75,6 +75,9 @@ type SourceEntry struct {
 	Module     string            `json:"module,omitempty"` // set instead of URL for type "godoc"
 	Authority  int               `json:"authority"`
 	TrustClass domain.TrustClass `json:"trust_class"`
+	// Liveness is set only when --check-liveness is passed (DESC-ADV-001)
+	// — a real network/git call per source, so never populated otherwise.
+	Liveness *registry.LivenessResult `json:"liveness,omitempty"`
 }
 
 // Location returns whichever of URL/Module this source actually has —
@@ -91,18 +94,20 @@ func newDescribeCmd() *cobra.Command {
 	var htmlOut bool
 	var outPath string
 	var jsonOut bool
+	var checkLiveness bool
 
 	cmd := &cobra.Command{
 		Use:   "describe [alias | ecosystem package]",
 		Short: "Describe what knowledge ragctl has: packages, sources, and how much content backs each",
 		Args:  cobra.MaximumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runDescribe(cmd, args, htmlOut, outPath, jsonOut)
+			return runDescribe(cmd, args, htmlOut, outPath, jsonOut, checkLiveness)
 		},
 	}
 	cmd.Flags().BoolVar(&htmlOut, "html", false, "write a static HTML report instead of printing text")
 	cmd.Flags().StringVar(&outPath, "out", "ragctl-describe.html", "output path for --html")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "print the report as JSON")
+	cmd.Flags().BoolVar(&checkLiveness, "check-liveness", false, "probe each declared source's reachability (real network/git calls, opt-in)")
 	return cmd
 }
 
@@ -118,7 +123,7 @@ func newDescribeCmd() *cobra.Command {
 //     Go module path (e.g. github.com/dgraph-io/badger/v4) contains
 //     slashes itself, which made a single argument ambiguous for
 //     exactly the ecosystem most likely to need this command.
-func runDescribe(cmd *cobra.Command, args []string, htmlOut bool, outPath string, jsonOut bool) error {
+func runDescribe(cmd *cobra.Command, args []string, htmlOut bool, outPath string, jsonOut, checkLiveness bool) error {
 	ctx := context.Background()
 
 	store, err := openControlStore()
@@ -154,7 +159,7 @@ func runDescribe(cmd *cobra.Command, args []string, htmlOut bool, outPath string
 		filterPairs = []depPair{{ecosystem: domain.Ecosystem(args[0]), pkg: args[1]}}
 	}
 
-	report, err := buildReport(ctx, store, badgerStore, reg, backendName, filterPairs)
+	report, err := buildReport(ctx, store, badgerStore, reg, backendName, filterPairs, checkLiveness)
 	if err != nil {
 		return err
 	}
@@ -204,7 +209,7 @@ func aliasPairs(reg *registry.Registry, alias string) ([]depPair, error) {
 // project) is included, per DESC-001's design — this is "what's been
 // asked for," not a dump of the entire registry catalog (that's
 // `ragctl registry list`).
-func buildReport(ctx context.Context, store *bboltstore.Store, badgerStore *badgerstore.Store, reg *registry.Registry, backendName string, filterPairs []depPair) (Report, error) {
+func buildReport(ctx context.Context, store *bboltstore.Store, badgerStore *badgerstore.Store, reg *registry.Registry, backendName string, filterPairs []depPair, checkLiveness bool) (Report, error) {
 	report := Report{
 		GeneratedAt: time.Now(),
 		Registry: RegistrySummary{
@@ -223,7 +228,7 @@ func buildReport(ctx context.Context, store *bboltstore.Store, badgerStore *badg
 	}
 
 	for _, p := range pairs {
-		entry, err := buildPackageEntry(ctx, store, badgerStore, reg, backendName, p.ecosystem, p.pkg)
+		entry, err := buildPackageEntry(ctx, store, badgerStore, reg, backendName, p.ecosystem, p.pkg, checkLiveness)
 		if err != nil {
 			return Report{}, err
 		}
@@ -261,21 +266,26 @@ func distinctPairs(refs []domain.VersionReference) []depPair {
 // registry match, or with a match but no active generation, is a normal
 // result here — not an error — since surfacing exactly that gap is
 // describe's reason to exist.
-func buildPackageEntry(ctx context.Context, store *bboltstore.Store, badgerStore *badgerstore.Store, reg *registry.Registry, backendName string, eco domain.Ecosystem, pkg string) (PackageEntry, error) {
+func buildPackageEntry(ctx context.Context, store *bboltstore.Store, badgerStore *badgerstore.Store, reg *registry.Registry, backendName string, eco domain.Ecosystem, pkg string, checkLiveness bool) (PackageEntry, error) {
 	entry := PackageEntry{Ecosystem: eco, Package: pkg}
 
 	if manifest, ok := reg.Match(eco, pkg); ok {
 		entry.ManifestMatch = true
 		entry.Alias = manifest.Metadata.Name
 		for _, s := range manifest.Sources {
-			entry.Sources = append(entry.Sources, SourceEntry{
+			se := SourceEntry{
 				ID:         s.ID,
 				Type:       s.Type,
 				URL:        s.URL,
 				Module:     s.Module,
 				Authority:  s.Authority,
 				TrustClass: generation.TrustClassForSourceType(s.Type),
-			})
+			}
+			if checkLiveness {
+				result := registry.CheckLiveness(ctx, s)
+				se.Liveness = &result
+			}
+			entry.Sources = append(entry.Sources, se)
 		}
 	}
 
@@ -361,6 +371,13 @@ func printPackageDetail(out io.Writer, p PackageEntry) {
 	}
 	for _, s := range p.Sources {
 		fmt.Fprintf(out, "  source %-12s type=%-16s authority=%-4d trust=%s\n  %s\n", s.ID, s.Type, s.Authority, s.TrustClass, s.Location())
+		if s.Liveness != nil {
+			status := "reachable"
+			if !s.Liveness.Reachable {
+				status = "UNREACHABLE: " + s.Liveness.Error
+			}
+			fmt.Fprintf(out, "  liveness: %s\n", status)
+		}
 	}
 	if p.ActiveVersion == "" {
 		fmt.Fprintln(out, "  never synced (no active generation)")
@@ -400,7 +417,7 @@ var describeHTMLTemplate = template.Must(template.New("describe").Parse(`<!docty
   <td>{{.Package}}</td>
   <td>{{if .Alias}}<code>{{.Alias}}</code>{{else}}—{{end}}</td>
   <td>{{if .ActiveVersion}}{{.ActiveVersion}}{{else}}—{{end}}</td>
-  <td>{{if .ManifestMatch}}{{range .Sources}}<div class="trust-{{.TrustClass}}">{{.Type}} <code>{{.Location}}</code> (authority {{.Authority}}, {{.TrustClass}})</div>{{end}}{{else}}<span class="warn">no manifest</span>{{end}}</td>
+  <td>{{if .ManifestMatch}}{{range .Sources}}<div class="trust-{{.TrustClass}}">{{.Type}} <code>{{.Location}}</code> (authority {{.Authority}}, {{.TrustClass}}){{if .Liveness}}{{if .Liveness.Reachable}} — reachable{{else}} — <span class="warn">unreachable</span>{{end}}{{end}}</div>{{end}}{{else}}<span class="warn">no manifest</span>{{end}}</td>
   <td>{{if .ChunkCount}}{{.ChunkCount}}{{else}}—{{end}}</td>
   <td>{{if .ReplicaStatus}}{{.ReplicaStatus}}{{else}}—{{end}}</td>
 </tr>{{end}}
