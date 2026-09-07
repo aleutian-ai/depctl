@@ -47,6 +47,10 @@ func Discover(ctx context.Context, ecosystem domain.Ecosystem, pkg string) ([]re
 - Output YAML round-trips through `registry.ParseManifest`.
 
 ## Acceptance criteria
-- [ ] `ragctl registry discover <ecosystem>/<package>` implemented for Node and Python.
-- [ ] Output is a draft manifest in REG-001's exact schema, never auto-written to a loaded registry directory.
-- [ ] No network call happens except when this command is explicitly invoked.
+- [x] `ragctl registry discover <ecosystem> <package>` implemented for Node and Python.
+- [x] Output is a draft manifest in REG-001's exact schema, never auto-written to a loaded registry directory.
+- [x] No network call happens except when this command is explicitly invoked.
+
+## Post-implementation note
+CLI shape is two positional arguments (`<ecosystem> <package>`), not a single `<ecosystem>/<package>` string — same reasoning as `ragctl describe`'s own fix earlier this session (a package identifier can contain slashes). Verified against the real npm and PyPI registries (`express`, `requests`), and the draft manifest round-trips through `registry.ParseManifest` (its own real schema validator), not just checked for well-formed YAML.
+

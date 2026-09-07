@@ -6,8 +6,11 @@ import (
 	"sort"
 
 	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
 
+	"aleutian-ai/ragctl/internal/domain"
 	"aleutian-ai/ragctl/internal/registry"
+	"aleutian-ai/ragctl/internal/registry/discover"
 )
 
 func newRegistryCmd() *cobra.Command {
@@ -24,7 +27,42 @@ func newRegistryCmd() *cobra.Command {
 		},
 	})
 
+	registryCmd.AddCommand(&cobra.Command{
+		Use:   "discover <ecosystem> <package>",
+		Short: "Propose candidate knowledge sources from the package's own ecosystem metadata (draft only, never applied)",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runRegistryDiscover(cmd, domain.Ecosystem(args[0]), args[1])
+		},
+	})
+
 	return registryCmd
+}
+
+func runRegistryDiscover(cmd *cobra.Command, ecosystem domain.Ecosystem, pkg string) error {
+	sources, err := discover.Discover(context.Background(), ecosystem, pkg)
+	if err != nil {
+		return err
+	}
+	if len(sources) == 0 {
+		fmt.Fprintf(cmd.OutOrStdout(), "no candidate sources found in %s metadata for %s\n", ecosystem, pkg)
+		return nil
+	}
+
+	draft := registry.Manifest{
+		APIVersion: "ragctl.dev/v1alpha1",
+		Kind:       "KnowledgePackage",
+		Metadata:   registry.Metadata{Name: pkg},
+		Match:      registry.Match{Ecosystems: []domain.Ecosystem{ecosystem}, Packages: []string{pkg}},
+		Version:    registry.VersionStrategy{Strategy: "none"},
+		Sources:    sources,
+	}
+	data, err := yaml.Marshal(draft)
+	if err != nil {
+		return fmt.Errorf("render draft manifest: %w", err)
+	}
+	fmt.Fprint(cmd.OutOrStdout(), string(data))
+	return nil
 }
 
 func runRegistryList(cmd *cobra.Command) error {
