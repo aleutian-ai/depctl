@@ -372,8 +372,8 @@ func TestTrustClassForSourceType(t *testing.T) {
 		{"something-unrecognized", domain.TrustUnknown},
 	}
 	for _, c := range cases {
-		if got := trustClassForSourceType(c.sourceType); got != c.want {
-			t.Errorf("trustClassForSourceType(%q) = %q, want %q", c.sourceType, got, c.want)
+		if got := TrustClassForSourceType(c.sourceType); got != c.want {
+			t.Errorf("TrustClassForSourceType(%q) = %q, want %q", c.sourceType, got, c.want)
 		}
 	}
 }

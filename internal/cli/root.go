@@ -23,6 +23,7 @@ func NewRootCmd() *cobra.Command {
 		newScanCmd(),
 		newProjectCmd(),
 		newDepsCmd(),
+		newDescribeCmd(),
 		newPlanCmd(),
 		newSyncCmd(),
 		notImplementedCmd("status", "Show system status"),
