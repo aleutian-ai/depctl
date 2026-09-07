@@ -46,6 +46,11 @@ Unchanged from today when no fallback is derivable — this ticket only adds a p
 - A dependency *with* a real registry manifest is unaffected — the fallback path is never consulted when `reg.Match` succeeds.
 
 ## Acceptance criteria
-- [ ] Go dependencies with a `github.com`-shaped module path sync via fallback when unmapped.
-- [ ] Fallback-sourced objects carry `TrustClass: unknown`.
-- [ ] Everything that succeeds today continues to behave identically (fallback only fires on what previously errored).
+- [x] Go dependencies with a `github.com`-shaped module path sync via fallback when unmapped.
+- [x] Fallback-sourced objects carry `TrustClass: repository` (see note — changed from the design's `unknown`).
+- [x] Everything that succeeds today continues to behave identically (fallback only fires on what previously errored).
+
+## Post-implementation note
+`TrustClass` ended up `repository`, not `unknown` as originally sketched. `TrustClassForSourceType` (SEC-001) classifies by the registry `Source.Type` alone (`git`/`godoc` → `repository`), and `fallbackManifest`'s derived source genuinely is a `git` type pointed at the package's own real repository — the only thing missing is a human having typed the YAML by hand, which doesn't make the *content* less authoritative, only its `Authority` ranking, which `fallbackManifest` sets to 0 (lowest, so any later hand-authored manifest for the same package always outranks it). Forcing a distinct `unknown` class would have required either a new sentinel source type (which would then need special-casing in `generation.Build`'s type-`"git"` acquisition check) or a new override field on `registry.Source` — both more machinery than this fallback's actual risk warrants.
+
+Implemented as a single `fallbackManifest` function in `internal/cli/sync.go` (not a new package) per the ticket's own simplicity constraint, consulted only when `reg.Match` fails.

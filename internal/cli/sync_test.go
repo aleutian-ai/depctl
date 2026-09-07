@@ -206,3 +206,32 @@ func TestSyncDependencyFilter(t *testing.T) {
 		t.Errorf("--dependency filter should have excluded example.com/foo:\n%s", out.String())
 	}
 }
+
+// TestFallbackManifestDerivesGithubURL covers REG-005: a Go dependency
+// shaped like a direct github.com/<org>/<repo> import derives a
+// single-source manifest instead of hitting the "no registry manifest"
+// error a genuinely unmapped package still gets.
+func TestFallbackManifestDerivesGithubURL(t *testing.T) {
+	dep := domain.Dependency{Ecosystem: domain.EcosystemGo, Name: "github.com/dgraph-io/badger/v4"}
+	m, ok := fallbackManifest(dep)
+	if !ok {
+		t.Fatal("fallbackManifest = false, want true for a github.com module path")
+	}
+	if len(m.Sources) != 1 || m.Sources[0].URL != "https://github.com/dgraph-io/badger" {
+		t.Errorf("Sources = %+v, want one source at https://github.com/dgraph-io/badger", m.Sources)
+	}
+}
+
+func TestFallbackManifestRejectsVanityImportPath(t *testing.T) {
+	dep := domain.Dependency{Ecosystem: domain.EcosystemGo, Name: "google.golang.org/grpc"}
+	if _, ok := fallbackManifest(dep); ok {
+		t.Error("fallbackManifest = true for a vanity import path, want false (no fetchable location without HTTP go-import resolution)")
+	}
+}
+
+func TestFallbackManifestRejectsNonGoEcosystems(t *testing.T) {
+	dep := domain.Dependency{Ecosystem: domain.EcosystemNode, Name: "some-package"}
+	if _, ok := fallbackManifest(dep); ok {
+		t.Error("fallbackManifest = true for a non-Go ecosystem, want false")
+	}
+}

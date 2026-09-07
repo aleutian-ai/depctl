@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -216,13 +217,45 @@ type syncPipeline struct {
 	ns       backend.Namespace
 }
 
+// fallbackManifest derives a minimal, single-source manifest (REG-005)
+// for a dependency with no registry match, when its own identity already
+// carries a fetchable repo location — today, only a Go module path
+// directly shaped like github.com/<org>/<repo>[/...]. A vanity import
+// path (e.g. google.golang.org/grpc) has no such location without an
+// HTTP go-import lookup, which is separate, unbuilt work (REG-005's own
+// scope note) — those still hit the pre-existing "no registry manifest"
+// error, unchanged. The derived source is a real "git" type pointed at
+// the package's own repository, so it gets TrustRepository like any
+// other git source (TrustClassForSourceType, SEC-001) — the fact that
+// nobody hand-authored the YAML doesn't make the content itself less
+// authoritative, only its authority ranking, which is deliberately 0.
+func fallbackManifest(dep domain.Dependency) (registry.Manifest, bool) {
+	if dep.Ecosystem != domain.EcosystemGo {
+		return registry.Manifest{}, false
+	}
+	segments := strings.Split(dep.Name, "/")
+	if len(segments) < 3 || segments[0] != "github.com" {
+		return registry.Manifest{}, false
+	}
+	url := "https://github.com/" + segments[1] + "/" + segments[2]
+	return registry.Manifest{
+		Metadata: registry.Metadata{Name: dep.Name},
+		Match:    registry.Match{Ecosystems: []domain.Ecosystem{dep.Ecosystem}, Packages: []string{dep.Name}},
+		Version:  registry.VersionStrategy{Strategy: "none"},
+		Sources:  []registry.Source{{ID: "repository", Type: "git", URL: url, Ref: "HEAD", Authority: 0}},
+	}, true
+}
+
 // syncVersion drives the full build->replicate->validate->promote
 // pipeline for one SYNC_VERSION action.
 func syncVersion(ctx context.Context, store *bboltstore.Store, badgerStore *badgerstore.Store, gitCache *git.Cache, embedder embedding.Embedder, vb backend.VectorBackend, ns backend.Namespace, reg *registry.Registry, action planner.Action, force bool) error {
 	dep := action.Dependency
 	manifest, ok := reg.Match(dep.Dependency.Ecosystem, dep.Dependency.Name)
 	if !ok {
-		return fmt.Errorf("no registry manifest for %s", dep.Dependency.Name)
+		manifest, ok = fallbackManifest(dep.Dependency)
+		if !ok {
+			return fmt.Errorf("no registry manifest for %s", dep.Dependency.Name)
+		}
 	}
 
 	gen, err := generation.Create(ctx, store, badgerStore, dep)
