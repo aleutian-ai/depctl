@@ -33,6 +33,7 @@ func NewRootCmd() *cobra.Command {
 		newServeCmd(),
 		notImplementedCmd("backend", "Manage vector backends"),
 		newRegistryCmd(),
+		newCorpusCmd(),
 		newConfigCmd(),
 	)
 

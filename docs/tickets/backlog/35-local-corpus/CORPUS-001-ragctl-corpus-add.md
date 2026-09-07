@@ -48,6 +48,10 @@ ragctl corpus remove <id>
 - `corpus add` on a non-git directory fails clearly, writes nothing.
 
 ## Acceptance criteria
-- [ ] `ragctl corpus add/list/remove` implemented.
-- [ ] Adding a repo produces the same effective shape a human would hand-write (verified against this session's own manually-created `ragctl-core-*` manifests).
-- [ ] Re-adding without `--resync` is a safe no-op.
+- [x] `ragctl corpus add/list/remove` implemented.
+- [x] Adding a repo produces the same effective shape a human would hand-write (verified against this session's own manually-created `ragctl-core-*` manifests).
+- [x] Re-adding without `--resync` is a safe no-op.
+
+## Post-implementation note
+Verified for real against `~/offline-knowledge/go/gorm`: `corpus add` scanned and registered it, a second `add` without `--resync` correctly no-op'd, `--resync` bumped the version and re-synced, `corpus remove` cleanly dropped the dependency, lockfile entry, and registry manifest (confirmed via `corpus list` showing 0 entries and the manifest file gone). One real bug caught in the process: the git-repo validation only checked `executil.Run`'s Go-level `error` return, never `RunResult.ExitCode` — so `git rev-parse --is-inside-work-tree` failing (non-git directory) was silently treated as success, exactly the same class of mistake this codebase's own `acquireGitSources` code was written to avoid. Fixed to check both.
+
