@@ -49,6 +49,10 @@ Wire into:
 - Liveness checks never run unless explicitly requested (verified via a network-blocking transport in the unit test, same pattern as MCP-004's offline test).
 
 ## Acceptance criteria
-- [ ] `git`/`website` source liveness checks implemented.
+- [x] `git`/`website` source liveness checks implemented.
 - [ ] `doctor --check-registry-liveness` and `describe --check-liveness` both wire it in, both opt-in.
-- [ ] No liveness network call happens without the explicit flag.
+- [x] No liveness network call happens without the explicit flag.
+
+## Post-implementation note
+`CheckLiveness`/`LivenessResult` landed in `internal/registry` (not a separate `internal/registry/liveness` package — small enough to keep with the type it checks). `doctor --check-registry-liveness` is not wired in because `ragctl doctor` itself doesn't exist yet (epic 18, still a stub) — out of scope to build here. `describe --check-liveness` is wired in as DESC-ADV-001, landed separately right after this ticket.
+
