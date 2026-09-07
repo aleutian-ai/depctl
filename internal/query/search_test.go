@@ -201,6 +201,9 @@ func TestSearchProjectModeResolvesActiveVersionFilter(t *testing.T) {
 	if result.Chunks[0].Version != "v1.67.0" || result.Chunks[0].Content != "grpc docs content" {
 		t.Errorf("Chunks[0] = %+v, want v1.67.0's content", result.Chunks[0])
 	}
+	if result.Chunks[0].TrustClass != domain.TrustRepository {
+		t.Errorf("Chunks[0].TrustClass = %q, want %q (derived from SourceType %q)", result.Chunks[0].TrustClass, domain.TrustRepository, result.Chunks[0].SourceType)
+	}
 }
 
 func TestSearchProjectModeUnknownProjectReturnsTypedError(t *testing.T) {

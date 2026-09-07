@@ -7,6 +7,7 @@ import (
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"aleutian-ai/ragctl/internal/domain"
 	"aleutian-ai/ragctl/internal/query"
 )
 
@@ -53,15 +54,16 @@ type SearchDependencyDocsIn struct {
 }
 
 type SearchResultChunk struct {
-	ChunkID    string  `json:"chunk_id"`
-	Content    string  `json:"content"`
-	Score      float32 `json:"score"`
-	Ecosystem  string  `json:"ecosystem"`
-	Dependency string  `json:"dependency"`
-	Version    string  `json:"version"`
-	Generation string  `json:"generation"`
-	SourceType string  `json:"source_type"`
-	Authority  int     `json:"authority"`
+	ChunkID    string            `json:"chunk_id"`
+	Content    string            `json:"content"`
+	Score      float32           `json:"score"`
+	Ecosystem  string            `json:"ecosystem"`
+	Dependency string            `json:"dependency"`
+	Version    string            `json:"version"`
+	Generation string            `json:"generation"`
+	SourceType string            `json:"source_type"`
+	Authority  int               `json:"authority"`
+	TrustClass domain.TrustClass `json:"trust_class" jsonschema:"how much to trust this chunk: official/repository (high) vs community/user/unknown (lower) — weigh alongside authority when multiple chunks disagree"`
 }
 
 type SearchDependencyDocsOut struct {
@@ -87,6 +89,7 @@ func searchDependencyDocsHandler(svc *query.Service) sdkmcp.ToolHandlerFor[Searc
 				ChunkID: c.ChunkID, Content: c.Content, Score: c.Score,
 				Ecosystem: c.Ecosystem, Dependency: c.Dependency, Version: c.Version,
 				Generation: c.Generation, SourceType: c.SourceType, Authority: c.Authority,
+				TrustClass: c.TrustClass,
 			}
 		}
 		return nil, out, nil

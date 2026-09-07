@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"aleutian-ai/ragctl/internal/backend"
+	"aleutian-ai/ragctl/internal/data/generation"
 	"aleutian-ai/ragctl/internal/domain"
 )
 
@@ -280,6 +281,7 @@ func (s *Service) search(ctx context.Context, text string, topK int, filter *bac
 			Generation: p.Metadata.Generation,
 			SourceType: p.Metadata.SourceType,
 			Authority:  p.Metadata.Authority,
+			TrustClass: generation.TrustClassForSourceType(p.Metadata.SourceType),
 		})
 	}
 	return SearchResult{Chunks: chunks}, nil

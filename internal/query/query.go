@@ -68,6 +68,13 @@ type ResultChunk struct {
 	Generation string
 	SourceType string
 	Authority  int
+	// TrustClass is derived at query time from SourceType (SEC-001's
+	// generation.TrustClassForSourceType) rather than stored on the
+	// vector point itself — a vector backend's PointMetadata schema is
+	// fixed (VEC-001), and TrustClass is a pure function of SourceType,
+	// so deriving it here works retroactively on every already-synced
+	// point with no backend schema change or re-replication needed.
+	TrustClass domain.TrustClass
 }
 
 // SearchResult is SearchKnowledge's output.

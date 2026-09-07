@@ -183,6 +183,9 @@ func TestSearchDependencyDocsHandlerReturnsChunksWithSecurityNote(t *testing.T) 
 	if out.Note != securityNote {
 		t.Errorf("out.Note = %q, want %q", out.Note, securityNote)
 	}
+	if out.Chunks[0].TrustClass != domain.TrustRepository {
+		t.Errorf("out.Chunks[0].TrustClass = %q, want %q — this is the provenance signal an agent needs to weigh alongside authority", out.Chunks[0].TrustClass, domain.TrustRepository)
+	}
 }
 
 func TestSearchDependencyDocsHandlerMapsUnknownProjectToActionableError(t *testing.T) {
