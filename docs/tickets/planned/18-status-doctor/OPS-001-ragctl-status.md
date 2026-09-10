@@ -33,7 +33,7 @@ type JobStats struct { Pending, Running, Failed int }
 type BackendStatus struct { Name string; Healthy bool }
 ```
 
-`ragctl status` prints the text table shown in the design spec (§74); `ragctl status --json` prints the `Status` struct as JSON (matches design spec §60 example shape).
+`ragctl status` prints a text table of the `Status` fields above, one row per field, following the plain `fmt.Fprintf` table style already used by `internal/cli/deps.go` (not `describe.go`'s `text/tabwriter`+template approach — this command is simpler than that). `ragctl status --json` marshals the same `Status` struct straight to JSON via `encoding/json`, field names exactly as tagged above.
 
 ## Inputs / Outputs
 - Input: none (reads bbolt/Badger/backend state).

@@ -26,7 +26,7 @@ type CheckResult struct {
 }
 ```
 
-Checks (fixed list per implementation plan §22 / design spec §75):
+Checks (fixed list):
 ```text
 control DB (bbolt) open
 schema version (report + reject unsupported future schema)
