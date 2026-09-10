@@ -1,7 +1,7 @@
 # GIT-001: Git cache manager
 
 **Epic:** Git Acquisition
-**Status:** planned
+**Status:** done
 **Depends on:** REG-003
 **Estimated size:** medium
 

@@ -1,7 +1,7 @@
 # BOOT-001: Create repository skeleton
 
 **Epic:** Bootstrap
-**Status:** planned
+**Status:** done
 **Depends on:** none
 **Estimated size:** small
 
@@ -55,6 +55,9 @@ N/A — this is static scaffolding, no runtime behavior.
 - `go test ./...` succeeds (even with zero tests, exit code 0).
 
 ## Acceptance criteria
-- [ ] Directory layout matches the design section.
-- [ ] All required root files exist and are non-empty.
-- [ ] `go build ./...`, `go vet ./...`, and `go test ./...` all succeed on a clean checkout.
+- [x] Directory layout matches the design section.
+- [x] All required root files exist and are non-empty.
+- [x] `go build ./...`, `go vet ./...`, and `go test ./...` all succeed on a clean checkout.
+
+## Post-implementation note
+`schemas/` was never created as a top-level directory — deliberately, not an oversight. REG-001 (`docs/tickets/completed/07-knowledge-registry`) found that `go:embed` can't reach outside a package's own directory tree, so the KnowledgePackage JSON Schema lives at `internal/registry/schema/knowledge-package.schema.json` instead of a repo-root `schemas/` dir that would have needed duplicating into the package anyway. Every other directory in the design section exists as specified. `SECURITY.md`/`CONTRIBUTING.md`/`CODE_OF_CONDUCT.md`/`.golangci.yml`/`.github/workflows/test.yml` were the last gap, closed alongside BOOT-003.

@@ -1,7 +1,7 @@
 # HASH-002: Knowledge object IDs
 
 **Epic:** Fingerprinting and Chunking
-**Status:** planned
+**Status:** done
 **Depends on:** HASH-001
 **Estimated size:** small
 

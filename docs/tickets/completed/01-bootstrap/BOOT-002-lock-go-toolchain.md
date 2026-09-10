@@ -1,7 +1,7 @@
 # BOOT-002: Lock Go toolchain version
 
 **Epic:** Bootstrap
-**Status:** planned
+**Status:** done
 **Depends on:** BOOT-001
 **Estimated size:** small
 
@@ -31,7 +31,10 @@ N/A — configuration only.
 - Script/manual check: grep the version string out of `go.mod`, `README.md`, and `.github/workflows/test.yml` and assert they match.
 
 ## Acceptance criteria
-- [ ] `go.mod` `go` directive set.
-- [ ] README documents the required Go version.
-- [ ] CI config uses the same version.
-- [ ] Local `go version` output matches what CI installs (documented, not automatically enforced in this ticket).
+- [x] `go.mod` `go` directive set.
+- [x] README documents the required Go version.
+- [x] CI config uses the same version.
+- [x] Local `go version` output matches what CI installs (documented, not automatically enforced in this ticket).
+
+## Post-implementation note
+`go 1.25.6` in three places: `go.mod`'s `go` directive, README's "Requirements" section (`Go 1.25.6+`), and `.github/workflows/test.yml`'s `actions/setup-go@v5` `go-version` input (BOOT-003, closed in the same pass as this ticket since CI was this ticket's own remaining blocker). Local `go version` on the machine that did this work reports `go1.25.6`, matching.

@@ -1,7 +1,7 @@
 # PLAN-003: `ragctl sync` command
 
 **Epic:** Planner and Sync
-**Status:** planned
+**Status:** done
 **Depends on:** PLAN-002, VAL-004
 **Estimated size:** medium
 

@@ -11,3 +11,5 @@
 /ragctl.iml
 /vcs.xml
 *.idea
+/golinter.xml
+.DS_Store

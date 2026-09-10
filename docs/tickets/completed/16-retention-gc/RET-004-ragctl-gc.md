@@ -1,7 +1,7 @@
 # RET-004: `ragctl gc`
 
 **Epic:** Retention and GC
-**Status:** planned
+**Status:** done
 **Depends on:** RET-003, VEC-002, STORE-003
 **Estimated size:** medium
 

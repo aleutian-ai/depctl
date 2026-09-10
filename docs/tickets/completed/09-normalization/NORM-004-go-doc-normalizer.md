@@ -1,7 +1,7 @@
 # NORM-004: Go source documentation normalizer
 
 **Epic:** Normalization Pipeline
-**Status:** planned
+**Status:** done
 **Depends on:** NORM-001
 **Estimated size:** medium
 

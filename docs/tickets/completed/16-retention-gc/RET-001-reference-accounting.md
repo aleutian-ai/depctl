@@ -1,7 +1,7 @@
 # RET-001: Reference accounting
 
 **Epic:** Retention and GC
-**Status:** planned
+**Status:** done
 **Depends on:** PLAN-001, STORE-001
 **Estimated size:** small
 

@@ -1,7 +1,7 @@
 # RES-002: Command execution helper
 
 **Epic:** Resolver Framework
-**Status:** planned
+**Status:** done
 **Depends on:** RES-001
 **Estimated size:** small
 
@@ -54,7 +54,7 @@ A non-zero exit code is *not* automatically an `error` return from `Run` — cal
 - `Dir` is respected (command runs with the correct working directory, verified via `pwd`/`os.Getwd`-equivalent test command).
 
 ## Acceptance criteria
-- [ ] No shell expansion occurs by default (argv passed directly to `exec.CommandContext`).
-- [ ] Context cancellation and timeout both promptly terminate the subprocess.
-- [ ] stdout/stderr/exit code are all captured and returned.
-- [ ] This helper is the one used by every later resolver (GO-002, PY-*, NODE-*, RUST-002, JAVA-*) — no resolver shells out independently.
+- [x] No shell expansion occurs by default (argv passed directly to `exec.CommandContext`).
+- [x] Context cancellation and timeout both promptly terminate the subprocess.
+- [x] stdout/stderr/exit code are all captured and returned.
+- [x] This helper is the one used by every later resolver (GO-002, PY-*, NODE-*, RUST-002, JAVA-*) — no resolver shells out independently.

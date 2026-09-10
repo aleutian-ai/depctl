@@ -1,7 +1,7 @@
 # VAL-002: Sanity thresholds
 
 **Epic:** Validation and Promotion
-**Status:** planned
+**Status:** done
 **Depends on:** VAL-001
 **Estimated size:** small
 

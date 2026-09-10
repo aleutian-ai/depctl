@@ -1,7 +1,7 @@
 # CLI-002: `ragctl init`
 
 **Epic:** Configuration and CLI Skeleton
-**Status:** planned
+**Status:** done
 **Depends on:** CLI-001, STORE-004
 **Estimated size:** small
 
@@ -42,6 +42,6 @@ Idempotency: if `config.yaml` already exists, do not overwrite it. If the DB fil
 - Run `init` twice in a row: second run succeeds, does not destroy or reset the config file or DB contents (write a marker record before the second `init`, verify it survives).
 
 ## Acceptance criteria
-- [ ] `ragctl init && ragctl init` succeeds twice without destroying data.
-- [ ] All required directories/files exist after a single `init` on a clean environment.
-- [ ] Config file is created only if absent; never overwritten by a repeat `init`.
+- [x] `ragctl init && ragctl init` succeeds twice without destroying data.
+- [x] All required directories/files exist after a single `init` on a clean environment.
+- [x] Config file is created only if absent; never overwritten by a repeat `init`.

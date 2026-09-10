@@ -3,7 +3,7 @@
 // knowledge Generation — the point where the acquisition (Git),
 // normalization, and fingerprinting/chunking milestones come together
 // into one artifact that later milestones embed, replicate, validate, and
-// promote. See docs/tickets/planned/11-generation-builder.
+// promote. See docs/tickets/completed/11-generation-builder.
 package generation
 
 import (

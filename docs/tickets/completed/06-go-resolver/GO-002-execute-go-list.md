@@ -1,7 +1,7 @@
 # GO-002: Execute `go list -m -json all`
 
 **Epic:** Go Resolver
-**Status:** planned
+**Status:** done
 **Depends on:** GO-001, RES-002
 **Estimated size:** medium
 

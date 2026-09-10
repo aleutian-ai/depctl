@@ -1,7 +1,7 @@
 # EMB-003: Embedding cache
 
 **Epic:** Embedding Provider
-**Status:** planned
+**Status:** done
 **Depends on:** STORE-003, EMB-002
 **Estimated size:** small
 

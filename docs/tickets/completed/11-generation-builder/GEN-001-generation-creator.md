@@ -1,7 +1,7 @@
 # GEN-001: Generation creator
 
 **Epic:** Generation Builder
-**Status:** planned
+**Status:** done
 **Depends on:** STORE-001, STORE-003, HASH-002
 **Estimated size:** small
 

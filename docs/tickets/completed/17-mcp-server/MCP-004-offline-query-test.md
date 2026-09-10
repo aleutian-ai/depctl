@@ -1,7 +1,7 @@
 # MCP-004: Offline query test
 
 **Epic:** MCP Server
-**Status:** planned
+**Status:** done
 **Depends on:** MCP-003
 **Estimated size:** small
 

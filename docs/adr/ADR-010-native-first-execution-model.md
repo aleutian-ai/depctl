@@ -43,4 +43,4 @@ The container is not required to use `ragctl` — a user can run everything nati
 ## Related
 
 - `Dockerfile`, `hack/run.sh`, `hack/test-linux.sh`
-- `docs/tickets/planned/03-config-cli/` (where `init`'s cross-platform path logic first mattered)
+- `docs/tickets/completed/03-config-cli/` (where `init`'s cross-platform path logic first mattered)

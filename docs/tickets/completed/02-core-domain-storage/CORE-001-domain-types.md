@@ -1,7 +1,7 @@
 # CORE-001: Define core domain types
 
 **Epic:** Core Domain and Storage
-**Status:** planned
+**Status:** done
 **Depends on:** BOOT-002
 **Estimated size:** medium
 
@@ -70,14 +70,12 @@ type ProjectDependency struct {
     Direct     bool
 }
 
-type KnowledgeSource struct {
-    ID          string
-    ProjectName string
-    SourceType  SourceType
-    URI         string
-    Authority   int
-    VersionMode VersionMode
-}
+// KnowledgeSource, as originally sketched here, was never built — see
+// this ticket's Post-implementation note. registry.Source
+// (internal/registry, REG-001) turned out to be the right shape: a
+// source definition is registry/configuration data, not domain runtime
+// state, and generation.Build (GEN-002) consumes []registry.Source
+// directly with no domain-level wrapper.
 
 type SourceSnapshot struct { /* raw metadata, raw URI/path, snapshot ID, fetched-at */ }
 
@@ -110,8 +108,14 @@ type VersionReference struct {
     ProjectID, Ecosystem, Package, Version, Reason string
     FirstSeenAt, LastSeenAt time.Time
 }
+// Actually landed later, under RET-001 (epic 16), once retention needed
+// it — not by this ticket directly. See Post-implementation note.
 
-type SyncJob struct { /* see CORE-002 Job type */ }
+// SyncJob, as originally sketched here, was never built — see this
+// ticket's Post-implementation note. RET-004 (epic 16) generalized
+// CORE-002's JobState enum into one domain.Job type shared by every kind
+// of persisted background work (sync, GC), rather than a sync-specific
+// SyncJob type.
 ```
 Ecosystem identifiers are the canonical lowercase strings above — never free-form.
 
@@ -129,7 +133,17 @@ Add a `Validate() error` method on types that have obvious invariants (`Project`
 - Test that package identity (ecosystem + name + version) serializes deterministically (e.g. via `String()` or JSON marshal round-trip).
 
 ## Acceptance criteria
-- [ ] `internal/domain` has no imports of bbolt, Badger, net/http, or os/exec.
-- [ ] All listed types exist with the documented fields.
-- [ ] Validation helpers exist where invariants are obvious (non-empty name, canonical ecosystem, etc.).
-- [ ] Package identities serialize deterministically (stable field ordering / string form).
+- [x] `internal/domain` has no imports of bbolt, Badger, net/http, or os/exec.
+- [x] Every domain type required by a shipped subsystem exists with the fields that subsystem actually uses; sketched-but-superseded types (`KnowledgeSource`, `SyncJob`) are documented as superseded, not built as unused duplicates. (Revised from "all listed types exist with the documented fields" — see Post-implementation note; this ticket's own Simplicity constraints already said "resist adding fields for later," and the same reasoning applies to whole types once a later epic proves a different shape is the actual right one.)
+- [x] Validation helpers exist where invariants are obvious (non-empty name, canonical ecosystem, etc.).
+- [x] Package identities serialize deterministically (stable field ordering / string form).
+
+## Post-implementation note
+Reconciled against what actually shipped, not the original 2025-era sketch, rather than building the two remaining types just to make an obsolete checklist green:
+
+- **`VersionReference`**: exists (`internal/domain/domain.go`), with the fields this ticket sketched. It arrived later, under RET-001 (`docs/tickets/completed/16-retention-gc`), once reference-counting actually needed it — not added by this ticket directly, but the type this ticket specified is the type that shipped.
+- **`KnowledgeSource`**: never built, and shouldn't be. The working generation pipeline (`generation.Build`, GEN-002) consumes `[]registry.Source` directly — that's the real shape a registry match produces, and it's registry/configuration data, not domain runtime state. Adding a parallel `domain.KnowledgeSource` now would just be a second, unused representation of the same thing.
+- **`SyncJob`**: never built, and shouldn't be. `domain.Job`/`JobState` (CORE-002, generalized further by RET-004 in epic 16) already represents persisted background work generically — sync and GC jobs both use it. A sync-specific `SyncJob` type would duplicate that for no reason.
+
+`ProjectDependency` and `SourceSnapshot` also aren't standalone stored types the way originally sketched — `Resolution.Dependencies` (`[]DependencyVersion`) covers what `ProjectDependency` was for, and `SourceSnapshot` is consumed transiently by normalizers (`internal/normalize`) rather than persisted. Neither gap is worth closing: nothing reads or writes either shape today.
+

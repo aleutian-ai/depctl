@@ -1,7 +1,7 @@
 # MCP-002: Knowledge query service
 
 **Epic:** MCP Server
-**Status:** planned
+**Status:** done
 **Depends on:** VEC-002, STORE-001
 **Estimated size:** medium
 

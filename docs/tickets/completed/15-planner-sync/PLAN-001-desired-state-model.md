@@ -1,7 +1,7 @@
 # PLAN-001: Desired-state model
 
 **Epic:** Planner and Sync
-**Status:** planned
+**Status:** done
 **Depends on:** GO-004, REG-003
 **Estimated size:** medium
 

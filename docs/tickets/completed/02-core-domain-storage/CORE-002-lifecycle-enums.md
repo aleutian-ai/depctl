@@ -1,7 +1,7 @@
 # CORE-002: Define lifecycle enums
 
 **Epic:** Core Domain and Storage
-**Status:** planned
+**Status:** done
 **Depends on:** CORE-001
 **Estimated size:** small
 

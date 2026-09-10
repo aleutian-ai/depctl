@@ -1,7 +1,7 @@
 # REG-002: Registry loader
 
 **Epic:** Knowledge Registry
-**Status:** planned
+**Status:** done
 **Depends on:** REG-001
 **Estimated size:** medium
 
@@ -46,5 +46,8 @@ Load and merge `KnowledgePackage` manifests from the built-in registry, the user
 - Empty user/remote dirs: only built-in manifests loaded.
 
 ## Acceptance criteria
-- [ ] Duplicate conflict returns a clear warning (not silently dropped, not a hard failure).
-- [ ] Priority order (project > user > built-in) is respected.
+- [x] Duplicate conflict returns a clear warning (not silently dropped, not a hard failure).
+- [x] Priority order (project > user > built-in) is respected.
+
+## Post-implementation note
+`Loader.ProjectRegistryDir` and `Registry.add`'s priority handling both work correctly when a project directory is supplied — this ticket's own scope (the `Loader`/`Registry` merge mechanics) is fully done. Separately, no CLI call site (`loadRegistryForCLI` in `internal/cli/plan.go`, `internal/cli/registry.go`) actually passes a non-empty project directory yet, so project-tier overrides never take effect in practice today. That's a CLI-wiring gap, not a defect in this ticket's own scope — tracked as `docs/tickets/backlog/38-registry-federation/REG-008-project-registry-cli-wiring.md`.

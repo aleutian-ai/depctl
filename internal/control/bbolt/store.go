@@ -4,7 +4,7 @@
 // This is the minimal slice needed for `ragctl init` to create the
 // control.db file with its buckets. CRUD methods (PutProject, PutGeneration,
 // SetActiveGeneration, ...) are added as later commands need them — see
-// STORE-001 in docs/tickets/planned/02-core-domain-storage.
+// STORE-001 in docs/tickets/completed/02-core-domain-storage.
 package bbolt
 
 import (
@@ -51,6 +51,11 @@ func Open(path string) (*Store, error) {
 		return nil
 	})
 	if err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+
+	if err := ensureSchema(db); err != nil {
 		_ = db.Close()
 		return nil, err
 	}

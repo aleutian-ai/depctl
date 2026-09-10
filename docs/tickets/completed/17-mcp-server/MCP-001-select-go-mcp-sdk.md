@@ -1,7 +1,7 @@
 # MCP-001: Select Go MCP SDK
 
 **Epic:** MCP Server
-**Status:** planned
+**Status:** done
 **Depends on:** core query services (MCP-002)
 **Estimated size:** small
 

@@ -1,7 +1,7 @@
 # VEC-002: Qdrant adapter
 
 **Epic:** Vector Backend (Qdrant)
-**Status:** planned
+**Status:** done
 **Depends on:** VEC-001
 **Estimated size:** medium
 

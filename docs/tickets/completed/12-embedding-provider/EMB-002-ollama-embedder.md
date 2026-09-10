@@ -1,7 +1,7 @@
 # EMB-002: Ollama embedder
 
 **Epic:** Embedding Provider
-**Status:** planned
+**Status:** done
 **Depends on:** EMB-001
 **Estimated size:** medium
 

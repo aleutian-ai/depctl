@@ -1,7 +1,7 @@
 # PROJ-003: `ragctl scan`
 
 **Epic:** Project Discovery
-**Status:** planned
+**Status:** done
 **Depends on:** PROJ-001, STORE-001, CLI-003
 **Estimated size:** small
 
@@ -45,6 +45,6 @@ matching the plan's exact bucket names.
 - Fixture tree from PROJ-001 scanned end-to-end, verify bbolt contains 4 projects after scan.
 
 ## Acceptance criteria
-- [ ] Repeated scan is idempotent (no duplicate projects).
-- [ ] Output clearly separates discovered/new/existing/unsupported.
-- [ ] Scanned projects are persisted and visible via `Store.ListProjects` after the command exits.
+- [x] Repeated scan is idempotent (no duplicate projects).
+- [x] Output clearly separates discovered/new/existing/unsupported.
+- [x] Scanned projects are persisted and visible via `Store.ListProjects` after the command exits.

@@ -1,7 +1,7 @@
 # GEN-003: Content reuse via fingerprint lookup
 
 **Epic:** Generation Builder
-**Status:** planned
+**Status:** done
 **Depends on:** HASH-001, GEN-002
 **Estimated size:** small
 

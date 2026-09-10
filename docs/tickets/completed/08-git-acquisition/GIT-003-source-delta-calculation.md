@@ -1,7 +1,7 @@
 # GIT-003: Source delta calculation
 
 **Epic:** Git Acquisition
-**Status:** planned
+**Status:** done
 **Depends on:** GIT-001
 **Estimated size:** small
 

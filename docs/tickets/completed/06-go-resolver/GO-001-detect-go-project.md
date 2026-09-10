@@ -1,7 +1,7 @@
 # GO-001: Detect Go project
 
 **Epic:** Go Resolver
-**Status:** planned
+**Status:** done
 **Depends on:** RES-001
 **Estimated size:** small
 
@@ -40,5 +40,5 @@ Implement the `Resolver.Detect` method for the Go ecosystem: given a directory r
 - Directory without read permission → error returned.
 
 ## Acceptance criteria
-- [ ] `Detect` correctly identifies Go module roots per nested-module fixtures in `testdata/projects/`.
-- [ ] No network or subprocess calls made during detection.
+- [x] `Detect` correctly identifies Go module roots per nested-module fixtures in `testdata/projects/`.
+- [x] No network or subprocess calls made during detection.

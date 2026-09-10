@@ -1,7 +1,7 @@
 # MCP-003: MCP tools
 
 **Epic:** MCP Server
-**Status:** planned
+**Status:** done
 **Depends on:** MCP-002
 **Estimated size:** medium
 

@@ -1,7 +1,7 @@
 # PROJ-001: Project scanner
 
 **Epic:** Project Discovery
-**Status:** planned
+**Status:** done
 **Depends on:** CORE-001
 **Estimated size:** medium
 
@@ -66,7 +66,7 @@ workspace/
 - Polyglot directory (both `go.mod` and `package.json` present) yields two `DetectedProject` entries.
 
 ## Acceptance criteria
-- [ ] Scanner detects all four projects in the fixture tree.
-- [ ] `.git`, `node_modules`, and other build/cache dirs are skipped.
-- [ ] Nested projects are supported.
-- [ ] The same project is never registered twice from a single scan.
+- [x] Scanner detects all four projects in the fixture tree.
+- [x] `.git`, `node_modules`, and other build/cache dirs are skipped.
+- [x] Nested projects are supported.
+- [x] The same project is never registered twice from a single scan.

@@ -1,7 +1,7 @@
 # REG-001: Manifest schema
 
 **Epic:** Knowledge Registry
-**Status:** planned
+**Status:** done
 **Depends on:** CORE-001
 **Estimated size:** medium
 
@@ -79,5 +79,5 @@ Define the YAML schema for a "KnowledgePackage" manifest — the data format tha
 - Invalid fixture (missing `match.packages`, bad `type` enum value, authority out of 0–100 range) is rejected with a clear message.
 
 ## Acceptance criteria
-- [ ] Valid/invalid fixtures both covered by tests.
-- [ ] JSON Schema file exists and is used for validation (not just Go struct tags).
+- [x] Valid/invalid fixtures both covered by tests.
+- [x] JSON Schema file exists and is used for validation (not just Go struct tags).

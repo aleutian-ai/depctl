@@ -1,7 +1,7 @@
 # STORE-004: Storage integration boundary
 
 **Epic:** Core Domain and Storage
-**Status:** planned
+**Status:** done
 **Depends on:** STORE-001, STORE-003
 **Estimated size:** small
 
@@ -37,6 +37,12 @@ N/A — this is a test ticket; failures surface as test failures.
 - The 6-step scenario in Design, run as a single `TestStorageRestartPersistence` (or similarly named) test.
 
 ## Acceptance criteria
-- [ ] Test writes to both bbolt and Badger, closes both, reopens both, and verifies data integrity across the restart.
-- [ ] Active generation pointer survives restart.
-- [ ] Badger-side generation content survives restart.
+- [x] Test writes to both bbolt and Badger, closes both, reopens both, and verifies data integrity across the restart.
+- [x] Active generation pointer survives restart.
+- [x] Badger-side generation content survives restart.
+
+## Post-implementation note
+Implemented as `TestStorageRestartPersistence` in `internal/control/bbolt/integration_test.go`, package `bbolt_test` (external test package, not `bbolt`) — deliberately, so the test can import both `internal/control/bbolt` and `internal/data/badger` through their exported APIs only, without creating any new production import between the two packages. No `app.Storage` facade was added, per this ticket's own explicit warning; nothing today needs one beyond what the CLI's own `openControlStore`/`openDataStore` helpers already do.
+
+The test follows the ticket's 7-step scenario: opens both stores, writes a `Project`, a `Generation` (`PutGeneration`), a `KnowledgeObject` and one `Chunk` and a manifest to Badger, promotes the generation active (`PromoteGeneration`), closes both, reopens both, then — the specific cross-store step this ticket exists to prove, not just "each store independently persisted its own data" — resolves the active generation's ID from bbolt (`GetActiveGeneration`) and uses *that* ID to read the chunk/object/manifest back out of Badger, confirming the two databases still agree with each other after independent restarts. Passes under `-race`.
+

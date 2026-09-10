@@ -1,7 +1,7 @@
 # NORM-005: Release-note normalizer
 
 **Epic:** Normalization Pipeline
-**Status:** planned
+**Status:** done
 **Depends on:** NORM-002, NORM-003
 **Estimated size:** small
 

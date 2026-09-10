@@ -1,7 +1,7 @@
 # VEC-003: Backend replica metadata
 
 **Epic:** Vector Backend (Qdrant)
-**Status:** planned
+**Status:** done
 **Depends on:** VEC-002, STORE-001
 **Estimated size:** small
 

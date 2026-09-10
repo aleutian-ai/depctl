@@ -1,7 +1,7 @@
 # REG-003: Registry matcher
 
 **Epic:** Knowledge Registry
-**Status:** planned
+**Status:** done
 **Depends on:** REG-002
 **Estimated size:** small
 
@@ -37,5 +37,5 @@ Given an ecosystem + package identity (e.g. `go` / `google.golang.org/grpc`), re
 - (Deferred/optional) Scoped Node package fixture and Maven group:artifact fixture, to be added once NODE-*/JAVA-* resolvers exist — stub test placeholders acceptable now.
 
 ## Acceptance criteria
-- [ ] Exact Go module match works end-to-end against a loaded `Registry`.
-- [ ] Unmatched packages return cleanly without error.
+- [x] Exact Go module match works end-to-end against a loaded `Registry`.
+- [x] Unmatched packages return cleanly without error.

@@ -1,7 +1,7 @@
 # GIT-002: Version checkout abstraction
 
 **Epic:** Git Acquisition
-**Status:** planned
+**Status:** done
 **Depends on:** GIT-001
 **Estimated size:** medium
 

@@ -1,7 +1,7 @@
 # HASH-001: Content fingerprint service
 
 **Epic:** Fingerprinting and Chunking
-**Status:** planned
+**Status:** done
 **Depends on:** NORM-001
 **Estimated size:** small
 

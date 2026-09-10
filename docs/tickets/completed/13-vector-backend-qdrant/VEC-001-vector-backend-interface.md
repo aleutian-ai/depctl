@@ -1,7 +1,7 @@
 # VEC-001: Vector backend interface
 
 **Epic:** Vector Backend (Qdrant)
-**Status:** planned
+**Status:** done
 **Depends on:** EMB-001
 **Estimated size:** small
 

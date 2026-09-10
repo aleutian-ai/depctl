@@ -1,7 +1,7 @@
 # GO-003: Normalize Go dependency identity
 
 **Epic:** Go Resolver
-**Status:** planned
+**Status:** done
 **Depends on:** GO-002
 **Estimated size:** small
 
@@ -43,6 +43,6 @@ Convert raw `go list` module output into the domain's canonical `DependencyVersi
 - Direct vs indirect flag passed through correctly.
 
 ## Acceptance criteria
-- [ ] Main module never appears in normalized output.
-- [ ] Local replacements are clearly flagged as `local`.
-- [ ] Replaced modules retain both logical dependency and resolved source info.
+- [x] Main module never appears in normalized output.
+- [x] Local replacements are clearly flagged as `local`.
+- [x] Replaced modules retain both logical dependency and resolved source info.

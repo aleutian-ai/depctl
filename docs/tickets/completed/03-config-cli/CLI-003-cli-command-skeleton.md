@@ -1,7 +1,7 @@
 # CLI-003: CLI command skeleton
 
 **Epic:** Configuration and CLI Skeleton
-**Status:** planned
+**Status:** done
 **Depends on:** CLI-002
 **Estimated size:** small
 
@@ -49,6 +49,6 @@ Unimplemented commands must fail loudly and identically — never silently no-op
 - `ragctl --help` lists all top-level commands.
 
 ## Acceptance criteria
-- [ ] All 13 top-level commands are registered and appear in `--help`.
-- [ ] Unimplemented commands return the exact "feature not implemented in this build" error rather than silently doing nothing.
-- [ ] `init` (CLI-002) and `config validate` (CLI-001) are fully functional, not placeholders.
+- [x] All 13 top-level commands are registered and appear in `--help`.
+- [x] Unimplemented commands return the exact "feature not implemented in this build" error rather than silently doing nothing.
+- [x] `init` (CLI-002) and `config validate` (CLI-001) are fully functional, not placeholders.

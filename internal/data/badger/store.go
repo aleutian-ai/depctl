@@ -4,7 +4,7 @@
 // This is the minimal slice needed for `ragctl init` to create the badger/
 // directory. CRUD methods (PutKnowledgeObject, PutChunk, ...) are added as
 // later commands need them — see STORE-003 in
-// docs/tickets/planned/02-core-domain-storage.
+// docs/tickets/completed/02-core-domain-storage.
 package badger
 
 import (

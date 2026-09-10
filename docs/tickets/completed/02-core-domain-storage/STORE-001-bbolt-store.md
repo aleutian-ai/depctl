@@ -1,7 +1,7 @@
 # STORE-001: Build bbolt control-plane store
 
 **Epic:** Core Domain and Storage
-**Status:** planned
+**Status:** done
 **Depends on:** CORE-001, CORE-002
 **Estimated size:** large
 
@@ -98,8 +98,17 @@ Never perform network/HTTP/Git/embedding calls inside a bbolt transaction — al
 - Reference counting: two references for the same dependency version, remove one, `CountReferences` returns 1 (not 0).
 
 ## Acceptance criteria
-- [ ] All buckets created on first `Open`.
-- [ ] Unit tests use a temp DB.
-- [ ] Transaction rollback verified by test.
-- [ ] Active-generation pointer swap occurs in one write transaction.
-- [ ] Database can reopen after process restart with data intact.
+- [x] All buckets created on first `Open`.
+- [x] Unit tests use a temp DB.
+- [x] Transaction rollback verified by test.
+- [x] Active-generation pointer swap occurs in one write transaction.
+- [x] Database can reopen after process restart with data intact.
+- [x] Behavioral criteria the shipped design actually satisfies (revised from "matches the original bucket/key sketch line-for-line" — see Post-implementation note): project resolution round-trips; active-generation promotion is atomic; references work; jobs persist; backend replicas persist; restart survives (STORE-004 proves this across both stores together).
+
+## Post-implementation note
+Reconciled against what actually shipped, not the original bucket/method sketch, per the same reasoning as CORE-001's amendment.
+
+**What shipped, matching this ticket's actual goal** (a control-plane store for projects, dependency references, generations, active pointers, jobs, reference counts, retention metadata — all of it): `PutProject`/`GetProject`/`ListProjects`; `PutResolution`/`GetResolution`; `PutGeneration`/`GetGeneration`; `PromoteGeneration`/`GetActiveGeneration` (an atomic single-transaction swap, added under VEC-003 in epic 13 once validation/promotion needed one — the design's sketched `SetActiveGeneration`/`GetActiveGeneration(dependencyID, backendID)` signature shape changed, but the atomicity property this ticket required is exactly what shipped); `AddReference`/`RemoveReference`/`CountReferences`/`ListReferences`/`ListAllReferences`/`DeleteAllReferences` (added under RET-001 in epic 16, keyed `<ecosystem>|<package>|<version>|<project-id>|<reason>` rather than this ticket's sketched `references/<dependency-id>/<version>/<project-id>`, since a version needed to carry multiple simultaneous references — from different projects and from non-project reasons like `"latest"`/`"manual_pin"` — which the original single-reference-per-key sketch didn't anticipate); `PutJob`/`GetJob` (added under RET-004 in epic 16, against the generalized `domain.Job` type rather than this ticket's sketched `SyncJob` with `ClaimJob`/lease semantics — job claiming ended up keyed by a deterministic ID (`gc.JobID`, BLAKE3 over type+dependency+version) for idempotent resume instead of a lease/claim model); `PutBackendReplica`/`GetBackendReplica` (epic 13).
+
+**The one thing that was never built, and is being formally declined rather than left as a silent gap**: the fuller relational split across `project_dependencies`/`dependency_versions` buckets this ticket originally sketched. `Resolution` is stored as one JSON record per project in `project_dependencies`, not decomposed into normalized per-dependency rows. This is not being refactored to match the original drawing. bbolt is not a relational database, and the dominant real access pattern is "give me this project's complete resolution" (`GetResolution`, called by `computePlans`/`runSync`/`describe`) — one serialized `Resolution` is arguably the better physical representation for that access pattern, not a worse one. If a future need arises for a query the reference index can't already answer efficiently (e.g. "enumerate every project depending on Kubernetes in version range X–Y" without reading through `references`), that's when a normalized index earns itself — not before.
+

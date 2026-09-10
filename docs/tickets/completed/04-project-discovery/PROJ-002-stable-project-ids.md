@@ -1,7 +1,7 @@
 # PROJ-002: Stable project IDs
 
 **Epic:** Project Discovery
-**Status:** planned
+**Status:** done
 **Depends on:** PROJ-001
 **Estimated size:** small
 
@@ -38,5 +38,5 @@ N/A — pure deterministic function, no error path (assuming a valid path string
 - Path with trailing slash / `.` components normalizes to the same ID as the clean form.
 
 ## Acceptance criteria
-- [ ] `ProjectID` is deterministic across restarts (golden-value test).
-- [ ] Rename/move behavior is documented in code comments and matches the "new project" v0.1 policy.
+- [x] `ProjectID` is deterministic across restarts (golden-value test).
+- [x] Rename/move behavior is documented in code comments and matches the "new project" v0.1 policy.

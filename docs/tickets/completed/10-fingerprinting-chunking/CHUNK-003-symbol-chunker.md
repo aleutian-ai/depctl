@@ -1,7 +1,7 @@
 # CHUNK-003: Symbol chunker
 
 **Epic:** Fingerprinting and Chunking
-**Status:** planned
+**Status:** done
 **Depends on:** CHUNK-001, NORM-004
 **Estimated size:** small
 

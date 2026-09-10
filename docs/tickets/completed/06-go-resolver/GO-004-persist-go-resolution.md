@@ -1,7 +1,7 @@
 # GO-004: Persist Go resolution
 
 **Epic:** Go Resolver
-**Status:** planned
+**Status:** done
 **Depends on:** GO-003, STORE-001
 **Estimated size:** small
 
@@ -34,5 +34,5 @@ Compute a resolution fingerprint for a Go project's dependency set and persist t
 - Round-trip: write then read back yields equal `domain.Resolution`.
 
 ## Acceptance criteria
-- [ ] Second identical resolution produces no desired-state changes (same fingerprint as previously stored).
-- [ ] Resolution persists and survives process restart (via STORE-001's reopen guarantee).
+- [x] Second identical resolution produces no desired-state changes (same fingerprint as previously stored).
+- [x] Resolution persists and survives process restart (via STORE-001's reopen guarantee).

@@ -1,7 +1,7 @@
 # DESC-001: `ragctl describe`
 
 **Epic:** Describe
-**Status:** planned
+**Status:** done
 **Depends on:** REG-002/003 (registry loader/matcher), GEN-002 (generation manifest), VEC-003 (backend replica), SEC-001 (TrustClass)
 **Estimated size:** medium
 

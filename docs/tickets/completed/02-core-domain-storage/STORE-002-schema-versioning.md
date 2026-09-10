@@ -1,7 +1,7 @@
 # STORE-002: Schema versioning
 
 **Epic:** Core Domain and Storage
-**Status:** planned
+**Status:** done
 **Depends on:** STORE-001
 **Estimated size:** small
 
@@ -52,6 +52,10 @@ If the on-disk version is higher than `CurrentSchemaVersion` (a newer binary wro
 - Migration functions are idempotent: running `EnsureSchema` twice on an already-migrated DB is a no-op and does not error.
 
 ## Acceptance criteria
-- [ ] Unsupported future schema produces an explicit error.
-- [ ] Migration functions are idempotent.
-- [ ] `Store.SchemaVersion` returns the current version for use by `ragctl doctor` later.
+- [x] Unsupported future schema produces an explicit error.
+- [x] Migration functions are idempotent.
+- [x] `Store.SchemaVersion` returns the current version for use by `ragctl doctor` later.
+
+## Post-implementation note
+Implemented in `internal/control/bbolt/schema.go`, exactly to this ticket's own small scope — no generic migration engine. `ensureSchema` runs inside `Open`, after bucket creation, in the same `bolt.Update` semantics style as the rest of the package. Uses the pre-existing (previously unused) `meta` bucket for the `schema_version` key, stored as a decimal string via `strconv` rather than binary encoding, matching this codebase's general preference for human-inspectable storage values over compactness (same reasoning as `fingerprint.ObjectID`'s lowercase base32). `migrations` is a `[]Migration{{Version: 1, Apply: no-op}}` slice — version 1's `Apply` is a no-op because every bucket it would create already exists by the time `ensureSchema` runs; it exists purely to establish `schema_version = 1` on a fresh database. `ErrUnsupportedSchemaVersion` wraps `errors.Is`-compatible, matching the package's existing `ErrNotFound` convention. Tests (`schema_test.go`): fresh DB writes version 1; a DB seeded with a future version (via a raw `bolt.Open`, bypassing this package's own `Open`) makes `Open` fail with `ErrUnsupportedSchemaVersion`; reopening an already-migrated DB is a no-op (`TestEnsureSchemaIsIdempotent`). All pass under `-race`.
+

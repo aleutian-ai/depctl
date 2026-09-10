@@ -1,7 +1,7 @@
 # VAL-004: Atomic promotion
 
 **Epic:** Validation and Promotion
-**Status:** planned
+**Status:** done
 **Depends on:** VAL-001, VAL-003, STORE-001
 **Estimated size:** medium
 

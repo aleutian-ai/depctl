@@ -1,7 +1,7 @@
 # EMB-001: Embedder interface
 
 **Epic:** Embedding Provider
-**Status:** planned
+**Status:** done
 **Depends on:** CHUNK-001
 **Estimated size:** small
 

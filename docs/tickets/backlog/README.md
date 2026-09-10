@@ -32,6 +32,27 @@ Same ticket format as `planned/`: each epic has an `INDEX.md`, each ticket is se
 
 33. [33-dataset-descriptors](33-dataset-descriptors/INDEX.md) — `dataset.json` provenance sidecars for raw non-git datasets (`hack/fetch-geodata`), HTTP hashing, optional GDAL spatial inspection, snapshot comparison. Not sourced from the original implementation plan doc — added after the corpus grew a `data/*` category of raw datasets; see [[ragctl-rag-scope-raw-data-vs-docs]] for why these stay out of the RAG pipeline and out of the knowledge registry.
 
+## Registry coverage
+
+34. [34-registry-coverage](34-registry-coverage/INDEX.md) — manifest fallback, candidate source discovery, source liveness check.
+
+## Registry federation
+
+38. [38-registry-federation](38-registry-federation/INDEX.md) — wiring the already-built-but-unused project registry override directory, extend/replace manifest semantics, source-tier provenance (`TrustUser`), and per-source version scope. Also sourced from `docs/scratch/ragctl_architecture_eval_next_steps-2.md` (§6A) — the "bring your own source registry" requirement.
+
+## Curated acquisition, structured normalizers, retrieval experiments, and the repo-graph join
+
+Not sourced from the original implementation plan doc — added from `docs/scratch/ragctl_architecture_eval_next_steps-2.md` after the v0.1 slice matured enough to surface these as concrete, scoped gaps.
+
+39. [39-curated-text-acquisition](39-curated-text-acquisition/INDEX.md) — explicit curator-selected web pages and Confluence/internal-wiki acquisition, extending (not duplicating) epic 24's HTTP client and HTML normalizer.
+40. [40-structured-artifact-normalizers](40-structured-artifact-normalizers/INDEX.md) — OpenAPI and protobuf normalizers, one `KnowledgeObject` per operation/RPC method.
+41. [41-retrieval-and-embedding-experiments](41-retrieval-and-embedding-experiments/INDEX.md) — evidence-gated: bounded embedding concurrency, token-aware chunk sizing, chunk-overlap experiment run via the separate `context-evals` repository.
+42. [42-repo-graph-symbol-join](42-repo-graph-symbol-join/INDEX.md) — a thin external-symbol-provider interface and the join from a resolved call-site symbol to ragctl's exact-version evidence.
+
 ## Ticket ID prefixes in this directory
 
-`PY / NODE / RUST / JAVA / HTTP / VEC (010-014) / EVAL / OBS / EXT / SEC / LOCAL / LLAMA / CLIENT / DATA` — these match the task IDs used in the implementation plan directly, except `DATA` (see above).
+`PY / NODE / RUST / JAVA / HTTP / VEC (010-014) / EVAL / OBS / EXT / SEC / LOCAL / LLAMA / CLIENT / DATA` — these match the task IDs used in the implementation plan directly, except `DATA` (see above). `REG` (epic 38, continuing from REG-008) continues epics 07/34's prefix. `NORM` (epic 40) continues epic 09's prefix into backlog use; `EMB`/`CHUNK` (epic 41) continue epics 12/10's prefixes. `CONF` (epic 39) and `GRAPH` (epic 42) are new prefixes, since Confluence/wiki acquisition and repo-graph symbol join don't exist yet elsewhere.
+
+## A note on `26-evaluation-framework`
+
+Its `INDEX.md` now carries an unresolved status note: `docs/scratch/ragctl_architecture_eval_next_steps-2.md` proposes an independent `context-evals` repo that grades ragctl only through its public CLI/MCP surface, never importing internal packages — in tension with this epic's in-repo `internal/eval` design. Read the note before picking up any EVAL-* ticket.

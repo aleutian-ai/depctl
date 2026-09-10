@@ -1,7 +1,7 @@
 # NORM-001: Normalizer interface
 
 **Epic:** Normalization Pipeline
-**Status:** planned
+**Status:** done
 **Depends on:** CORE-001
 **Estimated size:** small
 

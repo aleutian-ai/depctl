@@ -1,7 +1,7 @@
 # VAL-001: Structural validator
 
 **Epic:** Validation and Promotion
-**Status:** planned
+**Status:** done
 **Depends on:** GEN-002, VEC-003
 **Estimated size:** small
 

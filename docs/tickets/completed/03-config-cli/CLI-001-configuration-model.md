@@ -1,7 +1,7 @@
 # CLI-001: Configuration model
 
 **Epic:** Configuration and CLI Skeleton
-**Status:** planned
+**Status:** done
 **Depends on:** STORE-004
 **Estimated size:** medium
 
@@ -94,7 +94,7 @@ CLI command: `ragctl config validate` — loads config, runs `Validate()`, print
 - Secrets never appear in `config.Marshal()`/re-serialized output even if resolved at runtime.
 
 ## Acceptance criteria
-- [ ] `ragctl config validate` returns useful, field-specific errors on bad config.
-- [ ] Explicit defaults are documented and applied for all optional fields.
-- [ ] No API secrets are ever serialized back to the config file.
-- [ ] Environment variables are used only for secret resolution, not general config override.
+- [x] `ragctl config validate` returns useful, field-specific errors on bad config.
+- [x] Explicit defaults are documented and applied for all optional fields.
+- [x] No API secrets are ever serialized back to the config file.
+- [x] Environment variables are used only for secret resolution, not general config override.

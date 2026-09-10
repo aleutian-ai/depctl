@@ -1,7 +1,7 @@
 # VAL-003: Version correctness smoke test
 
 **Epic:** Validation and Promotion
-**Status:** planned
+**Status:** done
 **Depends on:** VEC-002
 **Estimated size:** small
 

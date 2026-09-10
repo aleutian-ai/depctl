@@ -1,7 +1,7 @@
 # CHUNK-002: Markdown structural chunker
 
 **Epic:** Fingerprinting and Chunking
-**Status:** planned
+**Status:** done
 **Depends on:** CHUNK-001
 **Estimated size:** medium
 

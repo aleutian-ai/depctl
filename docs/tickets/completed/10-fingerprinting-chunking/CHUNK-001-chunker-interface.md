@@ -1,7 +1,7 @@
 # CHUNK-001: Chunker interface
 
 **Epic:** Fingerprinting and Chunking
-**Status:** planned
+**Status:** done
 **Depends on:** NORM-001
 **Estimated size:** small
 

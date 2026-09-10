@@ -1,7 +1,7 @@
 # REG-004: Seed registry
 
 **Epic:** Knowledge Registry
-**Status:** planned
+**Status:** done
 **Depends on:** REG-003
 **Estimated size:** small
 
@@ -43,5 +43,5 @@ Author a handful of real, hand-written manifests in the built-in registry to val
 - REG-003 `Match` resolves each seeded ecosystem+package pair to its manifest.
 
 ## Acceptance criteria
-- [ ] 6 manifests committed and passing schema validation in CI.
-- [ ] `Match("go", "google.golang.org/grpc")` (and the other 5) resolve correctly.
+- [x] 6 manifests committed and passing schema validation in CI.
+- [x] `Match("go", "google.golang.org/grpc")` (and the other 5) resolve correctly.

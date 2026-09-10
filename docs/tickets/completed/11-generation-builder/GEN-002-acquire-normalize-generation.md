@@ -1,7 +1,7 @@
 # GEN-002: Acquire/normalize generation pipeline
 
 **Epic:** Generation Builder
-**Status:** planned
+**Status:** done
 **Depends on:** GEN-001, GIT-002, NORM-002, NORM-004
 **Estimated size:** medium
 

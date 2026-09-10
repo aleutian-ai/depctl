@@ -1,7 +1,7 @@
 # RET-003: GC planner
 
 **Epic:** Retention and GC
-**Status:** planned
+**Status:** done
 **Depends on:** RET-002
 **Estimated size:** small
 

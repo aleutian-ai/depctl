@@ -1,7 +1,7 @@
 # STORE-003: Build Badger object store
 
 **Epic:** Core Domain and Storage
-**Status:** planned
+**Status:** done
 **Depends on:** CORE-001
 **Estimated size:** large
 

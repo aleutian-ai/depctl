@@ -1,7 +1,7 @@
 # RES-001: Resolver interface
 
 **Epic:** Resolver Framework
-**Status:** planned
+**Status:** done
 **Depends on:** CORE-001
 **Estimated size:** small
 
@@ -48,6 +48,6 @@ Registration order is the deterministic priority (no dynamic priority scoring sy
 - `Resolution.Fingerprint` is stable for identical inputs (test via the fake resolver).
 
 ## Acceptance criteria
-- [ ] Interface matches the three-method shape above.
-- [ ] Fake resolver unit test passes.
-- [ ] Registry supports deterministic priority (registration order).
+- [x] Interface matches the three-method shape above.
+- [x] Fake resolver unit test passes.
+- [x] Registry supports deterministic priority (registration order).

@@ -1,38 +1,25 @@
-# ragctl — Planned Tickets (v0.1 critical path)
+# ragctl — Planned Tickets (v0.1 critical path, in progress)
 
-Source: `ragctl_implementation_plan.md` + `ragctl_design_spec.md`. See also [../backlog/README.md](../backlog/README.md) for deferred epics (additional ecosystems, additional vector backends, eval/observability/security, optional integrations).
+Source: `ragctl_implementation_plan.md` + `ragctl_design_spec.md`. See also [../completed/README.md](../completed/README.md) for fully-shipped epics and [../backlog/README.md](../backlog/README.md) for deferred epics (additional ecosystems, additional vector backends, eval/observability/security, optional integrations).
 
-Each numbered directory is an epic. Each epic has an `INDEX.md` with the epic's goal and a linked list of its tickets. Every ticket is a self-contained spec (goal, non-goals, simplicity constraints, design, tests, acceptance criteria) — implementable without re-reading the source docs.
+Each numbered directory is an epic. Each epic has an `INDEX.md` with the epic's goal and a linked list of its tickets. Every ticket is a self-contained spec (goal, non-goals, simplicity constraints, design, tests, acceptance criteria) — implementable without re-reading the source docs. A ticket's `**Status:**` line is `planned` until every one of its Acceptance Criteria boxes is genuinely checked, at which point it becomes `done` — see `docs/architecture.md` for the authoritative narrative of what's actually shipped.
 
-**Guiding rule across all tickets:** keep implementations as simple as possible. Build one reference implementation per interface before adding more (one resolver, one vector backend, one embedder) — see `05-resolver-framework`, `13-vector-backend-qdrant`, `12-embedding-provider`. Do not build the interface abstraction until a second implementation is imminent.
+**Guiding rule across all tickets:** keep implementations as simple as possible. Build one reference implementation per interface before adding more (one resolver, one vector backend, one embedder). Do not build the interface abstraction until a second implementation is imminent.
 
-## Build order
+## Build order — what's left here
 
-1. [01-bootstrap](01-bootstrap/INDEX.md) — repo skeleton, Go toolchain, CI baseline
-2. [02-core-domain-storage](02-core-domain-storage/INDEX.md) — domain types, lifecycle enums, bbolt + Badger stores
-3. [03-config-cli](03-config-cli/INDEX.md) — config model, `ragctl init`, CLI command skeleton
-4. [04-project-discovery](04-project-discovery/INDEX.md) — project scanner, stable project IDs, `ragctl scan`
-5. [05-resolver-framework](05-resolver-framework/INDEX.md) — `Resolver` interface, safe command runner
-6. [06-go-resolver](06-go-resolver/INDEX.md) — first complete resolver (`go list -m -json all`)
-7. [07-knowledge-registry](07-knowledge-registry/INDEX.md) — manifest schema, loader, matcher, seed registry
-8. [08-git-acquisition](08-git-acquisition/INDEX.md) — git mirror cache, version checkout, source delta
-9. [09-normalization](09-normalization/INDEX.md) — Markdown, plain-text, Go-doc, release-note normalizers
-10. [10-fingerprinting-chunking](10-fingerprinting-chunking/INDEX.md) — BLAKE3 fingerprints, object IDs, chunkers
-11. [11-generation-builder](11-generation-builder/INDEX.md) — staging generation, acquire/normalize pipeline, content reuse
-12. [12-embedding-provider](12-embedding-provider/INDEX.md) — `Embedder` interface, Ollama adapter, embedding cache
-13. [13-vector-backend-qdrant](13-vector-backend-qdrant/INDEX.md) — `VectorBackend` interface, Qdrant adapter, replica metadata
-14. [14-validation-promotion](14-validation-promotion/INDEX.md) — structural validation, sanity thresholds, version smoke test, atomic promotion
-15. [15-planner-sync](15-planner-sync/INDEX.md) — desired-state planner, `ragctl plan`, `ragctl sync`
-16. [16-retention-gc](16-retention-gc/INDEX.md) — reference counting, grace period, GC planner, `ragctl gc`
-17. [17-mcp-server](17-mcp-server/INDEX.md) — MCP SDK selection, knowledge query service, MCP tools, offline query test
+Epics 01 through 17 (bootstrap through mcp-server) and epic 20 (describe) are all fully shipped and now live in [../completed/](../completed/README.md) — epic 02 (core-domain-storage) was the last of these to close, reconciled to what actually shipped rather than the original sketch (see `completed/02-core-domain-storage/INDEX.md` and `docs/architecture.md`'s "Epics 1-2" section for how). What remains in this directory:
 
-At the end of epic 17, the system meets Milestone E (`v0.0.5-agent`) from the implementation plan: a coding agent can query exact dependency version docs via MCP. **Stop and use the system before continuing.**
+At the end of what's now `completed/17-mcp-server`, the system met Milestone E (`v0.0.5-agent`) from the implementation plan: a coding agent can query exact dependency version docs via MCP.
 
-18. [18-status-doctor](18-status-doctor/INDEX.md) — `ragctl status`, `ragctl doctor`
-19. [19-watch-mode](19-watch-mode/INDEX.md) — manifest watch list, fsnotify watcher, `ragctl watch`
+18. [18-status-doctor](18-status-doctor/INDEX.md) — `ragctl status`, `ragctl doctor`. **Not started** — explicit CLI stub.
+19. [19-watch-mode](19-watch-mode/INDEX.md) — manifest watch list, fsnotify watcher, `ragctl watch`. **Not started** — explicit CLI stub.
 
-That's v0.1 usable-alpha complete. Everything past this point lives in [../backlog/](../backlog/README.md).
+Epics 21-22 were added after v0.1, outside the original implementation-plan build order — real usage and an architecture review (`docs/scratch/ragctl_architecture_eval_next_steps-2.md`) surfaced concrete gaps worth closing before moving further into backlog scope.
+
+21. [21-structural-preservation](21-structural-preservation/INDEX.md) — Markdown heading paths/breadcrumbs on chunks, structured fenced-code-block preservation, self-describing chunk metadata, breadcrumb output over MCP. Sourced from `docs/scratch/ragctl_architecture_eval_next_steps-2.md` §6.1/6.2/8.1 — the lowest-cost, highest-confidence structural-preservation work.
+22. [22-orphan-lifecycle-gc](22-orphan-lifecycle-gc/INDEX.md) — detect and reclaim failed/interrupted generations that the existing reference-based `ragctl gc` (`completed/16-retention-gc`) can't see, since they never held a real reference. A real correctness gap, not an optimization — sourced from `docs/scratch/ragctl_architecture_eval_next_steps-2.md` §11.
 
 ## Ticket ID prefixes in this directory
 
-`BOOT / CORE / STORE / CLI / PROJ / RES / GO / REG / GIT / NORM / HASH / CHUNK / GEN / EMB / VEC / VAL / PLAN / RET / MCP / OPS / WATCH` — these match the task IDs used in the implementation plan directly.
+`OPS / WATCH` — these match the task IDs used in the implementation plan directly. `STRUCT` (epic 21) and `GC` (epic 22, distinct from the existing `RET`-prefixed reference-based retention/GC in `completed/16-retention-gc`) are new prefixes. Prefixes for fully-shipped epics (`BOOT / CORE / STORE / CLI / PROJ / RES / GO / REG / GIT / NORM / HASH / CHUNK / GEN / EMB / VEC / VAL / PLAN / RET / MCP / DESC`) have moved to [../completed/README.md](../completed/README.md).

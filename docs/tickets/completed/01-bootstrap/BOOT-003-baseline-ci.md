@@ -1,7 +1,7 @@
 # BOOT-003: Add CI baseline
 
 **Epic:** Bootstrap
-**Status:** planned
+**Status:** done
 **Depends on:** BOOT-001
 **Estimated size:** small
 
@@ -40,6 +40,9 @@ Any failing step fails the workflow and blocks merge (once branch protection is 
 - Manual: push a branch with a deliberately failing `go vet` issue and confirm CI fails; fix it and confirm CI passes.
 
 ## Acceptance criteria
-- [ ] Clean checkout passes CI.
-- [ ] `go test ./...`, `go test -race ./...`, `go vet ./...`, and a `gofmt` check all run in CI.
-- [ ] Workflow runs automatically on push and pull_request events.
+- [x] Clean checkout passes CI.
+- [x] `go test ./...`, `go test -race ./...`, `go vet ./...`, and a `gofmt` check all run in CI.
+- [x] Workflow runs automatically on push and pull_request events.
+
+## Post-implementation note
+`.github/workflows/test.yml`: one job, `ubuntu-latest`, `actions/setup-go@v5` pinned to `1.25.6` (matching `go.mod`/README, closing BOOT-002's remaining gap). Steps run `gofmt -l .` (fails the job if any file is unformatted), `go vet ./...`, `go test ./...`, then `go test -race ./...`, in that order — cheapest/fastest checks first so a formatting or vet mistake fails fast without waiting for the full race-enabled suite. All four verified locally before committing (`go test ./...` and `go test -race ./...` both pass clean across every package, `gofmt -l .` and `go vet ./...` both produce no output). No lint job yet, per this ticket's own Non-goals — a `.golangci.yml` exists (BOOT-001) but nothing invokes `golangci-lint` in CI yet; that's a follow-up, not a gap in this ticket's own scope. No caching/artifact steps added either, matching the Simplicity constraints.

@@ -1,7 +1,7 @@
 # RET-002: Grace period
 
 **Epic:** Retention and GC
-**Status:** planned
+**Status:** done
 **Depends on:** RET-001
 **Estimated size:** small
 
