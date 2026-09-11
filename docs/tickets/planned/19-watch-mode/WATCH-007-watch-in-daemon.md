@@ -25,8 +25,8 @@ The daemon watches every registered project's dependency manifests using the exi
 - Project-set refresh:
   - `SetProjects` is called once a minute, and immediately after any API call that registers or re-resolves projects (scan/resolve, WATCH-008).
   - No retry-on-lock path. The daemon owns the lock, so `changeLoop`'s `ErrLocked` retry, `watchLockRetry`, and per-change store opening all go away.
-- Delete `ragctl watch`, meaning `newWatchCmd`, `runWatch`, `changeLoop`, `lockedWriter`, and `syncChangedProject`. Keep `resyncProject`, moved to wherever the `Engine` implementation lives in `internal/cli`.
-  - If `watch` is invoked, it should print "`ragctl watch` was replaced by `ragctl daemon run` (watching is on while `watch.enabled` is true)". A stub is the smallest way to do that. Delete it in a later release.
+- Delete watch's foreground machinery: `runWatch`, `changeLoop`, `lockedWriter`, and `syncChangedProject`. Keep `resyncProject`, moved to wherever the `Engine` implementation lives in `internal/cli`.
+- **Keep `ragctl watch` as a deprecated compatibility shim**, so an old README or muscle memory doesn't hit a dead command. It ensures the daemon is running (WATCH-012's `ensureDaemon`, or a plain connect until that lands), prints that watching is daemon-managed, and exits 0. It runs no watcher of its own and opens no store. Its help text is marked deprecated.
 
 ## Inputs / Outputs
 - Input: `internal/watch` `ChangeEvent`s.
@@ -45,10 +45,11 @@ The daemon watches every registered project's dependency manifests using the exi
 - A file change during a running sync causes exactly one follow-up. Block the first resync until a second edit has been debounced.
 - A project whose resolve fails (a broken `go.mod`) is logged, and another project's change still syncs.
 - `watch.enabled: false`: the daemon runs, no watcher starts, and the API still answers.
+- `ragctl watch` exits 0 with the deprecation message and starts no watcher (the shim's own behavior is covered by WATCH-012's tests once auto-start lands).
 - Remove `internal/cli/watch_test.go` / `watch_unix_test.go` cases that tested the deleted loop. Keep `TestResyncProjectPicksUpNewDependency`.
 
 ## Acceptance criteria
 - [ ] The daemon watches registered projects via the unchanged `internal/watch`, debounced by `watch.debounce`.
 - [ ] Manifest changes go through the scheduler; resolve and sync happen automatically.
-- [ ] `ragctl watch` no longer opens stores; it's removed or reduced to the pointer message.
+- [ ] `ragctl watch` is a deprecated shim: it ensures the daemon, prints that watching is daemon-managed, exits 0, and opens no store and runs no watcher.
 - [ ] `docs/internal/watch.md`, `docs/internal/cli.md`, and `docs/architecture.md`'s `ragctl watch` flow now describe the daemon.

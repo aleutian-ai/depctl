@@ -39,8 +39,15 @@ type Engine interface {
 Startup (`ragctl daemon run`):
 ```text
 1. load config
-2. open control.db (bbolt lock; ErrLocked → "a ragctl daemon (or another ragctl process) already owns <path>")
-3. open Badger, build embedder + vector backend (same builders serve uses today)
+2. open control.db (bbolt lock). On ErrLocked, dial the socket:
+     healthy       → "ragctl daemon already running (pid N)", exit 1
+     not answering → exit 1: "control.db is locked but no daemon answers on
+                     <socket>; another ragctl process holds it"
+   Losing this race is normal under WATCH-012's concurrent auto-start, so it's
+   reported plainly, not as a store error.
+3. open Badger; build embedder + vector-backend clients without contacting
+   the services (dimensions are probed lazily on first use, so startup never
+   waits on or fails because of Ollama/Qdrant)
 4. socket = <dir of control.db>/ragctld.sock
    if it exists: remove it — step 2 proved no live daemon owns this store
 5. listen unix, chmod 0600, serve HTTP
@@ -59,7 +66,9 @@ Endpoints in this ticket:
 - `POST /v1/shutdown` returns 202 and starts the same shutdown path as SIGTERM.
 
 Client:
-- `client.Dial(socketPath)` returns `ErrNotRunning` when the socket is missing or the connection is refused, so callers can print "ragctl daemon is not running — start it with `ragctl daemon run`".
+- `client.Dial(socketPath)` returns `ErrNotRunning` when the socket is missing or the connection is refused.
+  - Callers print "ragctl daemon is not running — start it with `ragctl daemon run`".
+  - WATCH-012 wraps this in `ensureDaemon`, which auto-starts first unless `daemon.autostart: false`.
 - `client.SocketPath(cfg)` is the one place the path is derived.
 
 CLI:
@@ -71,13 +80,17 @@ CLI:
 - Output: a socket file for the daemon's lifetime; log lines on stdout.
 
 ## Failure behavior
-- Second `daemon run` against the same store: fails within the 2s bbolt lock timeout with the "already owns" message and exit 1. It must not touch the running daemon's socket.
+- Second `daemon run` against the same store: fails within the 2s bbolt lock timeout with "already running (pid N)" and exit 1. It must not touch the running daemon's socket.
+- `control.db` locked by a non-daemon process: exit 1 with the "locked but no daemon answers" message.
+- Ollama or Qdrant down: the daemon still starts and serves `health`/`status`. Operations that need them fail per request.
 - Stale socket (the daemon was SIGKILLed): the next `daemon run` removes it and starts normally.
 - A socket path over the platform's `sun_path` limit (104 bytes on macOS, 108 on Linux) fails at startup with the path in the error, not an opaque `bind: invalid argument`.
 
 ## Tests
 - Daemon starts, `GET /v1/health` answers, and while it runs `bboltstore.Open` on the same path returns `ErrLocked`.
-- A second `daemon run` fails cleanly, and the first keeps answering.
+- A second `daemon run` fails cleanly with "already running", and the first keeps answering.
+- `control.db` held by a plain `bboltstore.Open` (no daemon): `daemon run` exits with the "no daemon answers" message.
+- The daemon starts with dead embedding/vector endpoints, and `GET /v1/health` answers.
 - Stale socket recovery: create a plain file at the socket path (or leave the socket of a killed listener), then start the daemon; it starts and answers.
 - SIGTERM (real `syscall.Kill`, unix build tag): exits 0, socket removed, stores closed (a subsequent `bboltstore.Open` succeeds).
 - `daemon stop` shuts a running daemon down; `daemon status` reports both states.

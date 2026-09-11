@@ -26,6 +26,12 @@ func newInitCmd() *cobra.Command {
 // present. It is safe to run repeatedly: existing files/dirs are left
 // untouched, and the summary distinguishes "created" from "already present".
 func runInit(cmd *cobra.Command) error {
+	// init is one of the only commands that opens the stores itself, so
+	// it has to refuse while the daemon owns them (ADR-011).
+	if err := requireNoDaemon(cmd.Context()); err != nil {
+		return err
+	}
+
 	dataDir, err := config.DefaultDataDir()
 	if err != nil {
 		return fmt.Errorf("resolve data dir: %w", err)

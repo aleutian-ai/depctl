@@ -25,6 +25,7 @@ type Config struct {
 	Retention RetentionConfig `yaml:"retention"`
 	Watch     WatchConfig     `yaml:"watch"`
 	Server    ServerConfig    `yaml:"server"`
+	Daemon    DaemonConfig    `yaml:"daemon"`
 }
 
 type StorageConfig struct {
@@ -65,6 +66,20 @@ type WatchConfig struct {
 	Debounce time.Duration `yaml:"debounce"`
 }
 
+// DaemonConfig controls the single-owner daemon (ADR-011). Autostart is
+// a pointer so a config file written before the daemon existed — which
+// has no daemon key at all, since Load never applies defaults — keeps
+// auto-start on rather than silently disabling it.
+type DaemonConfig struct {
+	Autostart *bool `yaml:"autostart"`
+}
+
+// AutostartEnabled reports whether a client may start a daemon itself;
+// unset means yes.
+func (d DaemonConfig) AutostartEnabled() bool {
+	return d.Autostart == nil || *d.Autostart
+}
+
 type ServerConfig struct {
 	MCP  MCPServerConfig  `yaml:"mcp"`
 	HTTP HTTPServerConfig `yaml:"http"`
@@ -81,6 +96,10 @@ type MCPServerConfig struct {
 type HTTPServerConfig struct {
 	Listen string `yaml:"listen"`
 }
+
+// autostartDefault backs DaemonConfig.Autostart in Default; a pointer
+// field needs an addressable value.
+var autostartDefault = true
 
 // Default returns the documented v0.1 defaults, rooted at the given data
 // directory (control.db and badger/ live under it).
@@ -113,6 +132,7 @@ func Default(dataDir string) Config {
 			MCP:  MCPServerConfig{Enabled: true},
 			HTTP: HTTPServerConfig{Listen: "127.0.0.1:7447"},
 		},
+		Daemon: DaemonConfig{Autostart: &autostartDefault},
 	}
 }
 

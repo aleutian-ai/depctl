@@ -14,6 +14,7 @@ import (
 
 	"aleutian-ai/ragctl/internal/config"
 	bboltstore "aleutian-ai/ragctl/internal/control/bbolt"
+	"aleutian-ai/ragctl/internal/daemon/api"
 	"aleutian-ai/ragctl/internal/domain"
 )
 
@@ -21,33 +22,13 @@ import (
 // host can't stall `status` or `doctor`.
 const backendHealthTimeout = 3 * time.Second
 
-// Status is the `ragctl status` snapshot; text and --json both render
-// this one struct.
-type Status struct {
-	Projects             int           `json:"projects"`
-	DependencyReferences int           `json:"dependency_references"`
-	ActiveGenerations    int           `json:"active_generations"`
-	Jobs                 JobStats      `json:"jobs"`
-	StorageBboltBytes    int64         `json:"storage_bbolt_bytes"`
-	StorageBadgerBytes   int64         `json:"storage_badger_bytes"`
-	Backend              BackendStatus `json:"backend"`
-	LastSync             *time.Time    `json:"last_sync"`
-}
-
-// JobStats counts jobs by state class. RETRY counts as pending: it is
-// waiting to run again, not running.
-type JobStats struct {
-	Pending int `json:"pending"`
-	Running int `json:"running"`
-	Failed  int `json:"failed"`
-}
-
-// BackendStatus names the configured vector backend and whether its
-// health probe passed.
-type BackendStatus struct {
-	Name    string `json:"name"`
-	Healthy bool   `json:"healthy"`
-}
+// Status, JobStats, and BackendStatus are the daemon API's status
+// types; `ragctl status` renders them as text or JSON.
+type (
+	Status        = api.Status
+	JobStats      = api.JobStats
+	BackendStatus = api.BackendStatus
+)
 
 func newStatusCmd() *cobra.Command {
 	var jsonOut bool

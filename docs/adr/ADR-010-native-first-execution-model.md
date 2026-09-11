@@ -44,3 +44,4 @@ The container is not required to use `ragctl` — a user can run everything nati
 
 - `Dockerfile`, `hack/run.sh`, `hack/test-linux.sh`
 - `docs/tickets/completed/03-config-cli/` (where `init`'s cross-platform path logic first mattered)
+- Amended by [ADR-011](ADR-011-single-owner-daemon.md): the "long-running `serve` daemon" referred to here is now `ragctl daemon run`, and `ragctl serve` is a stdio MCP proxy with no store access. Native-first still holds, and now applies to the daemon, which is what runs the resolvers against the user's real toolchain.

@@ -43,6 +43,7 @@ func NewRootCmd() *cobra.Command {
 		newGCCmd(),
 		newWatchCmd(),
 		newServeCmd(),
+		newDaemonCmd(),
 		notImplementedCmd("backend", "Manage vector backends"),
 		newRegistryCmd(),
 		newCorpusCmd(),

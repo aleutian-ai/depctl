@@ -142,3 +142,35 @@ func readFile(t *testing.T, path string) string {
 	}
 	return string(data)
 }
+
+func TestAutostartDefaultsOnWhenKeyAbsent(t *testing.T) {
+	// A config written before the daemon existed has no daemon key at
+	// all, and Load never fills in defaults — auto-start must still be on.
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	body := `version: 1
+storage:
+  control:
+    type: bbolt
+    path: /tmp/ragctl/control.db
+  data:
+    type: badger
+    path: /tmp/ragctl/badger
+`
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !cfg.Daemon.AutostartEnabled() {
+		t.Error("AutostartEnabled() = false for a config with no daemon key, want true")
+	}
+
+	off := false
+	cfg.Daemon.Autostart = &off
+	if cfg.Daemon.AutostartEnabled() {
+		t.Error("AutostartEnabled() = true with autostart: false")
+	}
+}

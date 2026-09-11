@@ -3,8 +3,6 @@ package cli
 import (
 	"bytes"
 	"context"
-	"errors"
-	"fmt"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -12,8 +10,7 @@ import (
 	"time"
 
 	"aleutian-ai/ragctl/internal/config"
-	bboltstore "aleutian-ai/ragctl/internal/control/bbolt"
-	"aleutian-ai/ragctl/internal/watch"
+	"aleutian-ai/ragctl/internal/daemon"
 )
 
 // syncBuffer is a bytes.Buffer safe to read while another goroutine
@@ -46,115 +43,8 @@ func waitFor(t *testing.T, what string, cond func() bool) {
 	}
 }
 
-// loopHarness runs a changeLoop against a hand-fed event channel.
-type loopHarness struct {
-	events chan watch.ChangeEvent
-	log    syncBuffer
-	cancel context.CancelFunc
-	done   chan struct{}
-}
-
-func startLoop(t *testing.T, handle func(context.Context, watch.ChangeEvent) error) *loopHarness {
-	t.Helper()
-	h := &loopHarness{events: make(chan watch.ChangeEvent), done: make(chan struct{})}
-	loop := &changeLoop{
-		events:       h.events,
-		handle:       handle,
-		refresh:      func(context.Context) {},
-		logf:         func(format string, args ...any) { fmt.Fprintf(&h.log, format+"\n", args...) },
-		retryAfter:   10 * time.Millisecond,
-		refreshEvery: time.Hour,
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	h.cancel = cancel
-	go func() {
-		loop.run(ctx)
-		close(h.done)
-	}()
-	t.Cleanup(func() {
-		cancel()
-		<-h.done
-	})
-	return h
-}
-
-func TestChangeLoopContinuesAfterFailedChange(t *testing.T) {
-	var mu sync.Mutex
-	var handled []string
-	h := startLoop(t, func(ctx context.Context, ev watch.ChangeEvent) error {
-		mu.Lock()
-		handled = append(handled, ev.ProjectID)
-		mu.Unlock()
-		if ev.ProjectID == "proj_bad" {
-			return errors.New("resolve failed")
-		}
-		return nil
-	})
-
-	h.events <- watch.ChangeEvent{ProjectID: "proj_bad"}
-	h.events <- watch.ChangeEvent{ProjectID: "proj_good"}
-	waitFor(t, "both changes handled", func() bool {
-		mu.Lock()
-		defer mu.Unlock()
-		return len(handled) == 2
-	})
-	if !strings.Contains(h.log.String(), "proj_bad: resolve failed") {
-		t.Errorf("log = %q, want the failure reported", h.log.String())
-	}
-}
-
-func TestChangeLoopRetriesChangeBlockedByLock(t *testing.T) {
-	var mu sync.Mutex
-	attempts := 0
-	h := startLoop(t, func(ctx context.Context, ev watch.ChangeEvent) error {
-		mu.Lock()
-		defer mu.Unlock()
-		attempts++
-		if attempts == 1 {
-			return fmt.Errorf("open control store: %w", bboltstore.ErrLocked)
-		}
-		return nil
-	})
-
-	h.events <- watch.ChangeEvent{ProjectID: "proj_a"}
-	waitFor(t, "the locked change to be retried", func() bool {
-		mu.Lock()
-		defer mu.Unlock()
-		return attempts == 2
-	})
-	if !strings.Contains(h.log.String(), "retrying in") {
-		t.Errorf("log = %q, want a retry notice", h.log.String())
-	}
-}
-
-func TestChangeLoopFinishesInFlightChangeOnCancel(t *testing.T) {
-	started := make(chan struct{})
-	release := make(chan struct{})
-	handlerCtxErr := make(chan error, 1)
-	h := startLoop(t, func(ctx context.Context, ev watch.ChangeEvent) error {
-		close(started)
-		<-release
-		handlerCtxErr <- ctx.Err()
-		return nil
-	})
-
-	h.events <- watch.ChangeEvent{ProjectID: "proj_a"}
-	<-started
-	h.cancel()
-	close(release)
-
-	select {
-	case <-h.done:
-	case <-time.After(5 * time.Second):
-		t.Fatal("loop did not exit after the in-flight change finished")
-	}
-	if err := <-handlerCtxErr; err != nil {
-		t.Errorf("in-flight change saw ctx.Err() = %v, want nil (it must be allowed to finish)", err)
-	}
-}
-
 // deadEndpointsConfig points embedding and vector at nothing, so any
-// SYNC_VERSION work fails fast instead of reaching a real local service.
+// sync work fails fast instead of reaching a real local service.
 func deadEndpointsConfig(t *testing.T, mutate func(*config.Config)) {
 	t.Helper()
 	dead := deadBackendURL(t)
@@ -195,15 +85,10 @@ func addBarDependency(t *testing.T, appRoot string) {
 	writeGoMod(t, appRoot, "module example.com/app\n\ngo 1.21\n\nrequire (\n\texample.com/foo v0.0.0\n\texample.com/bar v0.0.0\n)\n\nreplace example.com/foo => ../foolocal\n\nreplace example.com/bar => ../barlocal\n")
 }
 
-func TestResyncProjectPicksUpNewDependency(t *testing.T) {
-	isolateEnv(t)
-	requireGo(t)
-	runInitForTest(t)
-	deadEndpointsConfig(t, nil)
-	root := scanDepFixture(t)
-	id := projectIDForRoot(t, root)
-	addBarDependency(t, root)
-
+// testEngine builds the daemon's engine over stores this test owns,
+// exercising exactly what the daemon runs without a daemon process.
+func testEngine(t *testing.T) *engine {
+	t.Helper()
 	cfg, err := loadRagctlConfig()
 	if err != nil {
 		t.Fatalf("loadRagctlConfig: %v", err)
@@ -212,19 +97,40 @@ func TestResyncProjectPicksUpNewDependency(t *testing.T) {
 	if err != nil {
 		t.Fatalf("openControlStore: %v", err)
 	}
-	defer store.Close()
+	t.Cleanup(func() { store.Close() })
 	badgerStore, err := openDataStore()
 	if err != nil {
 		t.Fatalf("openDataStore: %v", err)
 	}
-	defer badgerStore.Close()
+	t.Cleanup(func() { badgerStore.Close() })
 
+	controlPath, err := controlDBPath()
+	if err != nil {
+		t.Fatalf("controlDBPath: %v", err)
+	}
+	badgerPath, err := badgerDirPath()
+	if err != nil {
+		t.Fatalf("badgerDirPath: %v", err)
+	}
+	return &engine{store: store, badgerStore: badgerStore, cfg: cfg, controlPath: controlPath, badgerPath: badgerPath}
+}
+
+func TestEngineSyncResolvesFirstWhenAsked(t *testing.T) {
+	isolateEnv(t)
+	requireGo(t)
+	runInitForTest(t)
+	deadEndpointsConfig(t, nil)
+	root := scanDepFixture(t)
+	id := projectIDForRoot(t, root)
+	addBarDependency(t, root)
+
+	e := testEngine(t)
 	var out bytes.Buffer
-	if err := resyncProject(context.Background(), store, badgerStore, cfg, id, &out); err != nil {
-		t.Fatalf("resyncProject: %v\n%s", err, out.String())
+	if _, err := e.Sync(context.Background(), id, daemon.SyncOptions{Resolve: true}, &out); err != nil {
+		t.Fatalf("Sync: %v\n%s", err, out.String())
 	}
 
-	res, err := store.GetResolution(context.Background(), id)
+	res, err := e.store.GetResolution(context.Background(), id)
 	if err != nil {
 		t.Fatalf("GetResolution: %v", err)
 	}
@@ -233,10 +139,10 @@ func TestResyncProjectPicksUpNewDependency(t *testing.T) {
 		names = append(names, d.Dependency.Name)
 	}
 	if !strings.Contains(strings.Join(names, " "), "example.com/bar") {
-		t.Errorf("resolution after resync = %v, want example.com/bar", names)
+		t.Errorf("resolution after sync = %v, want example.com/bar", names)
 	}
 
-	refs, err := store.ListAllReferences(context.Background())
+	refs, err := e.store.ListAllReferences(context.Background())
 	if err != nil {
 		t.Fatalf("ListAllReferences: %v", err)
 	}
@@ -245,35 +151,52 @@ func TestResyncProjectPicksUpNewDependency(t *testing.T) {
 		barRef = barRef || (r.ProjectID == id && r.Package == "example.com/bar")
 	}
 	if !barRef {
-		t.Errorf("references after resync = %+v, want one for example.com/bar (plan ran and recorded it)", refs)
+		t.Errorf("references after sync = %+v, want one for example.com/bar (plan ran and recorded it)", refs)
 	}
 }
 
-func TestWatchRefusesWhenDisabled(t *testing.T) {
+func TestEngineProjectsListsResolvedProjects(t *testing.T) {
 	isolateEnv(t)
-	writeTestConfig(t, func(c *config.Config) { c.Watch.Enabled = false })
+	requireGo(t)
+	runInitForTest(t)
+	deadEndpointsConfig(t, nil)
+	root := scanDepFixture(t)
 
-	root := NewRootCmd()
-	root.SetOut(new(bytes.Buffer))
-	root.SetArgs([]string{"watch"})
-	if err := root.Execute(); err == nil || !strings.Contains(err.Error(), "watch disabled") {
-		t.Fatalf("watch with watch.enabled=false = %v, want a 'watch disabled' error", err)
+	e := testEngine(t)
+	projects, err := e.Projects(context.Background())
+	if err != nil {
+		t.Fatalf("Projects: %v", err)
+	}
+	if len(projects) != 1 || projects[0].Root != root {
+		t.Fatalf("Projects = %+v, want just the scanned fixture at %s", projects, root)
+	}
+	if projects[0].Ecosystem == "" {
+		t.Error("project has no ecosystem; the watcher needs it to know which manifests to watch")
 	}
 }
 
-func TestWatchFailsClearlyWhenStoreLocked(t *testing.T) {
+func TestWatchCommandPointsAtTheDaemon(t *testing.T) {
 	isolateEnv(t)
 	runInitForTest(t)
-	holder, err := openControlStore()
-	if err != nil {
-		t.Fatalf("openControlStore: %v", err)
-	}
-	defer holder.Close()
+	startDaemon(t)
 
-	root := NewRootCmd()
-	root.SetOut(new(bytes.Buffer))
-	root.SetArgs([]string{"watch"})
-	if err := root.Execute(); !errors.Is(err, bboltstore.ErrLocked) {
-		t.Fatalf("watch with the store locked = %v, want ErrLocked", err)
+	out := runCommandOutput(t, "watch")
+	if !strings.Contains(out, "managed by the ragctl daemon") {
+		t.Errorf("watch output = %q, want it to say watching is daemon-managed", out)
+	}
+	if !strings.Contains(out, "watching registered projects") {
+		t.Errorf("watch output = %q, want it to report that watching is on", out)
+	}
+}
+
+func TestWatchCommandReportsWatchingDisabled(t *testing.T) {
+	isolateEnv(t)
+	runInitForTest(t)
+	writeTestConfig(t, func(c *config.Config) { c.Watch.Enabled = false })
+	startDaemon(t)
+
+	out := runCommandOutput(t, "watch")
+	if !strings.Contains(out, "watching is off") {
+		t.Errorf("watch output = %q, want it to report watch.enabled: false", out)
 	}
 }
