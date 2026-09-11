@@ -25,7 +25,7 @@ Note: the Python and Node resolvers (`internal/resolver/python`, `internal/resol
 
 ## What's implemented so far
 
-- **CLI skeleton** (`internal/cli`, Cobra): all 13 top-level commands plus `config validate` are registered. Every command except `init`, `config validate`, `scan`, `project`, `deps`, `registry list`, `plan`, `sync`, `status`, `doctor`, `gc`, and `serve` is an explicit stub that fails with `feature not implemented in this build` rather than doing nothing.
+- **CLI skeleton** (`internal/cli`, Cobra): all 13 top-level commands plus `config validate` are registered. Every command except `init`, `config validate`, `scan`, `project`, `deps`, `registry list`, `plan`, `sync`, `status`, `doctor`, `gc`, `watch`, and `serve` is an explicit stub that fails with `feature not implemented in this build` rather than doing nothing.
 - **`ragctl init`**: creates the config file and local storage directories, idempotently, on both macOS and Linux (with platform-appropriate paths — see `internal/config/paths.go`).
 - **`ragctl config validate`**: loads and validates `config.yaml` (default location, or `--config <path>`), printing `config OK: <path>` or a field-specific error. A missing file suggests `ragctl init` rather than a bare "not found".
 - **`ragctl scan [path]`**: walks a directory tree, detects project roots by manifest file (`go.mod`, `package.json`, `Cargo.toml`, `pyproject.toml`/`requirements.txt`, `pom.xml`/`build.gradle*`), and registers ones whose ecosystem ragctl currently supports. **Go, Python, and Node are now supported** — Go modules resolve via the real `go` toolchain, Python projects by parsing `uv.lock`/`poetry.lock`/`requirements.txt` directly, Node projects by parsing `package-lock.json`/`pnpm-lock.yaml` directly — and the resolution is persisted. Rust and Java still show as `unsupported` until their resolvers land. Idempotent — rescanning doesn't create duplicates, and a resolution's fingerprint is stable across identical resolves.
@@ -85,8 +85,8 @@ graph TD
     classDef implemented fill:#9fe6a0,stroke:#2f7a34,color:#0a2e0c;
     classDef stub fill:#eee,stroke:#999,color:#555,stroke-dasharray: 4 3;
 
-    class init,validate,scan,project,deps,plan,sync,status,doctor,gc,serve,registryList implemented
-    class configCmd,watch,backend,registryCmd stub
+    class init,validate,scan,project,deps,plan,sync,status,doctor,gc,watch,serve,registryList implemented
+    class configCmd,backend,registryCmd stub
 ```
 
 Green = fully implemented. Dashed/grey = registered but returns `feature not implemented in this build`. (`config` itself is just a parent grouping — `config validate` is its one real subcommand.)
@@ -396,6 +396,31 @@ flowchart LR
 
 Adding these surfaced a pre-existing hang: `bboltstore.Open` passed no options, so bbolt waited forever for the file lock, and `ragctl serve` (started by an MCP client like opencode) holds that lock for its whole lifetime. Every command run alongside it hung silently. `Open` now waits at most 2 seconds and returns `bboltstore.ErrLocked` ("control database is locked by another ragctl process (is `ragctl serve` running?)"). This is a bbolt limitation, not something status/doctor can work around — even a read-only open needs a shared lock that conflicts with `serve`'s exclusive one — so while `serve` runs, both commands report the lock instead of reading state.
 
+## `ragctl watch` flow
+
+Epic 19 (`docs/tickets/completed/19-watch-mode`). `internal/watch` detects manifest changes; `internal/cli/watch.go` reacts to them.
+
+```mermaid
+sequenceDiagram
+    participant FS as project root dirs
+    participant W as internal/watch.Watcher
+    participant L as watch change loop
+    participant S as bbolt / Badger
+    participant R as resolver
+    FS->>W: fsnotify Create/Write/Remove/Rename
+    W->>W: keep manifest names only, reset project's debounce timer
+    W-->>L: ChangeEvent{project, paths} (after watch.debounce, default 2s)
+    L->>S: open stores (just for this change)
+    L->>R: Resolve(project root)
+    L->>S: PutResolution
+    L->>L: RunSync(project) — same code as `ragctl sync --project`
+    L->>S: close stores, re-read project list
+```
+
+Each project's root directory is watched non-recursively and events are filtered to that ecosystem's manifest names. Watching the manifest files directly was the ticket's sketch, but a file watch stops working when a package manager replaces the file by rename; a directory watch survives that, coalesces remove-then-recreate, and sees a lockfile created for the first time. Debounced sends happen on timer goroutines, so the filesystem-event loop never blocks on a slow sync.
+
+WATCH-003 expected to enqueue a sync job for "the existing job worker", but no worker was ever built — `jobs` only holds GC bookkeeping and `ragctl sync` runs inline. So changes are processed one at a time on the change loop, through the same `RunSync` as `ragctl sync`, rather than adding a scheduler. The stores are opened only while handling a change, so an idle `watch` never blocks other commands. A change that arrives while `ragctl serve` holds the lock is retried every 30 seconds until it can run. The project list is re-read after each change and every minute. On SIGINT/SIGTERM, a change already in progress finishes (its context isn't cancelled with the signal); a second Ctrl-C exits immediately.
+
 ## `ragctl describe` — corpus visibility
 
 Added after epic 17, outside the original v0.1 build order (`docs/tickets/completed/20-describe`) — dogfooding a real multi-repo corpus surfaced that there was no way to answer "what does ragctl actually have" without hand-inspecting bbolt/Badger/registry files directly, which is a different question from `status`/`doctor`'s fleet-health scope. `internal/cli/describe.go` builds one `Report` struct (fleet-wide, or scoped to one `<ecosystem>/<package>`) from `ListAllReferences` (bbolt) cross-referenced against the loaded registry (`reg.Match`) and each package's active `Generation`/`Manifest`/`BackendReplica`, then renders it three ways from the same data: an ASCII table, `--json`, or a static self-contained `--html` file. A package that's referenced but has no registry manifest, or has a manifest but was never successfully synced, is a normal report row, not an error — surfacing exactly that gap is the command's reason to exist. Each declared source's `TrustClass` (SEC-001) is shown as *declared* (`generation.TrustClassForSourceType`, exported for this reuse) rather than measured from actual Badger content, since that mapping is already exact and walking real chunks would cost a read for no additional accuracy.
@@ -406,7 +431,7 @@ Three related gaps found alongside `describe` — thin registry coverage with no
 
 ## Next up
 
-**Epic 17 completes v0.1's Milestone E** (per `docs/tickets/planned/README.md`): *"a coding agent can query exact dependency version docs via MCP."* The core loop (`ragctl scan` → `ragctl sync` → `ragctl gc` → `ragctl serve` → agent query) works end to end, proven offline by `TestOfflineSearchDependencyDocsAndGetDependencyVersion`. Epic 18 (`status`/`doctor`) has since shipped; epic 19 (`watch`) is the last v0.1 stub, alongside the post-v0.1 epics 21 (structural preservation) and 22 (orphan-generation GC) in `docs/tickets/planned/`.
+**Epic 17 completes v0.1's Milestone E** (per `docs/tickets/planned/README.md`): *"a coding agent can query exact dependency version docs via MCP."* The core loop (`ragctl scan` → `ragctl sync` → `ragctl gc` → `ragctl serve` → agent query) works end to end, proven offline by `TestOfflineSearchDependencyDocsAndGetDependencyVersion`. Epics 18 (`status`/`doctor`) and 19 (`watch`) have since shipped, so every epic in the original v0.1 build order is done. What remains in `docs/tickets/planned/` is post-v0.1: epic 21 (structural preservation) and epic 22 (orphan-generation GC).
 
 ## Testing notes
 

@@ -8,11 +8,9 @@ Each numbered directory is an epic. Each epic has an `INDEX.md` with the epic's 
 
 ## Build order — what's left here
 
-Epics 01 through 18 (bootstrap through status-doctor) and epic 20 (describe) are all fully shipped and now live in [../completed/](../completed/README.md) — epic 02 (core-domain-storage) was the last of these to close, reconciled to what actually shipped rather than the original sketch (see `completed/02-core-domain-storage/INDEX.md` and `docs/architecture.md`'s "Epics 1-2" section for how). What remains in this directory:
+Epics 01 through 20 (bootstrap through describe) are all fully shipped, which completes the original v0.1 build order, and now live in [../completed/](../completed/README.md) — epic 02 (core-domain-storage) was the last of these to close, reconciled to what actually shipped rather than the original sketch (see `completed/02-core-domain-storage/INDEX.md` and `docs/architecture.md`'s "Epics 1-2" section for how). What remains in this directory:
 
 At the end of what's now `completed/17-mcp-server`, the system met Milestone E (`v0.0.5-agent`) from the implementation plan: a coding agent can query exact dependency version docs via MCP.
-
-19. [19-watch-mode](19-watch-mode/INDEX.md) — manifest watch list, fsnotify watcher, `ragctl watch`. **Not started** — explicit CLI stub.
 
 Epics 21-22 were added after v0.1, outside the original implementation-plan build order — real usage and an architecture review (`docs/scratch/ragctl_architecture_eval_next_steps-2.md`) surfaced concrete gaps worth closing before moving further into backlog scope.
 
@@ -21,4 +19,4 @@ Epics 21-22 were added after v0.1, outside the original implementation-plan buil
 
 ## Ticket ID prefixes in this directory
 
-`WATCH` — this matches the task IDs used in the implementation plan directly. `STRUCT` (epic 21) and `GC` (epic 22, distinct from the existing `RET`-prefixed reference-based retention/GC in `completed/16-retention-gc`) are new prefixes. Prefixes for fully-shipped epics (`BOOT / CORE / STORE / CLI / PROJ / RES / GO / REG / GIT / NORM / HASH / CHUNK / GEN / EMB / VEC / VAL / PLAN / RET / MCP / OPS / DESC`) have moved to [../completed/README.md](../completed/README.md).
+`STRUCT` (epic 21) and `GC` (epic 22, distinct from the existing `RET`-prefixed reference-based retention/GC in `completed/16-retention-gc`) are new prefixes. Prefixes for fully-shipped epics (`BOOT / CORE / STORE / CLI / PROJ / RES / GO / REG / GIT / NORM / HASH / CHUNK / GEN / EMB / VEC / VAL / PLAN / RET / MCP / OPS / WATCH / DESC`) have moved to [../completed/README.md](../completed/README.md).

@@ -9,7 +9,7 @@
 - `EmbeddingConfig` — provider/model/endpoint for the embedder (`ollama` in v0.1) — `internal/config/config.go`.
 - `VectorConfig` — vector backend/endpoint/collection (`qdrant` in v0.1) — `internal/config/config.go`.
 - `RetentionConfig` — GC grace period and keep-latest policy — `internal/config/config.go`.
-- `WatchConfig` / `ServerConfig` (`MCPServerConfig`, `HTTPServerConfig`) — not yet wired to a real `watch` command, but `ServerConfig.MCP` is read by `ragctl serve` — `internal/config/config.go`.
+- `WatchConfig` / `ServerConfig` (`MCPServerConfig`, `HTTPServerConfig`) — `WatchConfig.Enabled`/`Debounce` are read by `ragctl watch` (refuses to start when disabled; debounce window, default 2s), and `ServerConfig.MCP` by `ragctl serve`; `HTTPServerConfig` has no consumer yet — `internal/config/config.go`.
 - `Default(dataDir string) Config` — documented v0.1 defaults rooted at `dataDir` — `internal/config/config.go`.
 - `Load(path string) (Config, error)` — reads, parses, and validates `config.yaml`; returns `ErrConfigNotFound` (wrapped, `errors.Is`-compatible) if missing — `internal/config/config.go`.
 - `(Config) Validate() error` — checks required paths are non-empty and durations are non-negative — `internal/config/config.go`.
@@ -90,5 +90,5 @@ Concrete scenario: on macOS, a user has already hand-edited a config file at a n
 - `os.UserConfigDir()` only honors `$XDG_CONFIG_HOME` on Linux — macOS always resolves to `~/Library/Application Support` regardless of that env var, documented inline at `internal/config/paths.go`.
 - `DefaultDataDir` co-locates config and data on macOS (no separate data-dir convention worth honoring for a single-user CLI) but splits them on Linux per the XDG Base Directory spec.
 - `Load` intentionally never applies defaults for missing fields — `ragctl init`'s `Default(dataDir)` is the only place defaults get materialized; a hand-edited partial `config.yaml` loads with zero-valued fields rather than silently defaulting.
-- No schema-version handling yet (`Version` field exists but isn't checked against anything) — matches architecture.md's STORE-002 gap note, though `Config.Version` itself is a config-file concern, not a store one.
+- `Config.Version` exists but isn't checked against anything. This is separate from STORE-002's schema-version guard, which only covers `control.db` (`internal/control/bbolt/schema.go`), not the config file.
 - `Save` never serializes resolved secrets — only `VectorConfig.APIKeyEnv`, a reference to an env var name, is the one secret-shaped field.

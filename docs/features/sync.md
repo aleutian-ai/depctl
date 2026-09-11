@@ -6,7 +6,7 @@ Related package docs: [cli](../internal/cli.md), [planner](../internal/planner.m
 
 ## Where the trigger comes from
 
-`ragctl sync` (`internal/cli/sync.go`) and MCP's disabled-by-default `sync_project` tool both call the same exported `RunSync` (`internal/cli/sync.go`) — there is exactly one sync-execution code path in the binary. `RunSync` first calls `computePlans` (`internal/cli/plan.go`), which reads every registered project's `Resolution` and `VersionReference`s from bbolt and calls `planner.Plan` to diff them against the registry and any already-active generation. Only a `planner.ActionSyncVersion` action reaches the pipeline below; `ActionAddReference`/`ActionDropReference` are cheap bbolt/retention writes handled inline in `RunSync`'s loop (`internal/cli/sync.go`) and never touch generation/embedding/vector-backend code at all.
+`ragctl sync` (`internal/cli/sync.go`), MCP's disabled-by-default `sync_project` tool, and `ragctl watch` (`internal/cli/watch.go`, which re-resolves a project after one of its manifest files changes, then syncs just that project) all call the same exported `RunSync` (`internal/cli/sync.go`) — there is exactly one sync-execution code path in the binary. `RunSync` first calls `computePlans` (`internal/cli/plan.go`), which reads every registered project's `Resolution` and `VersionReference`s from bbolt and calls `planner.Plan` to diff them against the registry and any already-active generation. Only a `planner.ActionSyncVersion` action reaches the pipeline below; `ActionAddReference`/`ActionDropReference` are cheap bbolt/retention writes handled inline in `RunSync`'s loop (`internal/cli/sync.go`) and never touch generation/embedding/vector-backend code at all.
 
 ## The pipeline for one `SYNC_VERSION` action
 

@@ -26,7 +26,8 @@ Commands (one file each, matching the command tree):
 - `describe [alias | ecosystem package] [--json] [--html] [--check-liveness]` — reports what packages ragctl knows about: registry match, sources, active generation, replica status — `internal/cli/describe.go`.
 - `status [--json]` — read-only snapshot: project/reference/active-generation counts, job counts, on-disk store sizes, backend health, last sync — `internal/cli/status.go`.
 - `doctor` — 13 ordered health checks, one line each; exit code is the worst severity (0 OK, 1 warning, 2 unhealthy), carried to `main` by `ExitCodeError` — `internal/cli/doctor.go`.
-- `watch`, `backend` — registered but unimplemented stubs (`notImplementedCmd`) — `internal/cli/root.go`.
+- `watch` — foreground loop: on a debounced manifest change (from `internal/watch`), re-resolves that project and runs `RunSync` for it; opens the stores only while handling a change — `internal/cli/watch.go`.
+- `backend` — registered but unimplemented stub (`notImplementedCmd`) — `internal/cli/root.go`.
 
 Key exported/shared functions worth knowing across commands:
 - `computePlans(ctx, store, backendName, projectID) ([]projectPlan, error)` — shared by `plan` and `sync`; the only place that reads bbolt/registry state to feed `planner.Plan` — `internal/cli/plan.go`.
@@ -54,7 +55,8 @@ flowchart TD
     Dispatch -->|describe| CDesc["runDescribe -> buildReport"]
     Dispatch -->|status| CStatus["runStatus -> buildStatus"]
     Dispatch -->|doctor| CDoctor["runDoctor -> runChecks"]
-    Dispatch -->|watch/backend| Stub["notImplementedCmd\n(fails: feature not implemented)"]
+    Dispatch -->|watch| CWatch["runWatch -> changeLoop -> resyncProject -> RunSync"]
+    Dispatch -->|backend| Stub["notImplementedCmd\n(fails: feature not implemented)"]
 
     ConfigPkg["internal/config\nDefaultConfigPath/DataDir, Load"] --> CInit
     ConfigPkg --> CConfig
@@ -71,15 +73,19 @@ flowchart TD
     Bbolt --> CDesc
     Bbolt --> CStatus
     Bbolt --> CDoctor
+    Bbolt --> CWatch
     Badger["internal/data/badger\n(openDataStore)"] --> CSync
     Badger --> CGC
     Badger --> CServe
     Badger --> CDesc
     Badger --> CDoctor
+    Badger --> CWatch
 
     ProjectPkg["internal/project.Scan"] --> CScan
     ProjectPkg --> CCorpus
     Resolver["internal/resolver/golang,python,node"] --> CScan
+    Resolver --> CWatch
+    WatchPkg["internal/watch\n(Watcher, debounced ChangeEvents)"] --> CWatch
     Registry["internal/registry\n(Loader.Load, Match)"] --> CReg
     Registry --> CPlan
     Registry --> CSync
@@ -132,7 +138,7 @@ Concrete scenario: from `/Users/dev`, a user runs `ragctl scan ./myapp`, where `
     discovered 1, new 1, existing 0, unsupported 0
     ```
 12. Back in Cobra: `RunE` returned `nil`, so `Execute()` returns `nil` and the process exits `0`. Had any step instead returned a non-nil error from `RunE` itself (as opposed to the per-dependency errors in the loop, which are logged to stderr and skipped rather than aborting the whole scan), `NewRootCmd`'s `SilenceErrors: true`/`SilenceUsage: true` (`internal/cli/root.go`) means the caller (`main`) is responsible for printing that error, not Cobra's default usage dump.
-13. Contrast with a command that hasn't landed yet: `ragctl watch` dispatches to a stub built by `notImplementedCmd("watch", "Watch projects for dependency changes")` (`internal/cli/root.go`) — its `RunE` unconditionally returns `fmt.Errorf("feature not implemented in this build")`, so `Execute()` propagates that error and the process exits non-zero, regardless of arguments.
+13. Contrast with a command that hasn't landed yet: `ragctl backend` dispatches to a stub built by `notImplementedCmd("backend", "Manage vector backends")` (`internal/cli/root.go`) — its `RunE` unconditionally returns `fmt.Errorf("feature not implemented in this build")`, so `Execute()` propagates that error and the process exits non-zero, regardless of arguments.
 
 ## Notes
 
@@ -142,6 +148,6 @@ Concrete scenario: from `/Users/dev`, a user runs `ragctl scan ./myapp`, where `
 - `describe` (`describe.go`) intentionally shows each source's `TrustClass` as *declared* (`generation.TrustClassForSourceType`) rather than measured from actual Badger content — walking real chunks would cost a read for no additional accuracy, per the DESC-001 simplicity constraint noted in its own doc comments.
 - `corpus` (`corpus.go`) is a workaround, not a first-class feature: it fabricates a synthetic Node `package.json`/`package-lock.json` project under `<data-dir>/corpus` so an arbitrary local git repo can be indexed via the existing Node resolver + `scan` path, rather than requiring a real "local corpus" concept. `docs/tickets/backlog/35-local-corpus` tracks the deferred first-class version.
 - `serve` (`serve.go`) only wires stdio transport for MCP; Streamable HTTP is a documented future option on the same SDK, not built.
-- `watch` and `backend` remain `notImplementedCmd` stubs — matches architecture.md's "What's implemented so far" list.
+- `backend` remains a `notImplementedCmd` stub — matches architecture.md's "What's implemented so far" list.
 - Every command opens `control.db` through `bboltstore.Open`, which waits at most 2 seconds for bbolt's file lock and then fails with `ErrLocked`. While `ragctl serve` is running (for example under an MCP client), other commands report that lock instead of reading state.
 - Every command opens its own store handles per-invocation (`openControlStore`/`openDataStore`) and defers `Close()`, except `serve`, which holds them open for the life of the long-running process — `RunSync` is written to accept already-open handles specifically so `internal/mcp`'s `sync_project` tool can reuse `serve`'s open Badger handle rather than opening a second one (Badger only allows one open handle per directory per process).

@@ -19,7 +19,7 @@
 **internal/backend/qdrant**
 - `Client` — `VectorBackend` implementation against Qdrant's HTTP API via a hand-written client (net/http + encoding/json), not a generated SDK (internal/backend/qdrant/qdrant.go).
 - `New(endpoint, opts...)` — constructs a `Client`; default batch size 256 (internal/backend/qdrant/qdrant.go).
-- `(*Client) HealthCollection(ctx, collection)` — extra method beyond the interface, checks a specific collection exists/is reachable (used by `ragctl doctor`) (internal/backend/qdrant/qdrant.go).
+- `(*Client) HealthCollection(ctx, collection)` — extra method beyond the interface, checks a specific collection exists/is reachable; currently has no caller (`ragctl doctor` and `status` use the interface's `Health`) (internal/backend/qdrant/qdrant.go).
 - `(*Client) EnsureNamespace` — GETs the collection; creates it (`PUT /collections/<name>`) only if missing, idempotent (internal/backend/qdrant/qdrant.go).
 - `(*Client) Upsert` — batches points into groups of `batchSize` (internal/backend/qdrant/qdrant.go).
 - `(*Client) Delete` — sends IDs and Filter as two *separate* requests, never combined (internal/backend/qdrant/qdrant.go).
@@ -112,6 +112,6 @@ Scenario: the pipeline has embedded three chunks of `requests==2.31.0`'s docs an
 
 - `Delete`'s two-request split (IDs then Filter, never combined) is a documented workaround for an empirically verified Qdrant server bug: sending both `points` and `filter` in one `points/delete` body silently deletes only by ID and drops the filter — caught by adversarial review against a live v1.13.1 server, not by the original unit tests, which only asserted on outgoing JSON shape (internal/backend/qdrant/qdrant.go).
 - Qdrant point IDs must be unsigned integers or UUIDs; ragctl chunk IDs (`chk_...`) are neither, so `pointID` deterministically derives a UUIDv5-shaped ID via blake3, and the original ID is round-tripped through the payload's `_id` field so query results can report it back (internal/backend/qdrant/qdrant.go, types.go).
-- `qdrant.Client.Health` only checks server reachability (`/healthz`); it cannot also confirm a specific collection exists because the `VectorBackend.Health(ctx)` interface method takes no namespace argument. `HealthCollection` (not part of the interface) exists specifically for callers that already know their collection name, e.g. `ragctl doctor` (internal/backend/qdrant/qdrant.go).
+- `qdrant.Client.Health` only checks server reachability (`/healthz`); it cannot also confirm a specific collection exists because the `VectorBackend.Health(ctx)` interface method takes no namespace argument. `HealthCollection` (not part of the interface) exists for callers that already know their collection name, though nothing calls it yet — `ragctl doctor` and `ragctl status` both call `Health` through the interface, under a 3-second timeout (internal/backend/qdrant/qdrant.go).
 - `backendtest.Backend.Health` always succeeds — there's nothing external for the fake to be unreachable from (internal/backend/backendtest/fake.go).
 - `Capabilities` is intentionally advertised, not enforced structurally: e.g. an adapter with `DeleteByFilter == false` is documented as required to reject a non-nil `Filter` in `DeleteRequest`, but that's a contract on the implementation, not something the interface itself checks (internal/backend/backend.go).

@@ -41,7 +41,7 @@ func NewRootCmd() *cobra.Command {
 		newStatusCmd(),
 		newDoctorCmd(),
 		newGCCmd(),
-		notImplementedCmd("watch", "Watch projects for dependency changes"),
+		newWatchCmd(),
 		newServeCmd(),
 		notImplementedCmd("backend", "Manage vector backends"),
 		newRegistryCmd(),
