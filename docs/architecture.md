@@ -25,7 +25,7 @@ Note: the Python and Node resolvers (`internal/resolver/python`, `internal/resol
 
 ## What's implemented so far
 
-- **CLI skeleton** (`internal/cli`, Cobra): all 13 top-level commands plus `config validate` are registered. Every command except `init`, `config validate`, `scan`, `project`, `deps`, `registry list`, `plan`, `sync`, `gc`, and `serve` is an explicit stub that fails with `feature not implemented in this build` rather than doing nothing.
+- **CLI skeleton** (`internal/cli`, Cobra): all 13 top-level commands plus `config validate` are registered. Every command except `init`, `config validate`, `scan`, `project`, `deps`, `registry list`, `plan`, `sync`, `status`, `doctor`, `gc`, and `serve` is an explicit stub that fails with `feature not implemented in this build` rather than doing nothing.
 - **`ragctl init`**: creates the config file and local storage directories, idempotently, on both macOS and Linux (with platform-appropriate paths — see `internal/config/paths.go`).
 - **`ragctl config validate`**: loads and validates `config.yaml` (default location, or `--config <path>`), printing `config OK: <path>` or a field-specific error. A missing file suggests `ragctl init` rather than a bare "not found".
 - **`ragctl scan [path]`**: walks a directory tree, detects project roots by manifest file (`go.mod`, `package.json`, `Cargo.toml`, `pyproject.toml`/`requirements.txt`, `pom.xml`/`build.gradle*`), and registers ones whose ecosystem ragctl currently supports. **Go, Python, and Node are now supported** — Go modules resolve via the real `go` toolchain, Python projects by parsing `uv.lock`/`poetry.lock`/`requirements.txt` directly, Node projects by parsing `package-lock.json`/`pnpm-lock.yaml` directly — and the resolution is persisted. Rust and Java still show as `unsupported` until their resolvers land. Idempotent — rescanning doesn't create duplicates, and a resolution's fingerprint is stable across identical resolves.
@@ -85,8 +85,8 @@ graph TD
     classDef implemented fill:#9fe6a0,stroke:#2f7a34,color:#0a2e0c;
     classDef stub fill:#eee,stroke:#999,color:#555,stroke-dasharray: 4 3;
 
-    class init,validate,scan,project,deps,plan,sync,gc,serve,registryList implemented
-    class configCmd,status,doctor,watch,backend,registryCmd stub
+    class init,validate,scan,project,deps,plan,sync,status,doctor,gc,serve,registryList implemented
+    class configCmd,watch,backend,registryCmd stub
 ```
 
 Green = fully implemented. Dashed/grey = registered but returns `feature not implemented in this build`. (`config` itself is just a parent grouping — `config validate` is its one real subcommand.)
@@ -371,6 +371,31 @@ A vector point alone (`backend.ScoredPoint`) never carries chunk text — only a
 
 `ragctl serve` wires stdio transport only for v0.1 (the SDK also supports Streamable HTTP, part of why it was chosen — an easy follow-up whenever a client needs it, not a redesign).
 
+## `ragctl status` / `ragctl doctor` flow
+
+Epic 18 (`docs/tickets/completed/18-status-doctor`). Both are read-only and live in `internal/cli` (`status.go`, `doctor.go`), following `describe`'s precedent rather than the ticket's sketched `internal/ops` package: every input they need (store openers, `loadRagctlConfig`, `buildVectorBackend`, `loadRegistryForCLI`) already lives there, and nothing else consumes them.
+
+```mermaid
+flowchart LR
+    subgraph status["ragctl status [--json]"]
+        S1["bbolt: ListProjects, ListAllReferences,<br/>ListActivePointers, GetGeneration, ListJobs"] --> S2["Status struct"]
+        S3["disk usage of control.db + badger/<br/>(allocated blocks)"] --> S2
+        S4["VectorBackend.Health (3s timeout)"] --> S2
+        S2 --> S5["text table or JSON"]
+    end
+    subgraph doctor["ragctl doctor"]
+        D1["open config, bbolt, Badger, registry<br/>(errors kept, not returned)"] --> D2["13 checks, fixed order"]
+        D2 --> D3["one line per check"]
+        D2 --> D4["exit = worst severity<br/>0 OK · 1 warning · 2 unhealthy"]
+    end
+```
+
+`status` never fails because the backend is down — it reports `healthy: false` and exits 0. "Last sync" is the newest `UpdatedAt` among the configured backend's active generations: ragctl persists no per-run sync timestamp, and a no-op sync changes nothing to derive one from, so the last promotion is the last time a sync changed what queries see. Storage sizes count allocated disk blocks, not apparent file size — while Badger is open its value log is a sparse 2 GB file, so apparent size overstated a near-empty store by gigabytes (measured: 2.28 GB apparent vs 12 KB allocated).
+
+`doctor`'s checks are a flat ordered slice (`doctorChecks`) over a `doctorEnv` holding everything opened once up front. A subsystem that fails to open is reported by its own check; checks that depend on it report `not checked: <dependency> unavailable` rather than being skipped silently. `Severity`'s numeric values are the exit codes, and `cli.ExitCodeError` carries the code to `main`, which exits without printing anything further. The ticket's check list was reconciled to what the code actually has, not built literally: "stale job leases" became "jobs stuck in RUNNING for over an hour" (ragctl has no leases — jobs run synchronously inside one CLI invocation, so an old RUNNING job means that process died); "package-manager executables" only looks for `go`, the one resolver that shells out (node/python resolvers parse lockfiles); and two checks were added — `config` (every other check needs it) and `vector backend reachable` (the most common reason queries fail, and what `VectorBackend.Health`'s own doc comment already said it was for).
+
+Adding these surfaced a pre-existing hang: `bboltstore.Open` passed no options, so bbolt waited forever for the file lock, and `ragctl serve` (started by an MCP client like opencode) holds that lock for its whole lifetime. Every command run alongside it hung silently. `Open` now waits at most 2 seconds and returns `bboltstore.ErrLocked` ("control database is locked by another ragctl process (is `ragctl serve` running?)"). This is a bbolt limitation, not something status/doctor can work around — even a read-only open needs a shared lock that conflicts with `serve`'s exclusive one — so while `serve` runs, both commands report the lock instead of reading state.
+
 ## `ragctl describe` — corpus visibility
 
 Added after epic 17, outside the original v0.1 build order (`docs/tickets/completed/20-describe`) — dogfooding a real multi-repo corpus surfaced that there was no way to answer "what does ragctl actually have" without hand-inspecting bbolt/Badger/registry files directly, which is a different question from `status`/`doctor`'s fleet-health scope. `internal/cli/describe.go` builds one `Report` struct (fleet-wide, or scoped to one `<ecosystem>/<package>`) from `ListAllReferences` (bbolt) cross-referenced against the loaded registry (`reg.Match`) and each package's active `Generation`/`Manifest`/`BackendReplica`, then renders it three ways from the same data: an ASCII table, `--json`, or a static self-contained `--html` file. A package that's referenced but has no registry manifest, or has a manifest but was never successfully synced, is a normal report row, not an error — surfacing exactly that gap is the command's reason to exist. Each declared source's `TrustClass` (SEC-001) is shown as *declared* (`generation.TrustClassForSourceType`, exported for this reuse) rather than measured from actual Badger content, since that mapping is already exact and walking real chunks would cost a read for no additional accuracy.
@@ -381,7 +406,7 @@ Three related gaps found alongside `describe` — thin registry coverage with no
 
 ## Next up
 
-**Epic 17 completes v0.1's Milestone E** (per `docs/tickets/planned/README.md`): *"a coding agent can query exact dependency version docs via MCP."* The plan's own build order explicitly says to **stop and use the system before continuing** to epics 18–19 (`status`/`doctor`, `watch`) — those are polish on an already-usable core, not required for the core loop (`ragctl scan` → `ragctl sync` → `ragctl gc` → `ragctl serve` → agent query) to work end to end, which it now does, proven offline by `TestOfflineSearchDependencyDocsAndGetDependencyVersion`.
+**Epic 17 completes v0.1's Milestone E** (per `docs/tickets/planned/README.md`): *"a coding agent can query exact dependency version docs via MCP."* The core loop (`ragctl scan` → `ragctl sync` → `ragctl gc` → `ragctl serve` → agent query) works end to end, proven offline by `TestOfflineSearchDependencyDocsAndGetDependencyVersion`. Epic 18 (`status`/`doctor`) has since shipped; epic 19 (`watch`) is the last v0.1 stub, alongside the post-v0.1 epics 21 (structural preservation) and 22 (orphan-generation GC) in `docs/tickets/planned/`.
 
 ## Testing notes
 

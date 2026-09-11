@@ -23,6 +23,22 @@ func (s *Store) PutJob(ctx context.Context, j domain.Job) error {
 	})
 }
 
+// ListJobs returns every job record, in key order.
+func (s *Store) ListJobs(ctx context.Context) ([]domain.Job, error) {
+	var jobs []domain.Job
+	err := s.db.View(func(tx *bolt.Tx) error {
+		return tx.Bucket([]byte(jobsBucket)).ForEach(func(k, v []byte) error {
+			var j domain.Job
+			if err := json.Unmarshal(v, &j); err != nil {
+				return fmt.Errorf("unmarshal job %s: %w", k, err)
+			}
+			jobs = append(jobs, j)
+			return nil
+		})
+	})
+	return jobs, err
+}
+
 // GetJob returns the job with the given ID, or ErrNotFound.
 func (s *Store) GetJob(ctx context.Context, id string) (domain.Job, error) {
 	var j domain.Job

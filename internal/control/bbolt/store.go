@@ -8,10 +8,18 @@
 package bbolt
 
 import (
+	"errors"
 	"fmt"
+	"time"
 
 	bolt "go.etcd.io/bbolt"
 )
+
+// lockTimeout bounds how long Open waits for control.db's file lock.
+// bbolt's default is to wait forever, which turned any command run
+// alongside `ragctl serve` (which holds the lock for its lifetime) into a
+// silent hang. A var only so tests can shorten it.
+var lockTimeout = 2 * time.Second
 
 // buckets is the full bucket list from STORE-001, created up front so every
 // later ticket can assume they exist.
@@ -37,7 +45,10 @@ type Store struct {
 // Open opens (creating if necessary) the bbolt database at path and
 // ensures every control-plane bucket exists.
 func Open(path string) (*Store, error) {
-	db, err := bolt.Open(path, 0o600, nil)
+	db, err := bolt.Open(path, 0o600, &bolt.Options{Timeout: lockTimeout})
+	if errors.Is(err, bolt.ErrTimeout) {
+		return nil, fmt.Errorf("open bbolt store %s: %w", path, ErrLocked)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("open bbolt store %s: %w", path, err)
 	}

@@ -63,3 +63,25 @@ func TestJobPersistsAcrossRestart(t *testing.T) {
 		t.Errorf("State after reopen = %s, want RUNNING", got.State)
 	}
 }
+
+func TestListJobs(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+
+	for _, j := range []domain.Job{
+		{ID: "job_a", Type: "gc", State: domain.JobRunning},
+		{ID: "job_b", Type: "gc", State: domain.JobFailed},
+	} {
+		if err := store.PutJob(ctx, j); err != nil {
+			t.Fatalf("PutJob %s: %v", j.ID, err)
+		}
+	}
+
+	jobs, err := store.ListJobs(ctx)
+	if err != nil {
+		t.Fatalf("ListJobs: %v", err)
+	}
+	if len(jobs) != 2 || jobs[0].ID != "job_a" || jobs[1].ID != "job_b" {
+		t.Errorf("ListJobs = %+v, want job_a then job_b", jobs)
+	}
+}

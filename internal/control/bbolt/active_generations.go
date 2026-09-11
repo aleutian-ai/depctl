@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	bolt "go.etcd.io/bbolt"
@@ -12,6 +13,16 @@ import (
 )
 
 const activeGenerationsBucket = "active_generations"
+
+// ActivePointer is one active_generations entry: the dependency it is
+// scoped to and the generation ID it points at. The pointed-to record is
+// deliberately not resolved here, so callers like `ragctl doctor` can see
+// a pointer whose generation record has gone missing.
+type ActivePointer struct {
+	Ecosystem    domain.Ecosystem
+	Dependency   string
+	GenerationID string
+}
 
 // activeGenerationKey identifies a dependency+backend's active-generation
 // pointer. Pipe-separated (matching internal/registry's own
@@ -90,4 +101,30 @@ func (s *Store) GetActiveGeneration(ctx context.Context, ecosystem domain.Ecosys
 		return json.Unmarshal(data, &gen)
 	})
 	return gen, err
+}
+
+// ListActivePointers returns every active-generation pointer scoped to
+// backendName, across all dependencies.
+func (s *Store) ListActivePointers(ctx context.Context, backendName string) ([]ActivePointer, error) {
+	suffix := "|" + backendName
+	var pointers []ActivePointer
+	err := s.db.View(func(tx *bolt.Tx) error {
+		return tx.Bucket([]byte(activeGenerationsBucket)).ForEach(func(k, v []byte) error {
+			key, ok := strings.CutSuffix(string(k), suffix)
+			if !ok {
+				return nil
+			}
+			ecosystem, dependency, ok := strings.Cut(key, "|")
+			if !ok {
+				return fmt.Errorf("malformed active generation key %q", k)
+			}
+			pointers = append(pointers, ActivePointer{
+				Ecosystem:    domain.Ecosystem(ecosystem),
+				Dependency:   dependency,
+				GenerationID: string(v),
+			})
+			return nil
+		})
+	})
+	return pointers, err
 }
