@@ -398,7 +398,7 @@ Adding these surfaced a pre-existing hang: `bboltstore.Open` passed no options, 
 
 ## `ragctl watch` flow
 
-Epic 19 (`docs/tickets/completed/19-watch-mode`). `internal/watch` detects manifest changes; `internal/cli/watch.go` reacts to them.
+Epic 19 (`docs/tickets/planned/19-watch-mode`, WATCH-001..003). `internal/watch` detects manifest changes; `internal/cli/watch.go` reacts to them.
 
 ```mermaid
 sequenceDiagram

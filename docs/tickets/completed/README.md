@@ -27,9 +27,7 @@ An epic moves here only when **every** ticket inside it is done — a mixed epic
 This range completes Milestone E: a coding agent can query exact dependency version docs via MCP.
 
 18. [18-status-doctor](18-status-doctor/INDEX.md) — `ragctl status` (text + `--json` snapshot) and `ragctl doctor` (13 ordered health checks, exit 0/1/2). Built in `internal/cli` rather than the sketched `internal/ops` package, and two checks were reconciled to what the codebase actually has (no job leases exist, so stale jobs are stuck-RUNNING ones; only the Go resolver shells out to a package manager). Also fixed `bboltstore.Open` hanging forever while `ragctl serve` holds the lock. See OPS-001/OPS-002's post-implementation notes.
-19. [19-watch-mode](19-watch-mode/INDEX.md) — `ragctl watch`: fsnotify watches each project root and filters to manifest names (not per-file watches, which break on rename-into-place), debounced per project; each change re-resolves the project and runs the same `RunSync` as `ragctl sync`. Reconciled rather than built literally: the "enqueue a sync job for the existing worker" design assumed a job worker that was never built, so sync runs on watch's own loop instead, off the filesystem-event goroutine. See WATCH-001..003's post-implementation notes.
-
-With epic 19, every epic in the original v0.1 build order has shipped.
+19. Epic 19 (watch mode) moved back to [../planned/19-watch-mode](../planned/19-watch-mode/INDEX.md). Its original tickets (WATCH-001..003, `ragctl watch`) shipped, which completed the original v0.1 build order. The epic reopened with WATCH-004..011, which move watching into a single-owner daemon because `ragctl watch` can't sync while `ragctl serve` holds the store lock.
 
 ## Post-v0.1 (added after real usage, outside the original build order)
 
