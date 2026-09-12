@@ -45,6 +45,7 @@ type Status struct {
 	StorageBadgerBytes   int64         `json:"storage_badger_bytes"`
 	Backend              BackendStatus `json:"backend"`
 	LastSync             *time.Time    `json:"last_sync"`
+	GCRunning            bool          `json:"gc_running"`
 }
 
 // JobStats counts jobs by state class. RETRY counts as pending: it is

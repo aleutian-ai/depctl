@@ -45,33 +45,14 @@ func newStatusCmd() *cobra.Command {
 }
 
 func runStatus(cmd *cobra.Command, jsonOut bool) error {
-	ctx := context.Background()
-
-	cfg, err := loadRagctlConfig()
+	c, err := ensureDaemon(cmd.Context())
 	if err != nil {
 		return err
 	}
-
-	store, err := openControlStore()
-	if err != nil {
-		return fmt.Errorf("open control store: %w", err)
-	}
-	defer store.Close()
-
-	controlPath, err := controlDBPath()
+	st, err := c.Status(cmd.Context())
 	if err != nil {
 		return err
 	}
-	badgerPath, err := badgerDirPath()
-	if err != nil {
-		return err
-	}
-
-	st, err := buildStatus(ctx, store, cfg.Vector.Backend, controlPath, badgerPath)
-	if err != nil {
-		return err
-	}
-	st.Backend = BackendStatus{Name: cfg.Vector.Backend, Healthy: probeBackend(ctx, cfg) == nil}
 
 	if jsonOut {
 		enc := json.NewEncoder(cmd.OutOrStdout())
@@ -222,6 +203,7 @@ func printStatusText(out io.Writer, st Status) {
 	fmt.Fprintf(out, "%-22s %s\n", "storage (badger):", formatBytes(st.StorageBadgerBytes))
 	fmt.Fprintf(out, "%-22s %s %s\n", "backend:", st.Backend.Name, health)
 	fmt.Fprintf(out, "%-22s %s\n", "last sync:", lastSync)
+	fmt.Fprintf(out, "%-22s %t\n", "gc running:", st.GCRunning)
 }
 
 func formatBytes(n int64) string {

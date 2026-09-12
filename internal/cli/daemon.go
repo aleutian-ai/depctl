@@ -329,8 +329,8 @@ func (e *engine) ProjectIDs(ctx context.Context) ([]string, error) {
 
 // Scan discovers and resolves projects under root, the work behind
 // `ragctl scan`.
-func (e *engine) Scan(ctx context.Context, root string, out io.Writer) ([]string, error) {
-	return scanAndResolve(ctx, e.store, root, out)
+func (e *engine) Scan(ctx context.Context, root string, out io.Writer, lockProject func(string) func()) ([]string, error) {
+	return scanAndResolve(ctx, e.store, root, out, lockProject)
 }
 
 // Plan returns the desired-state plan. The result is the CLI's own plan

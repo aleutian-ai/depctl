@@ -207,6 +207,8 @@ func writeTestConfig(t *testing.T, mutate func(*config.Config)) {
 
 func TestStatusCommandReportsDownBackendWithoutFailing(t *testing.T) {
 	isolateEnv(t)
+	runInitForTest(t)
+	useRealRagctlBinary(t)
 	endpoint := deadBackendURL(t)
 	writeTestConfig(t, func(c *config.Config) { c.Vector.Endpoint = endpoint })
 

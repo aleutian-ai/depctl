@@ -23,7 +23,7 @@ func (s *Server) handleResolve(w http.ResponseWriter, r *http.Request) {
 	}
 
 	stream(w, func(out io.Writer) (any, error) {
-		ids, err := s.opts.Engine.Scan(r.Context(), req.Root, out)
+		ids, err := s.opts.Engine.Scan(r.Context(), req.Root, out, s.scheduler.LockProject)
 		s.refreshProjects(r.Context())
 		if err != nil {
 			return nil, err
@@ -83,18 +83,34 @@ func (s *Server) handlePlan(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, plans)
 }
 
-// handleGC runs garbage collection. It goes through the scheduler's
-// global run lock, so GC never interleaves with a sync.
+// handleGC runs garbage collection through the scheduler, exactly like
+// handleSync: it goes through the same global run lock as every sync (so
+// GC never interleaves with one), is bounded by maxActionDuration so a
+// hung GC can't wedge every future sync, and a GC request that arrives
+// while one is already running collapses into a single follow-up.
 func (s *Server) handleGC(w http.ResponseWriter, r *http.Request) {
 	var req api.GCRequest
 	if !decodeBody(w, r, &req) {
 		return
 	}
 	stream(w, func(out io.Writer) (any, error) {
-		s.scheduler.global.Lock()
-		defer s.scheduler.global.Unlock()
-		return s.opts.Engine.GC(r.Context(), req.DryRun, out)
+		if s.gcBusy() {
+			fmt.Fprintf(out, "gc already running; queued a follow-up\n")
+		}
+		outcome := <-s.scheduler.RequestGC(req.DryRun, out)
+		if outcome.Err != nil {
+			return nil, outcome.Err
+		}
+		return outcome.GC, nil
 	})
+}
+
+// gcBusy reports whether GC is currently running, so the client can be
+// told its request was folded into a follow-up run.
+func (s *Server) gcBusy() bool {
+	s.scheduler.mu.Lock()
+	defer s.scheduler.mu.Unlock()
+	return s.scheduler.gc.running
 }
 
 // busy reports whether a project is mid-sync, so the client can be told

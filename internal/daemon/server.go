@@ -38,7 +38,12 @@ type Engine interface {
 	Projects(ctx context.Context) ([]watch.Project, error)
 	ProjectIDs(ctx context.Context) ([]string, error)
 	Sync(ctx context.Context, projectID string, opts SyncOptions, out io.Writer) (api.SyncResult, error)
-	Scan(ctx context.Context, root string, out io.Writer) ([]string, error)
+	// Scan discovers projects under root and persists each one's
+	// registration and resolution. lockProject must be held around one
+	// project's persist step (see Scheduler.LockProject) so two
+	// concurrent scans that discover the same project can't race each
+	// other's writes.
+	Scan(ctx context.Context, root string, out io.Writer, lockProject func(projectID string) func()) ([]string, error)
 	Plan(ctx context.Context, projectID string) (any, error)
 	GC(ctx context.Context, dryRun bool, out io.Writer) (api.GCResult, error)
 }
@@ -93,7 +98,7 @@ func (s *Server) Serve(ctx context.Context) error {
 	// signal or a shutdown request.
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	s.scheduler = NewScheduler(runCtx, s.opts.Engine.Sync, s.opts.Logf)
+	s.scheduler = NewScheduler(runCtx, s.opts.Engine.Sync, s.opts.Engine.GC, s.opts.Logf)
 
 	// The caller holds the control store's lock, so no live daemon can be
 	// using this path: anything here is left over from a crash.
@@ -186,6 +191,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
+	st.GCRunning = s.gcBusy()
 	writeJSON(w, http.StatusOK, st)
 }
 

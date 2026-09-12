@@ -87,6 +87,70 @@ func writeFile(t *testing.T, dir, name, content string) {
 	}
 }
 
+// TestScanConcurrentSameProjectDoesNotRace exercises the real
+// integration, not just Scheduler.LockProject in isolation: two `ragctl
+// scan` invocations discovering the same project at once must not race
+// each other's PutProject/PutResolution — see
+// docs/scratch/action-controller-proposal.md.
+func TestScanConcurrentSameProjectDoesNotRace(t *testing.T) {
+	isolateEnv(t)
+	withSupportedEcosystem(t, domain.EcosystemGo)
+	requireGo(t)
+	useRealRagctlBinary(t)
+
+	root := t.TempDir()
+	writeGoMod(t, filepath.Join(root, "service-go"), "module example.com/service-go\n\ngo 1.21\n")
+
+	rootCmd := NewRootCmd()
+	rootCmd.SetArgs([]string{"init"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+
+	const concurrent = 4
+	errs := make([]error, concurrent)
+	var wg sync.WaitGroup
+	for i := range concurrent {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			cmd := NewRootCmd()
+			cmd.SetArgs([]string{"scan", root})
+			cmd.SetOut(new(bytes.Buffer))
+			errs[i] = cmd.Execute()
+		}()
+	}
+	wg.Wait()
+
+	for i, err := range errs {
+		if err != nil {
+			t.Errorf("scan %d: %v", i, err)
+		}
+	}
+
+	stopRunningDaemon(t)
+	store, err := openControlStore()
+	if err != nil {
+		t.Fatalf("openControlStore: %v", err)
+	}
+	defer store.Close()
+	projects, err := store.ListProjects(t.Context())
+	if err != nil {
+		t.Fatalf("ListProjects: %v", err)
+	}
+	if len(projects) != 1 {
+		t.Fatalf("got %d persisted projects after %d concurrent scans of the same root, want exactly 1: %+v", len(projects), concurrent, projects)
+	}
+
+	res, err := store.GetResolution(t.Context(), projects[0].ID)
+	if err != nil {
+		t.Fatalf("GetResolution: %v", err)
+	}
+	if len(res.Dependencies) != 0 {
+		t.Errorf("resolution = %+v, want the fixture's zero-dependency result intact (not partially overwritten)", res)
+	}
+}
+
 func TestScanFixtureTreeAllUnsupported(t *testing.T) {
 	isolateEnv(t)
 	useRealRagctlBinary(t)
