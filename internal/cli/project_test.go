@@ -9,6 +9,7 @@ import (
 func TestProjectListEmpty(t *testing.T) {
 	isolateEnv(t)
 	runInitForTest(t)
+	useRealRagctlBinary(t)
 
 	rootCmd := NewRootCmd()
 	rootCmd.SetArgs([]string{"project", "list"})
@@ -75,6 +76,7 @@ func TestProjectListAndShowAfterScan(t *testing.T) {
 func TestProjectShowNotFound(t *testing.T) {
 	isolateEnv(t)
 	runInitForTest(t)
+	useRealRagctlBinary(t)
 
 	cmd := NewRootCmd()
 	cmd.SetArgs([]string{"project", "show", "proj_missing"})

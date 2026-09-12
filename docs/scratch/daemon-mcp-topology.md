@@ -1,6 +1,8 @@
-# Daemon / MCP topology — internal notes, not yet acted on
+# Daemon / MCP topology — resolved (WATCH-010)
 
-Companion to the "Daemon architecture" section of [`docs/architecture.md`](../architecture.md). That section documents what `ragctl daemon run` does; this note is about the seam between it and `ragctl serve` that the daemon-mode refactor (ADR-011) left open. Nothing here has been decided or built — it's a discussion aid.
+**Status: the gap this doc describes is fixed.** `ragctl serve` now opens no store and builds no embedder — it's a thin daemon client (`ensureDaemon` + `internal/cli/query_client.go`'s `daemonQueryService`/`daemonSyncTrigger`) exactly like every other command, satisfying ADR-011 §8. See `docs/internal/daemon.md` and `docs/internal/cli.md` for the current, accurate shape. This doc is kept as-is below for the historical record of what the bug looked like and why it mattered — panels 1 and 2 describe a scenario that can no longer happen.
+
+Companion to the "Daemon architecture" section of [`docs/architecture.md`](../architecture.md).
 
 ## 1. Two processes, no handshake
 

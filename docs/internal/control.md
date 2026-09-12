@@ -5,7 +5,8 @@
 ## Key types and functions
 
 - `Store` — wraps a `*bolt.DB`; every control-plane method hangs off it. internal/control/bbolt/store.go
-- `Open(path)` — opens/creates the bbolt file and ensures all 12 control-plane buckets exist (`projects`, `project_dependencies`, `dependency_versions`, `knowledge_sources`, `generations`, `active_generations`, `backend_replicas`, `jobs`, `references`, `retention`, `migrations`, `meta`), then runs `ensureSchema`. Waits at most 2 seconds (`lockTimeout`) for bbolt's exclusive file lock and returns `ErrLocked` rather than blocking forever when another process — typically a long-running `ragctl serve` — holds it. internal/control/bbolt/store.go
+- `Open(path)` — opens/creates the bbolt file and ensures all 12 control-plane buckets exist (`projects`, `project_dependencies`, `dependency_versions`, `knowledge_sources`, `generations`, `active_generations`, `backend_replicas`, `jobs`, `references`, `retention`, `migrations`, `meta`), then runs `ensureSchema`. Waits at most 2 seconds (`lockTimeout`) for bbolt's exclusive file lock and returns `ErrLocked` rather than blocking forever when another process holds it — a thin wrapper over `OpenWithTimeout(path, lockTimeout)`. internal/control/bbolt/store.go
+- `OpenWithTimeout(path, timeout)` — `Open` with an explicit lock wait, for callers that want to fail faster than the 2-second default. `ragctl daemon run` uses a 200ms timeout for its own attempt to become the store owner: a losing candidate in a concurrent auto-start race needs to find out and exit almost immediately, not park inside the lock wait long enough to inherit an abandoned lock later (see `docs/internal/daemon.md`). internal/control/bbolt/store.go
 - `CurrentSchemaVersion` / `Migration` / `ensureSchema` / `Store.SchemaVersion` — the schema-version guard (STORE-002): `meta/schema_version` is set to 1 on a fresh database, pending migrations are applied in order inside `Open`, and a database written by a newer binary is refused with `ErrUnsupportedSchemaVersion`. `SchemaVersion` is what `ragctl doctor` reports. internal/control/bbolt/schema.go
 - `Store.Close()` — closes the underlying bbolt file. internal/control/bbolt/store.go
 - `Store.PutProject` / `GetProject` / `ListProjects` — CRUD for `domain.Project`, keyed by project ID. internal/control/bbolt/projects.go
@@ -25,16 +26,15 @@
 ```mermaid
 flowchart LR
     subgraph Callers
-        init["cli.runInit"]
-        scan["cli.runScan"]
-        planSync["cli.runPlan / runSync"]
-        gc["lifecycle/gc.Run"]
+        init["cli.runInit\n(opens control.db directly— the one\ncommand that must, since it creates it)"]
+        scan["engine.Scan\n(inside ragctl daemon run,\nreached via cli.runScan→ensureDaemon)"]
+        planSync["engine.Plan / engine.Sync\n(inside the daemon)"]
+        gc["engine.GC (inside the daemon)"]
         genPkg["data/generation.Create/Build/Replicate"]
         validate["lifecycle/validate.Run"]
         promote["lifecycle/promote.Promote"]
-        query["query.Service (MCP)"]
-        statusDoctor["cli.runStatus / runDoctor"]
-        watchCmd["cli.runWatch"]
+        query["query.Service\n(MCP — inside the daemon now;\nragctl serve is a client, see daemon.md)"]
+        statusDoctor["cli.runDoctor\n(dial-only fallback path;\nengine.Doctor when a daemon answers)"]
     end
 
     init -->|Open, create buckets| Store
@@ -46,7 +46,6 @@ flowchart LR
     gc -->|PutJob/GetJob, ListGenerationsByDependencyVersion,\nDeleteGenerationRecord, DeleteAllReferences| Store
     query -->|GetResolution, GetActiveGeneration| Store
     statusDoctor -->|ListProjects, ListAllReferences,\nListActivePointers, ListJobs,\nSchemaVersion, GetBackendReplica| Store
-    watchCmd -->|ListProjects, GetResolution,\nPutResolution, then RunSync| Store
 
     Store[("bbolt.Store\n(control.db)")]
     Store --> FS[("control.db file\non disk")]
@@ -80,7 +79,7 @@ Scenario: project `proj_8f3e1c2a` (root `/Users/dev/website-backend`) has alread
 ## Notes
 
 - `resolutionsBucket` uses the bucket name `project_dependencies` for historical/schema reasons — an interim simplification of STORE-001's fuller `project_dependencies`/`dependency_versions` relational split; the latter bucket is created but unused. internal/control/bbolt/resolutions.go
-- Only one process can have `control.db` open at a time: bbolt holds an exclusive file lock for as long as a `Store` is open, and even a read-only open needs a shared lock that conflicts with it. `ragctl serve` keeps its `Store` open for its whole lifetime, so while it runs, other commands get `ErrLocked` after 2 seconds. `ragctl watch` avoids holding the lock while idle by opening the store only while handling a change.
+- Only one process can have `control.db` open at a time: bbolt holds an exclusive file lock for as long as a `Store` is open, and even a read-only open needs a shared lock that conflicts with it. Under ADR-011, `ragctl daemon run` is that one process for its whole lifetime, with every other command a client over its socket instead of opening the file itself (see `docs/internal/daemon.md`) — `ragctl watch` no longer exists as its own process, folded into the daemon, and `ragctl serve`/`project`/`deps`/`describe` (WATCH-010, then a later pass) no longer open a store either. `init` remains a deliberate exception (creates the store, must run before a daemon can exist), and `doctor` is the one command with a genuine two-path design: it dials without autostarting, and only falls back to opening the stores itself if no daemon answers — see `docs/internal/cli.md`'s notes.
 - No `dependency_versions`-bucket index from `(ecosystem, package, version)` to generation ID exists, so `ListGenerationsByDependencyVersion` and `ListAllReferences`/GC candidate discovery are full bucket scans — an accepted "small keyspace" tradeoff, not an oversight (see comments at internal/control/bbolt/generations.go and references.go).
 - `PromoteGeneration` is the one place in this package that does multi-record read-modify-write inside a single `db.Update` — every other method is a single get/put, keeping the rest of the package simple key-value CRUD.
 - Every write path here is a full JSON marshal of the whole record on every update — fine at ragctl's current scale, but means large records (e.g. a generation with many nested fields) are rewritten wholesale rather than patched.

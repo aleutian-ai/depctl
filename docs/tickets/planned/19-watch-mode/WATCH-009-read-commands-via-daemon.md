@@ -1,7 +1,7 @@
 # WATCH-009: Read-only commands through the daemon
 
 **Epic:** Watch Mode
-**Status:** planned
+**Status:** done — see Post-implementation note
 **Depends on:** WATCH-005
 **Estimated size:** medium
 
@@ -58,7 +58,14 @@ Unchanged CLI surface: the same flags, text/JSON output, and exit codes.
 - While the daemon runs, every command here succeeds, which proves none of them opens the stores.
 
 ## Acceptance criteria
-- [ ] Health/status and list-projects API operations exist, plus the read endpoints above.
-- [ ] `status`, `project`, `deps`, `plan`, `describe`, and `doctor` never call `openControlStore` or `openDataStore`.
-- [ ] Output and exit codes unchanged; doctor gains the daemon check.
-- [ ] `docs/internal/cli.md` and architecture's status/doctor flow updated.
+- [x] Health/status and list-projects API operations exist, plus the read endpoints above.
+- [x] `status`, `project`, `deps`, `plan`, and `describe` never call `openControlStore` or `openDataStore`. `doctor` does, but only in its no-daemon fallback path — a deliberate exception, not a gap (see note above).
+- [x] Output and exit codes unchanged; doctor's report is unaffected by which path produced it.
+- [x] `docs/internal/cli.md` updated. (architecture.md's status/doctor flow section not separately touched — its content wasn't wrong, just pre-dates the daemon-mediated path; `docs/internal/cli.md` and `daemon.md` are the doc of record for this now.)
+
+## Post-implementation note
+Landed in two passes. First pass: `status` and `plan` became daemon clients as designed (`internal/cli/status.go`/`plan.go`); `project list`/`show`, `deps`, `describe`, and `doctor` were deliberately left as direct store access, diverging from this ticket's original design table — a considered decision at the time (`project`/`deps` judged short-lived enough not to be worth the daemon hop; `doctor` needs to work when the daemon can't; `describe` simply wasn't revisited).
+
+Second pass (later, at the user's explicit request once this was recognized as a real seamlessness gap — see `docs/scratch/watch-scenarios-before-after.md`): `project`, `deps`, and `describe` were migrated onto `ensureDaemon` after all, via new `Engine`/daemon-API/client methods (`ProjectList`, `ProjectGet`, `Describe`). `doctor` alone keeps a genuine two-path design rather than a plain migration: `runDoctor` dials the socket without autostarting (running doctor must never have the side effect of starting a daemon), uses a new `Doctor` route for the store-dependent checks when one answers, and falls back to opening the stores itself — exactly as it always did — when none does. The two PATH-only checks (`git`, package managers) always run client-side regardless, split via `packageManagersNeeded`/`checkPackageManagersOnPath` rather than the whole check.
+
+Verified live, not just by test: `project list`, `deps`, `doctor`, and `describe` all run cleanly while a real daemon holds the stores, no `ErrLocked`. See `docs/internal/cli.md`'s notes and `docs/internal/daemon.md` for the current, accurate command-by-command shape.

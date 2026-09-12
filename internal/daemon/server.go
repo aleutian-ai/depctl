@@ -46,6 +46,30 @@ type Engine interface {
 	Scan(ctx context.Context, root string, out io.Writer, lockProject func(projectID string) func()) ([]string, error)
 	Plan(ctx context.Context, projectID string) (any, error)
 	GC(ctx context.Context, dryRun bool, out io.Writer) (api.GCResult, error)
+
+	// Search, ProjectDependencies, DependencyVersion, ReleaseChanges, and
+	// KnowledgeStatus back the MCP query tools (internal/mcp.QueryService),
+	// reached via ragctl serve's daemonQueryService (ADR-011 §8). All
+	// read-only; none touch the scheduler.
+	Search(ctx context.Context, req api.SearchRequest) (api.SearchResponse, error)
+	ProjectDependencies(ctx context.Context, projectID string) (api.ProjectDependenciesResponse, error)
+	DependencyVersion(ctx context.Context, projectID, pkg string) (api.DependencyVersionResponse, error)
+	ReleaseChanges(ctx context.Context, dependency, from, to string) (api.ReleaseChangesResponse, error)
+	KnowledgeStatus(ctx context.Context) (api.KnowledgeStatusResponse, error)
+
+	// ProjectList, ProjectGet, and Describe back `ragctl project`,
+	// `ragctl deps`, and `ragctl describe` — all read-only.
+	ProjectList(ctx context.Context) (api.ProjectListResponse, error)
+	ProjectGet(ctx context.Context, projectID string) (api.ProjectGetResponse, error)
+	Describe(ctx context.Context, args []string, checkLiveness bool) (any, error)
+
+	// Doctor runs every check that needs the stores this daemon holds
+	// open — everything except the two PATH lookups a client must run
+	// against its own shell PATH regardless (see api.DoctorResponse).
+	// Deliberately not reached via ensureDaemon's autostart: `doctor`
+	// dials without spawning, since diagnosing a stopped or broken
+	// daemon is its job — see internal/cli/doctor.go's runDoctor.
+	Doctor(ctx context.Context) (api.DoctorResponse, error)
 }
 
 // Options configures a Server. Socket and Engine are required.
@@ -169,6 +193,15 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST "+api.PathPlan, s.handlePlan)
 	mux.HandleFunc("POST "+api.PathSync, s.handleSync)
 	mux.HandleFunc("POST "+api.PathGC, s.handleGC)
+	mux.HandleFunc("POST "+api.PathSearch, s.handleSearch)
+	mux.HandleFunc("POST "+api.PathProjectDependencies, s.handleProjectDependencies)
+	mux.HandleFunc("POST "+api.PathDependencyVersion, s.handleDependencyVersion)
+	mux.HandleFunc("POST "+api.PathReleaseChanges, s.handleReleaseChanges)
+	mux.HandleFunc("POST "+api.PathKnowledgeStatus, s.handleKnowledgeStatus)
+	mux.HandleFunc("POST "+api.PathProjectList, s.handleProjectList)
+	mux.HandleFunc("POST "+api.PathProjectGet, s.handleProjectGet)
+	mux.HandleFunc("POST "+api.PathDescribe, s.handleDescribe)
+	mux.HandleFunc("POST "+api.PathDoctor, s.handleDoctor)
 	return mux
 }
 

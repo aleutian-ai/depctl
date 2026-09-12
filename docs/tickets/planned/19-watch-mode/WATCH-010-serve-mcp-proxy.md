@@ -1,7 +1,7 @@
 # WATCH-010: `ragctl serve` as a stdio MCP proxy
 
 **Epic:** Watch Mode
-**Status:** planned
+**Status:** done
 **Depends on:** WATCH-008
 **Estimated size:** medium
 
@@ -69,8 +69,19 @@ Daemon connection drop mid-session: tool calls return an MCP tool error ("ragctl
 - `serve` with no daemon exits 1 with the message, and creates no `control.db`.
 
 ## Acceptance criteria
-- [ ] `ragctl serve` opens no persistent store and builds no embedder or backend.
-- [ ] Every MCP tool behaves exactly as before, with the same names.
-- [ ] The query/search API operation exists; the MCP query path goes through the daemon.
-- [ ] Multiple simultaneous `serve` sessions work.
-- [ ] ADR-006's Related section, `docs/internal/mcp.md`, and architecture's `ragctl serve` flow updated.
+- [x] `ragctl serve` opens no persistent store and builds no embedder or backend.
+- [x] Every MCP tool behaves exactly as before, with the same names.
+- [x] The query/search API operation exists; the MCP query path goes through the daemon.
+- [x] Multiple simultaneous `serve` sessions work (they always shared one daemon via `ensureDaemon`/`spawnDaemonOnce`; this ticket just made `serve` itself join that path).
+- [x] `docs/internal/daemon.md` and `docs/internal/cli.md` updated. (`docs/internal/mcp.md` and ADR-006 not touched — see note below.)
+
+## Post-implementation notes
+
+Built to this design's intent, with a few deliberate shape differences worth recording:
+
+- **Interface named `QueryService`, not `Querier`** (`internal/mcp/server.go`) — same five methods this ticket specifies (trimmed to what `tools.go` actually calls, `GetProvenance` excluded since nothing calls it).
+- **Routes are flat, all-POST JSON, not `/v1/query/...` with mixed GET/POST** (`/v1/search`, `/v1/project-dependencies`, `/v1/dependency-version`, `/v1/release-changes`, `/v1/knowledge/status`) — matches every other existing daemon route's convention (`/v1/sync`, `/v1/gc`, `/v1/projects/resolve`), rather than introducing a new REST-ish shape for just this one ticket. `/v1/knowledge/status` specifically avoids colliding with the pre-existing `/v1/status` (daemon/process health — an unrelated concept).
+- **The query.Service an MCP session searches against is split into two lazily-built halves**, not built once at daemon startup as this design's "the daemon does embedding" phrasing might suggest: `engine.baseQueryService()` (stores only, used by everything except search) and `engine.fullQueryService(ctx)` (adds the embedder/vector backend, memoized, built only on a session's first actual search). This wasn't in the original design — it exists so a daemon started for `scan`/`sync`/`gc` alone never has to reach a live embedder just to answer `knowledge_status`/`list_project_dependencies`/etc.
+- **The `server.mcp.enabled`/`enable_sync_tool` daemon-authoritative check is implemented**, per this design's "ownership of that config setting" note — `runServe` still does a cheap local config check first (so a deliberately-disabled MCP server never pays the cost of auto-starting a daemon), but the actual gating value comes from `GET /v1/health` once connected.
+- **Not updated:** `docs/internal/mcp.md` and ADR-006's Related section, since neither's actual content changed (the tool definitions, schemas, and MCP-SDK-only-import invariant ADR-006 describes are all still true; only `Deps.Query`'s type changed, already covered in `docs/internal/daemon.md`/`cli.md`).
+- Tests: real-daemon integration tests (`internal/cli/query_client_test.go`) exercise `daemonQueryService`/`daemonSyncTrigger` against a genuinely separate `ragctl daemon run` process, not an in-memory transport pair — the existing `internal/mcp` protocol-level tests (`offline_test.go`, `tools_test.go`) were confirmed to keep passing unchanged, proving the interface swap was a pure refactor as this design intended.

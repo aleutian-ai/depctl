@@ -1,7 +1,7 @@
 # WATCH-008: `scan`, `sync`, and `gc` through the daemon
 
 **Epic:** Watch Mode
-**Status:** planned
+**Status:** done
 **Depends on:** WATCH-006
 **Estimated size:** medium
 
@@ -61,3 +61,6 @@ CLI:
 - [ ] `ragctl scan`, `ragctl sync`, and `ragctl gc` are daemon clients with unchanged flags, output, and exit codes.
 - [ ] All syncs, CLI and watch alike, go through the one scheduler.
 - [ ] Architecture and `docs/internal/cli.md` updated.
+
+## Post-implementation note
+`scan`/`sync`/`gc` are thin daemon clients (`internal/cli/scan.go`/`sync.go`/`gc.go` via `ensureDaemon`). `scan`'s persist step also gained a per-project lock (`Scheduler.LockProject`, refcounted so it doesn't grow unbounded) not originally specified here, closing a real race between two concurrent scans of the same project.

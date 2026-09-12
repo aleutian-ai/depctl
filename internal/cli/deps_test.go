@@ -12,6 +12,7 @@ import (
 func TestDepsUnknownProject(t *testing.T) {
 	isolateEnv(t)
 	runInitForTest(t)
+	useRealRagctlBinary(t)
 
 	cmd := NewRootCmd()
 	cmd.SetArgs([]string{"deps", "proj_missing"})
@@ -76,6 +77,7 @@ func TestDepsListsResolvedDependencies(t *testing.T) {
 func TestDepsNoResolutionYet(t *testing.T) {
 	isolateEnv(t)
 	runInitForTest(t)
+	useRealRagctlBinary(t)
 
 	// A project can be registered without ever having been resolved
 	// (e.g. its ecosystem isn't supported yet) — deps must say so clearly

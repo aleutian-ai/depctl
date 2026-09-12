@@ -15,6 +15,7 @@ import (
 
 	"aleutian-ai/ragctl/internal/config"
 	bboltstore "aleutian-ai/ragctl/internal/control/bbolt"
+	"aleutian-ai/ragctl/internal/daemon/client"
 	badgerstore "aleutian-ai/ragctl/internal/data/badger"
 	"aleutian-ai/ragctl/internal/domain"
 	"aleutian-ai/ragctl/internal/registry"
@@ -123,21 +124,90 @@ unhealthy check.`,
 	}
 }
 
+// runDoctor deliberately never goes through ensureDaemon's autostart —
+// diagnosing a stopped or broken daemon is doctor's job, so running it
+// must never have the side effect of starting one. It only dials: if a
+// daemon answers, the store-dependent checks run there (more useful, not
+// less — the daemon already holds the stores open); if not, doctor falls
+// back to opening them itself, exactly as it always has, so a genuinely
+// locked or corrupted store still gets a specific diagnosis instead of
+// an opaque "no daemon."
 func runDoctor(cmd *cobra.Command) error {
-	ctx := context.Background()
+	ctx := cmd.Context()
+
+	socket, err := socketPath()
+	if err != nil {
+		return err
+	}
+	var results []CheckResult
+	if c, dialErr := client.Dial(ctx, socket); dialErr == nil {
+		results, err = runDoctorViaDaemon(ctx, c)
+		if err != nil {
+			return err
+		}
+	} else {
+		results = runDoctorDirect(ctx)
+	}
+
+	printDoctorReport(cmd.OutOrStdout(), results)
+	if code := int(worstSeverity(results)); code != 0 {
+		return ExitCodeError{Code: code}
+	}
+	return nil
+}
+
+// runDoctorDirect is the original, pre-daemon behavior: open the stores
+// itself and run every check locally. The fallback when no daemon
+// answers.
+func runDoctorDirect(ctx context.Context) []CheckResult {
 	env := &doctorEnv{lookPath: exec.LookPath, now: time.Now()}
 	env.cfg, env.cfgErr = loadRagctlConfig()
 	env.store, env.storeErr = openControlStore()
 	env.badger, env.badgerErr = openDataStore()
 	env.registry, env.registryErr = loadRegistryForCLI(ctx)
 	defer env.close()
+	return runChecks(ctx, env)
+}
 
-	results := runChecks(ctx, env)
-	printDoctorReport(cmd.OutOrStdout(), results)
-	if code := int(worstSeverity(results)); code != 0 {
-		return ExitCodeError{Code: code}
+// runDoctorViaDaemon takes the store-dependent checks from a reachable
+// daemon and runs the two PATH-only checks locally, against this
+// process's own shell PATH — which is the whole reason they can never
+// run inside the daemon on the caller's behalf.
+func runDoctorViaDaemon(ctx context.Context, c *client.Client) ([]CheckResult, error) {
+	resp, err := c.Doctor(ctx)
+	if err != nil {
+		return nil, err
 	}
-	return nil
+	results := make([]CheckResult, len(resp.Checks))
+	for i, cr := range resp.Checks {
+		results[i] = CheckResult{Name: cr.Name, Severity: Severity(cr.Severity), Detail: cr.Detail}
+	}
+
+	pathEnv := &doctorEnv{lookPath: exec.LookPath}
+	gitSev, gitDetail := checkGit(ctx, pathEnv)
+	results = append(results, CheckResult{Name: "git on PATH", Severity: gitSev, Detail: gitDetail})
+
+	// If the daemon couldn't even determine what's needed, it already
+	// appended its own "package managers on PATH" failure entry above —
+	// don't duplicate it.
+	if !hasCheckNamed(results, "package managers on PATH") {
+		needed := make(map[string]int, len(resp.NeededExecutables))
+		for _, n := range resp.NeededExecutables {
+			needed[n.Name] = n.Count
+		}
+		sev, detail := checkPackageManagersOnPath(exec.LookPath, needed)
+		results = append(results, CheckResult{Name: "package managers on PATH", Severity: sev, Detail: detail})
+	}
+	return results, nil
+}
+
+func hasCheckNamed(results []CheckResult, name string) bool {
+	for _, r := range results {
+		if r.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 func runChecks(ctx context.Context, env *doctorEnv) []CheckResult {
@@ -394,14 +464,30 @@ func checkGit(ctx context.Context, env *doctorEnv) (Severity, string) {
 }
 
 // checkPackageManagers only looks for executables some registered,
-// scanned project's resolver actually needs.
+// scanned project's resolver actually needs. Used by the no-daemon
+// fallback path, which has both a store and a lookPath in the same
+// process; when a daemon is reachable, packageManagersNeeded (store-
+// dependent, runs daemon-side) and checkPackageManagersOnPath (PATH-only,
+// always runs client-side) do the same work split across the two.
 func checkPackageManagers(ctx context.Context, env *doctorEnv) (Severity, string) {
+	needed, sev, detail, ok := packageManagersNeeded(ctx, env)
+	if !ok {
+		return sev, detail
+	}
+	return checkPackageManagersOnPath(env.lookPath, needed)
+}
+
+// packageManagersNeeded tallies which package-manager executables the
+// registered, resolved projects require, and how many projects need
+// each — store-dependent, so it runs wherever the store is open.
+func packageManagersNeeded(ctx context.Context, env *doctorEnv) (map[string]int, Severity, string, bool) {
 	if env.store == nil {
-		return notChecked("control DB")
+		sev, detail := notChecked("control DB")
+		return nil, sev, detail, false
 	}
 	projects, err := env.store.ListProjects(ctx)
 	if err != nil {
-		return SeverityUnhealthy, err.Error()
+		return nil, SeverityUnhealthy, err.Error(), false
 	}
 	needed := map[string]int{}
 	for _, p := range projects {
@@ -410,12 +496,19 @@ func checkPackageManagers(ctx context.Context, env *doctorEnv) (Severity, string
 			continue
 		}
 		if err != nil {
-			return SeverityUnhealthy, err.Error()
+			return nil, SeverityUnhealthy, err.Error(), false
 		}
 		if exe, ok := resolverExecutables[res.Ecosystem]; ok {
 			needed[exe]++
 		}
 	}
+	return needed, SeverityOK, "", true
+}
+
+// checkPackageManagersOnPath looks up needed's executables against
+// lookPath — always the calling user's own shell PATH, which is why
+// this step can never run inside the daemon on the client's behalf.
+func checkPackageManagersOnPath(lookPath func(string) (string, error), needed map[string]int) (Severity, string) {
 	if len(needed) == 0 {
 		return SeverityOK, "none needed by registered projects"
 	}
@@ -428,7 +521,7 @@ func checkPackageManagers(ctx context.Context, env *doctorEnv) (Severity, string
 
 	var found, missing []string
 	for _, exe := range exes {
-		if _, err := env.lookPath(exe); err != nil {
+		if _, err := lookPath(exe); err != nil {
 			missing = append(missing, fmt.Sprintf("%s (needed by %d project(s))", exe, needed[exe]))
 		} else {
 			found = append(found, exe)

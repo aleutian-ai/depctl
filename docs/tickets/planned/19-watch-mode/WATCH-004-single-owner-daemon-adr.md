@@ -1,7 +1,7 @@
 # WATCH-004: ADR — single-owner daemon
 
 **Epic:** Watch Mode
-**Status:** planned
+**Status:** done
 **Depends on:** WATCH-003
 **Estimated size:** small
 
@@ -60,3 +60,6 @@ N/A (doc only).
 - [ ] ADR-010 references ADR-011.
 - [ ] WATCH-005..012 cite ADR-011 rather than restating its reasoning.
 - [ ] The ADR frames this as a process-model migration: the goal is the smallest implementation that establishes single store ownership **without redesigning domain behavior** (existing operation → daemon handler → existing implementation; existing CLI → daemon client). Storage, sync, query, resolver, MCP, watch, and GC logic stay where they are.
+
+## Post-implementation note
+ADR-011 exists (`docs/adr/ADR-011-single-owner-daemon.md`, Accepted). Status was left at "planned" here after the ADR itself was written and accepted — a documentation gap in this ticket file, not in the actual work.

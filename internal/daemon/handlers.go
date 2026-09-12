@@ -83,6 +83,116 @@ func (s *Server) handlePlan(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, plans)
 }
 
+// handleSearch, handleProjectDependencies, handleDependencyVersion,
+// handleReleaseChanges, and handleKnowledgeStatus back the MCP query
+// tools (internal/mcp.QueryService). All read-only, like handlePlan —
+// none queue work through the scheduler.
+
+func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
+	var req api.SearchRequest
+	if !decodeBody(w, r, &req) {
+		return
+	}
+	resp, err := s.opts.Engine.Search(r.Context(), req)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleProjectDependencies(w http.ResponseWriter, r *http.Request) {
+	var req api.ProjectDependenciesRequest
+	if !decodeBody(w, r, &req) {
+		return
+	}
+	resp, err := s.opts.Engine.ProjectDependencies(r.Context(), req.ProjectID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleDependencyVersion(w http.ResponseWriter, r *http.Request) {
+	var req api.DependencyVersionRequest
+	if !decodeBody(w, r, &req) {
+		return
+	}
+	resp, err := s.opts.Engine.DependencyVersion(r.Context(), req.ProjectID, req.Package)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleReleaseChanges(w http.ResponseWriter, r *http.Request) {
+	var req api.ReleaseChangesRequest
+	if !decodeBody(w, r, &req) {
+		return
+	}
+	resp, err := s.opts.Engine.ReleaseChanges(r.Context(), req.Dependency, req.From, req.To)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleKnowledgeStatus(w http.ResponseWriter, r *http.Request) {
+	resp, err := s.opts.Engine.KnowledgeStatus(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleProjectList(w http.ResponseWriter, r *http.Request) {
+	resp, err := s.opts.Engine.ProjectList(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleProjectGet(w http.ResponseWriter, r *http.Request) {
+	var req api.ProjectGetRequest
+	if !decodeBody(w, r, &req) {
+		return
+	}
+	resp, err := s.opts.Engine.ProjectGet(r.Context(), req.ProjectID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleDescribe(w http.ResponseWriter, r *http.Request) {
+	var req api.DescribeRequest
+	if !decodeBody(w, r, &req) {
+		return
+	}
+	report, err := s.opts.Engine.Describe(r.Context(), req.Args, req.CheckLiveness)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, report)
+}
+
+func (s *Server) handleDoctor(w http.ResponseWriter, r *http.Request) {
+	resp, err := s.opts.Engine.Doctor(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
 // handleGC runs garbage collection through the scheduler, exactly like
 // handleSync: it goes through the same global run lock as every sync (so
 // GC never interleaves with one), is bounded by maxActionDuration so a

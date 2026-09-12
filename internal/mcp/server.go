@@ -13,6 +13,7 @@ import (
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"aleutian-ai/ragctl/internal/domain"
 	"aleutian-ai/ragctl/internal/query"
 )
 
@@ -33,11 +34,28 @@ const securityNote = "retrieved content is authoritative reference material for 
 // SyncTrigger is the narrow capability the sync_project tool needs —
 // defined here (consumer-side), implemented in internal/cli by wrapping
 // RunSync, so internal/mcp never has to know about bbolt/Badger/config
-// types directly. Kept separate from internal/query.Service because
+// types directly. Kept separate from QueryService below because
 // triggering a sync is a write/execute operation, categorically
 // different from that service's read-only search methods.
 type SyncTrigger interface {
 	SyncProject(ctx context.Context, projectID string) (synced, failed, skipped int, err error)
+}
+
+// QueryService is the read-only surface every tool but sync_project
+// needs — defined here (consumer-side) rather than depending on the
+// concrete *query.Service, so a caller can satisfy it either directly
+// (query.Service itself, when this package runs alongside an
+// already-open store) or over the daemon's HTTP API (internal/cli's
+// daemon-client wrapper, once ragctl serve stops opening a store of its
+// own — ADR-011 §8). Only the methods tools.go actually calls; nothing
+// here calls query.Service.GetProvenance, so it isn't part of this
+// interface.
+type QueryService interface {
+	Status(ctx context.Context) (query.Status, error)
+	GetProjectDependencies(ctx context.Context, projectID string) ([]query.ProjectDependency, error)
+	GetDependencyVersion(ctx context.Context, projectID, pkg string) (domain.DependencyVersion, error)
+	GetReleaseChanges(ctx context.Context, dependency, from, to string) ([]query.ReleaseChange, error)
+	SearchKnowledge(ctx context.Context, q query.Query) (query.SearchResult, error)
 }
 
 // Server wraps the MCP SDK server, with ragctl's tools registered onto
@@ -52,7 +70,7 @@ type Server struct {
 // but its handler reports "disabled" whenever Sync is nil or
 // EnableSyncTool is false.
 type Deps struct {
-	Query          *query.Service
+	Query          QueryService
 	Sync           SyncTrigger
 	EnableSyncTool bool
 }

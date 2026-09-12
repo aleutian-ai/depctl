@@ -1,6 +1,6 @@
 # Proposal: generalize the sync scheduler into an action controller
 
-**Status:** implemented for `sync`, `GC`, and scan's per-project persist lock — see "Implementation notes" at the end. Extends [ADR-011](../adr/ADR-011-single-owner-daemon.md), doesn't replace it. Companion to [`daemon-mcp-topology.md`](daemon-mcp-topology.md). `serve` catching up to ADR-011 §8 (a real daemon client, no direct store access) is still open — see that section.
+**Status:** implemented for `sync`, `GC`, and scan's per-project persist lock — see "Implementation notes" at the end. Extends [ADR-011](../adr/ADR-011-single-owner-daemon.md), doesn't replace it. Companion to [`daemon-mcp-topology.md`](daemon-mcp-topology.md). `serve` has since also caught up to ADR-011 §8 (WATCH-010, a separate piece of work) — see that doc, now marked resolved.
 
 ## The gap this closes
 

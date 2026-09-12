@@ -71,7 +71,7 @@ type SearchDependencyDocsOut struct {
 	Note   string              `json:"note"`
 }
 
-func searchDependencyDocsHandler(svc *query.Service) sdkmcp.ToolHandlerFor[SearchDependencyDocsIn, SearchDependencyDocsOut] {
+func searchDependencyDocsHandler(svc QueryService) sdkmcp.ToolHandlerFor[SearchDependencyDocsIn, SearchDependencyDocsOut] {
 	return func(ctx context.Context, req *sdkmcp.CallToolRequest, in SearchDependencyDocsIn) (*sdkmcp.CallToolResult, SearchDependencyDocsOut, error) {
 		mode := query.QueryMode(in.Mode)
 		if mode == "" {
@@ -110,7 +110,7 @@ type GetDependencyVersionOut struct {
 	Note      string `json:"note"`
 }
 
-func getDependencyVersionHandler(svc *query.Service) sdkmcp.ToolHandlerFor[GetDependencyVersionIn, GetDependencyVersionOut] {
+func getDependencyVersionHandler(svc QueryService) sdkmcp.ToolHandlerFor[GetDependencyVersionIn, GetDependencyVersionOut] {
 	return func(ctx context.Context, req *sdkmcp.CallToolRequest, in GetDependencyVersionIn) (*sdkmcp.CallToolResult, GetDependencyVersionOut, error) {
 		dep, err := svc.GetDependencyVersion(ctx, in.ProjectID, in.Package)
 		if err != nil {
@@ -141,7 +141,7 @@ type ListProjectDependenciesOut struct {
 	Note         string           `json:"note"`
 }
 
-func listProjectDependenciesHandler(svc *query.Service) sdkmcp.ToolHandlerFor[ListProjectDependenciesIn, ListProjectDependenciesOut] {
+func listProjectDependenciesHandler(svc QueryService) sdkmcp.ToolHandlerFor[ListProjectDependenciesIn, ListProjectDependenciesOut] {
 	return func(ctx context.Context, req *sdkmcp.CallToolRequest, in ListProjectDependenciesIn) (*sdkmcp.CallToolResult, ListProjectDependenciesOut, error) {
 		deps, err := svc.GetProjectDependencies(ctx, in.ProjectID)
 		if err != nil {
@@ -177,7 +177,7 @@ type GetReleaseChangesOut struct {
 	Note    string              `json:"note"`
 }
 
-func getReleaseChangesHandler(svc *query.Service) sdkmcp.ToolHandlerFor[GetReleaseChangesIn, GetReleaseChangesOut] {
+func getReleaseChangesHandler(svc QueryService) sdkmcp.ToolHandlerFor[GetReleaseChangesIn, GetReleaseChangesOut] {
 	return func(ctx context.Context, req *sdkmcp.CallToolRequest, in GetReleaseChangesIn) (*sdkmcp.CallToolResult, GetReleaseChangesOut, error) {
 		changes, err := svc.GetReleaseChanges(ctx, in.Dependency, in.From, in.To)
 		if err != nil {
@@ -212,7 +212,7 @@ type KnowledgeStatusOut struct {
 	Note                    string          `json:"note"`
 }
 
-func knowledgeStatusHandler(svc *query.Service) sdkmcp.ToolHandlerFor[KnowledgeStatusIn, KnowledgeStatusOut] {
+func knowledgeStatusHandler(svc QueryService) sdkmcp.ToolHandlerFor[KnowledgeStatusIn, KnowledgeStatusOut] {
 	return func(ctx context.Context, req *sdkmcp.CallToolRequest, in KnowledgeStatusIn) (*sdkmcp.CallToolResult, KnowledgeStatusOut, error) {
 		status, err := svc.Status(ctx)
 		if err != nil {

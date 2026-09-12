@@ -1,7 +1,7 @@
 # WATCH-007: Watch mode moves into the daemon
 
 **Epic:** Watch Mode
-**Status:** planned
+**Status:** done
 **Depends on:** WATCH-006
 **Estimated size:** small
 
@@ -53,3 +53,6 @@ The daemon watches every registered project's dependency manifests using the exi
 - [ ] Manifest changes go through the scheduler; resolve and sync happen automatically.
 - [ ] `ragctl watch` is a deprecated shim: it ensures the daemon, prints that watching is daemon-managed, exits 0, and opens no store and runs no watcher.
 - [ ] `docs/internal/watch.md`, `docs/internal/cli.md`, and `docs/architecture.md`'s `ragctl watch` flow now describe the daemon.
+
+## Post-implementation note
+`internal/daemon/watch.go`'s `startWatch`/`watchLoop`/`refreshLoop` implement this. `refreshLoop` picks up newly registered projects within one minute (or immediately after a `scan`, via `refreshProjects` called from `handleResolve`) without a daemon restart.

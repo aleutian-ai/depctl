@@ -124,43 +124,14 @@ func newDescribeCmd() *cobra.Command {
 //     slashes itself, which made a single argument ambiguous for
 //     exactly the ecosystem most likely to need this command.
 func runDescribe(cmd *cobra.Command, args []string, htmlOut bool, outPath string, jsonOut, checkLiveness bool) error {
-	ctx := context.Background()
+	ctx := cmd.Context()
 
-	store, err := openControlStore()
-	if err != nil {
-		return fmt.Errorf("open control store: %w", err)
-	}
-	defer store.Close()
-
-	badgerStore, err := openDataStore()
-	if err != nil {
-		return fmt.Errorf("open data store: %w", err)
-	}
-	defer badgerStore.Close()
-
-	backendName, err := configuredVectorBackendName()
+	c, err := ensureDaemon(ctx)
 	if err != nil {
 		return err
 	}
-
-	reg, err := loadRegistryForCLI(ctx)
-	if err != nil {
-		return fmt.Errorf("load registry: %w", err)
-	}
-
-	var filterPairs []depPair
-	switch len(args) {
-	case 1:
-		filterPairs, err = aliasPairs(reg, args[0])
-		if err != nil {
-			return err
-		}
-	case 2:
-		filterPairs = []depPair{{ecosystem: domain.Ecosystem(args[0]), pkg: args[1]}}
-	}
-
-	report, err := buildReport(ctx, store, badgerStore, reg, backendName, filterPairs, checkLiveness)
-	if err != nil {
+	var report Report
+	if err := c.Describe(ctx, args, checkLiveness, &report); err != nil {
 		return err
 	}
 
@@ -181,7 +152,7 @@ func runDescribe(cmd *cobra.Command, args []string, htmlOut bool, outPath string
 		fmt.Fprintf(cmd.OutOrStdout(), "wrote %s\n", outPath)
 		return nil
 	default:
-		printDescribeText(cmd, report, len(filterPairs) > 0)
+		printDescribeText(cmd, report, len(args) > 0)
 		return nil
 	}
 }

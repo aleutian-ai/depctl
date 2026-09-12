@@ -104,6 +104,78 @@ func (c *Client) GC(ctx context.Context, dryRun bool, out io.Writer) (api.GCResu
 	return res, err
 }
 
+// Search runs a knowledge search in the daemon, the work behind the
+// search_dependency_docs MCP tool.
+func (c *Client) Search(ctx context.Context, req api.SearchRequest) (api.SearchResponse, error) {
+	var res api.SearchResponse
+	err := c.do(ctx, http.MethodPost, api.PathSearch, req, &res)
+	return res, err
+}
+
+// ProjectDependencies lists a project's resolved dependencies, the work
+// behind the list_project_dependencies MCP tool.
+func (c *Client) ProjectDependencies(ctx context.Context, projectID string) (api.ProjectDependenciesResponse, error) {
+	var res api.ProjectDependenciesResponse
+	err := c.do(ctx, http.MethodPost, api.PathProjectDependencies, api.ProjectDependenciesRequest{ProjectID: projectID}, &res)
+	return res, err
+}
+
+// DependencyVersion resolves one package's version within a project, the
+// work behind the get_dependency_version MCP tool.
+func (c *Client) DependencyVersion(ctx context.Context, projectID, pkg string) (api.DependencyVersionResponse, error) {
+	var res api.DependencyVersionResponse
+	err := c.do(ctx, http.MethodPost, api.PathDependencyVersion, api.DependencyVersionRequest{ProjectID: projectID, Package: pkg}, &res)
+	return res, err
+}
+
+// ReleaseChanges gets release-note excerpts between two versions of a
+// dependency, the work behind the get_release_changes MCP tool.
+func (c *Client) ReleaseChanges(ctx context.Context, dependency, from, to string) (api.ReleaseChangesResponse, error) {
+	var res api.ReleaseChangesResponse
+	err := c.do(ctx, http.MethodPost, api.PathReleaseChanges, api.ReleaseChangesRequest{Dependency: dependency, From: from, To: to}, &res)
+	return res, err
+}
+
+// KnowledgeStatus summarizes fleet-wide sync coverage, the work behind
+// the knowledge_status MCP tool. Not to be confused with Status, the
+// daemon/process health snapshot.
+func (c *Client) KnowledgeStatus(ctx context.Context) (api.KnowledgeStatusResponse, error) {
+	var res api.KnowledgeStatusResponse
+	err := c.do(ctx, http.MethodPost, api.PathKnowledgeStatus, nil, &res)
+	return res, err
+}
+
+// ProjectList lists every registered project, the work behind
+// `ragctl project list`.
+func (c *Client) ProjectList(ctx context.Context) (api.ProjectListResponse, error) {
+	var res api.ProjectListResponse
+	err := c.do(ctx, http.MethodPost, api.PathProjectList, nil, &res)
+	return res, err
+}
+
+// ProjectGet gets one project's full detail, the work behind
+// `ragctl project show` and `ragctl deps`.
+func (c *Client) ProjectGet(ctx context.Context, projectID string) (api.ProjectGetResponse, error) {
+	var res api.ProjectGetResponse
+	err := c.do(ctx, http.MethodPost, api.PathProjectGet, api.ProjectGetRequest{ProjectID: projectID}, &res)
+	return res, err
+}
+
+// Describe decodes `ragctl describe`'s report into report, which is the
+// CLI's own Report type: the wire format is whatever that marshals to
+// (the same pattern Plan uses for its own CLI-side type).
+func (c *Client) Describe(ctx context.Context, args []string, checkLiveness bool, report any) error {
+	return c.do(ctx, http.MethodPost, api.PathDescribe, api.DescribeRequest{Args: args, CheckLiveness: checkLiveness}, report)
+}
+
+// Doctor runs every doctor check that needs the daemon's stores. Not
+// reached through ensureDaemon's autostart — see api.PathDoctor.
+func (c *Client) Doctor(ctx context.Context) (api.DoctorResponse, error) {
+	var res api.DoctorResponse
+	err := c.do(ctx, http.MethodPost, api.PathDoctor, nil, &res)
+	return res, err
+}
+
 // stream posts a request whose response is NDJSON: progress lines are
 // copied to out as they arrive, and the final line carries the result or
 // the error.

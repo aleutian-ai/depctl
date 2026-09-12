@@ -12,13 +12,31 @@ import (
 // Route paths. Every route is versioned so an older client fails on an
 // unknown path rather than misreading a changed body.
 const (
-	PathHealth   = "/v1/health"
-	PathStatus   = "/v1/status"
-	PathShutdown = "/v1/shutdown"
-	PathResolve  = "/v1/projects/resolve"
-	PathPlan     = "/v1/plan"
-	PathSync     = "/v1/sync"
-	PathGC       = "/v1/gc"
+	PathHealth              = "/v1/health"
+	PathStatus              = "/v1/status"
+	PathShutdown            = "/v1/shutdown"
+	PathResolve             = "/v1/projects/resolve"
+	PathPlan                = "/v1/plan"
+	PathSync                = "/v1/sync"
+	PathGC                  = "/v1/gc"
+	PathSearch              = "/v1/search"
+	PathProjectDependencies = "/v1/project-dependencies"
+	PathDependencyVersion   = "/v1/dependency-version"
+	PathReleaseChanges      = "/v1/release-changes"
+	// PathKnowledgeStatus is deliberately not /v1/status: that route
+	// already means daemon/process health (Status above). This is
+	// query.Service's fleet-wide sync-coverage summary, the MCP
+	// knowledge_status tool — an unrelated concept that happens to share
+	// a name.
+	PathKnowledgeStatus = "/v1/knowledge/status"
+	PathProjectList     = "/v1/projects/list"
+	PathProjectGet      = "/v1/projects/get"
+	PathDescribe        = "/v1/describe"
+	// PathDoctor covers every doctor check except the two that must run
+	// client-side regardless (git/package-manager PATH lookups check the
+	// calling user's shell PATH, not the daemon's) — see
+	// DoctorResponse.NeededExecutables.
+	PathDoctor = "/v1/doctor"
 )
 
 // Health is what GET /v1/health reports: enough to identify the running
@@ -114,6 +132,185 @@ type GCResult struct {
 	Deleted    int  `json:"deleted"`
 	Failed     int  `json:"failed"`
 	DryRun     bool `json:"dry_run"`
+}
+
+// SearchRequest is one search_dependency_docs MCP call, or the CLI
+// equivalent once one exists.
+type SearchRequest struct {
+	ProjectID  string `json:"project_id"`
+	Text       string `json:"text"`
+	Dependency string `json:"dependency,omitempty"`
+	Mode       string `json:"mode,omitempty"`
+	TopK       int    `json:"top_k,omitempty"`
+}
+
+// SearchResponse is SearchRequest's result.
+type SearchResponse struct {
+	Chunks []SearchChunk `json:"chunks"`
+}
+
+// SearchChunk is one matched chunk, mirroring query.ResultChunk's wire
+// shape.
+type SearchChunk struct {
+	ChunkID    string  `json:"chunk_id"`
+	Content    string  `json:"content"`
+	Score      float32 `json:"score"`
+	Ecosystem  string  `json:"ecosystem"`
+	Dependency string  `json:"dependency"`
+	Version    string  `json:"version"`
+	Generation string  `json:"generation"`
+	SourceType string  `json:"source_type"`
+	Authority  int     `json:"authority"`
+	TrustClass string  `json:"trust_class"`
+}
+
+// ProjectDependenciesRequest asks for a project's resolved dependencies.
+type ProjectDependenciesRequest struct {
+	ProjectID string `json:"project_id"`
+}
+
+// ProjectDependenciesResponse is ProjectDependenciesRequest's result.
+type ProjectDependenciesResponse struct {
+	Dependencies []ProjectDependency `json:"dependencies"`
+}
+
+// ProjectDependency mirrors query.ProjectDependency's wire shape.
+type ProjectDependency struct {
+	Ecosystem           string `json:"ecosystem"`
+	Name                string `json:"name"`
+	Direct              bool   `json:"direct"`
+	Version             string `json:"version"`
+	ResolvedBy          string `json:"resolved_by"`
+	HasActiveGeneration bool   `json:"has_active_generation"`
+}
+
+// DependencyVersionRequest asks for one package's resolved version
+// within a project.
+type DependencyVersionRequest struct {
+	ProjectID string `json:"project_id"`
+	Package   string `json:"package"`
+}
+
+// DependencyVersionResponse mirrors domain.DependencyVersion's wire
+// shape.
+type DependencyVersionResponse struct {
+	Ecosystem  string `json:"ecosystem"`
+	Name       string `json:"name"`
+	Direct     bool   `json:"direct"`
+	Version    string `json:"version"`
+	ResolvedBy string `json:"resolved_by"`
+	Checksum   string `json:"checksum"`
+}
+
+// ReleaseChangesRequest asks for release-note excerpts between two
+// versions of a dependency.
+type ReleaseChangesRequest struct {
+	Dependency string `json:"dependency"`
+	From       string `json:"from"`
+	To         string `json:"to"`
+}
+
+// ReleaseChangesResponse is ReleaseChangesRequest's result.
+type ReleaseChangesResponse struct {
+	Changes []ReleaseChange `json:"changes"`
+}
+
+// ReleaseChange mirrors query.ReleaseChange's wire shape.
+type ReleaseChange struct {
+	Ecosystem string `json:"ecosystem"`
+	Version   string `json:"version"`
+	Excerpt   string `json:"excerpt"`
+}
+
+// KnowledgeStatusResponse mirrors query.Status's wire shape — ragctl's
+// fleet-wide sync-coverage summary, not to be confused with Status
+// above (daemon/process health).
+type KnowledgeStatusResponse struct {
+	TotalProjects           int          `json:"total_projects"`
+	TotalDependencies       int          `json:"total_dependencies"`
+	WithActiveGeneration    int          `json:"with_active_generation"`
+	WithoutActiveGeneration int          `json:"without_active_generation"`
+	Projects                []ProjectRef `json:"projects"`
+}
+
+// ProjectRef mirrors query.ProjectRef's wire shape.
+type ProjectRef struct {
+	ID   string `json:"id"`
+	Root string `json:"root"`
+}
+
+// ProjectSummary is one registered project's ID and root, for
+// `ragctl project list`.
+type ProjectSummary struct {
+	ID   string `json:"id"`
+	Root string `json:"root"`
+}
+
+// ProjectListResponse is `ragctl project list`'s result.
+type ProjectListResponse struct {
+	Projects []ProjectSummary `json:"projects"`
+}
+
+// ProjectGetRequest asks for one project's full detail, the work behind
+// `ragctl project show` and `ragctl deps`.
+type ProjectGetRequest struct {
+	ProjectID string `json:"project_id"`
+}
+
+// ProjectGetResponse is ProjectGetRequest's result. HasResolution is
+// false (and every field after it zero) when the project has never been
+// resolved.
+type ProjectGetResponse struct {
+	ID            string           `json:"id"`
+	Root          string           `json:"root"`
+	CreatedAt     time.Time        `json:"created_at"`
+	UpdatedAt     time.Time        `json:"updated_at"`
+	HasResolution bool             `json:"has_resolution"`
+	Ecosystem     string           `json:"ecosystem,omitempty"`
+	Fingerprint   string           `json:"fingerprint,omitempty"`
+	Dependencies  []DependencyInfo `json:"dependencies,omitempty"`
+}
+
+// DependencyInfo is one resolved dependency, the wire shape `ragctl
+// deps` renders.
+type DependencyInfo struct {
+	Ecosystem string `json:"ecosystem"`
+	Name      string `json:"name"`
+	Version   string `json:"version"`
+	Direct    bool   `json:"direct"`
+}
+
+// DescribeRequest is one `ragctl describe` invocation.
+type DescribeRequest struct {
+	Args          []string `json:"args"`
+	CheckLiveness bool     `json:"check_liveness"`
+}
+
+// CheckResultWire mirrors the CLI's own CheckResult (internal/cli's
+// doctor.go) — Severity is that package's int-based Severity type,
+// which marshals/unmarshals as a plain number with no change needed.
+type CheckResultWire struct {
+	Name     string `json:"name"`
+	Severity int    `json:"severity"`
+	Detail   string `json:"detail"`
+}
+
+// DoctorResponse covers every doctor check except the two PATH lookups
+// (git, package managers) that must run against the calling user's own
+// shell PATH, which can legitimately differ from the daemon's.
+// NeededExecutables is the raw data the client needs to run its own
+// package-manager check locally and splice the result into the right
+// place in doctor's report — see docs/internal/cli.md.
+type DoctorResponse struct {
+	Checks            []CheckResultWire  `json:"checks"`
+	NeededExecutables []NeededExecutable `json:"needed_executables"`
+}
+
+// NeededExecutable is one package-manager executable some registered,
+// resolved project needs, and how many projects need it.
+type NeededExecutable struct {
+	Name  string `json:"name"`
+	Count int    `json:"count"`
 }
 
 // StreamLine is one line of an NDJSON response body: progress output as

@@ -1,7 +1,7 @@
 # WATCH-006: Per-project sync scheduler
 
 **Epic:** Watch Mode
-**Status:** planned
+**Status:** done
 **Depends on:** WATCH-005
 **Estimated size:** small
 
@@ -83,3 +83,6 @@ All tests use a fake sync function gated by channels.
 - [ ] One sync per project; globally serialized.
 - [ ] A failed sync never stops the scheduler or the daemon.
 - [ ] No durable queue, no new dependency.
+
+## Post-implementation note
+`internal/daemon/scheduler.go`'s `Scheduler` implements this, and was later generalized beyond sync alone: GC now shares the same global lock and collapsing machinery (`RequestGC`/`gcState`), since GC reading `references` state a concurrent sync could be changing is a real correctness requirement, not just v1 simplicity. Every run (sync or GC) is bounded by `maxActionDuration` so a hung one can't wedge the lock shut permanently. See `docs/scratch/action-controller-proposal.md`.

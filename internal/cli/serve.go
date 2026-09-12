@@ -1,33 +1,39 @@
 package cli
 
 import (
-	"context"
 	"fmt"
-	"io"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/cobra"
 
-	"aleutian-ai/ragctl/internal/backend"
-	"aleutian-ai/ragctl/internal/config"
-	bboltstore "aleutian-ai/ragctl/internal/control/bbolt"
-	badgerstore "aleutian-ai/ragctl/internal/data/badger"
 	"aleutian-ai/ragctl/internal/mcp"
-	"aleutian-ai/ragctl/internal/query"
 )
 
 func newServeCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "serve",
-		Short: "Run the ragctl daemon (MCP/HTTP)",
+		Short: "Run the MCP server over stdio",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runServe(cmd)
 		},
 	}
 }
 
+// runServe is a stdio↔daemon proxy (ADR-011 §8): it opens no store and
+// builds no embedder itself. Every MCP tool call reaches query.Service,
+// which runs inside the daemon, over the same socket every other
+// store-touching command uses.
+//
+// server.mcp.enabled is checked twice, deliberately: once locally
+// before touching the daemon at all (so a deliberately-disabled MCP
+// server never pays the cost of auto-starting one), and again from the
+// daemon's own /v1/health once connected, which is what actually gates
+// EnableSyncTool too. The daemon owns config for its whole lifetime
+// (see docs/internal/daemon.md) — its answer is authoritative if
+// config.yaml was edited after it started, this process's own fresh
+// read of it is not.
 func runServe(cmd *cobra.Command) error {
-	ctx := context.Background()
+	ctx := cmd.Context()
 
 	cfg, err := loadRagctlConfig()
 	if err != nil {
@@ -37,51 +43,24 @@ func runServe(cmd *cobra.Command) error {
 		return fmt.Errorf("MCP server disabled (server.mcp.enabled: false in config)")
 	}
 
-	store, err := openControlStore()
-	if err != nil {
-		return fmt.Errorf("open control store: %w", err)
-	}
-	defer store.Close()
-
-	badgerStore, err := openDataStore()
-	if err != nil {
-		return fmt.Errorf("open data store: %w", err)
-	}
-	defer badgerStore.Close()
-
-	vb, err := buildVectorBackend(cfg)
+	c, err := ensureDaemon(ctx)
 	if err != nil {
 		return err
 	}
-	embedder, err := buildEmbedder(cfg, badgerStore)
+	health, err := c.Health(ctx)
 	if err != nil {
-		return err
+		return fmt.Errorf("check daemon health: %w", err)
 	}
-	dims, err := embedder.Dimensions(ctx)
-	if err != nil {
-		return fmt.Errorf("probe embedder dimensions: %w", err)
+	if !health.MCPEnabled {
+		return fmt.Errorf("MCP server disabled (server.mcp.enabled: false in config)")
 	}
-	ns := backend.Namespace{Name: cfg.Vector.Collection, Dimensions: dims, Distance: "cosine"}
 
-	svc := query.New(store, badgerStore, vb, embedder, ns, cfg.Vector.Backend)
-	sync := &syncTrigger{store: store, badgerStore: badgerStore, cfg: cfg}
-
-	server := mcp.New(mcp.Deps{Query: svc, Sync: sync, EnableSyncTool: cfg.Server.MCP.EnableSyncTool})
+	server := mcp.New(mcp.Deps{
+		Query:          &daemonQueryService{c: c},
+		Sync:           &daemonSyncTrigger{c: c},
+		EnableSyncTool: health.EnableSyncTool,
+	})
 
 	fmt.Fprintln(cmd.ErrOrStderr(), "ragctl MCP server starting (stdio transport)")
 	return server.Run(ctx, &sdkmcp.StdioTransport{})
-}
-
-// syncTrigger adapts RunSync into mcp.SyncTrigger, so the sync_project
-// MCP tool executes the identical sync logic `ragctl sync` uses,
-// against the same already-open store handles this long-running
-// process holds.
-type syncTrigger struct {
-	store       *bboltstore.Store
-	badgerStore *badgerstore.Store
-	cfg         config.Config
-}
-
-func (t *syncTrigger) SyncProject(ctx context.Context, projectID string) (synced, failed, skipped int, err error) {
-	return RunSync(ctx, t.store, t.badgerStore, t.cfg, projectID, "", false, false, io.Discard)
 }

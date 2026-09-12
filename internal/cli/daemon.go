@@ -17,12 +17,15 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"aleutian-ai/ragctl/internal/backend"
 	"aleutian-ai/ragctl/internal/config"
 	bboltstore "aleutian-ai/ragctl/internal/control/bbolt"
 	"aleutian-ai/ragctl/internal/daemon"
 	"aleutian-ai/ragctl/internal/daemon/api"
 	"aleutian-ai/ragctl/internal/daemon/client"
 	badgerstore "aleutian-ai/ragctl/internal/data/badger"
+	"aleutian-ai/ragctl/internal/domain"
+	"aleutian-ai/ragctl/internal/query"
 	"aleutian-ai/ragctl/internal/watch"
 )
 
@@ -281,6 +284,63 @@ type engine struct {
 	cfg         config.Config
 	controlPath string
 	badgerPath  string
+
+	// baseQueryOnce/baseQuery memoize a query.Service backed only by the
+	// stores — no embedder or vector backend — for the four methods that
+	// never touch those (Status, GetProjectDependencies,
+	// GetDependencyVersion, GetReleaseChanges all read only s.control/
+	// s.data; see internal/query/search.go). Built on first use, but
+	// that's just to keep construction in one place; it makes no network
+	// call, so there'd be no real cost to building it at startup either.
+	baseQueryOnce sync.Once
+	baseQuery     *query.Service
+
+	// fullQueryOnce/fullQuery/fullQueryErr memoize the embedder- and
+	// vector-backend-backed query.Service that SearchKnowledge actually
+	// needs. Kept separate from baseQuery, and built lazily, specifically
+	// so calling Status/ProjectDependencies/DependencyVersion/
+	// ReleaseChanges never forces a live embedder dimension probe — only
+	// Search does, and only on its first call. Same "no network calls
+	// until actually needed" principle RunSync's own lazy pipeline
+	// already follows.
+	fullQueryOnce sync.Once
+	fullQuery     *query.Service
+	fullQueryErr  error
+}
+
+// baseQueryService returns e's memoized, stores-only query.Service —
+// safe for any method that never touches a vector backend or embedder.
+func (e *engine) baseQueryService() *query.Service {
+	e.baseQueryOnce.Do(func() {
+		e.baseQuery = query.New(e.store, e.badgerStore, nil, nil, backend.Namespace{}, e.cfg.Vector.Backend)
+	})
+	return e.baseQuery
+}
+
+// fullQueryService returns e's memoized, fully-wired query.Service,
+// building the embedder and vector backend (and probing embedder
+// dimensions) on first use. Only SearchKnowledge needs this.
+func (e *engine) fullQueryService(ctx context.Context) (*query.Service, error) {
+	e.fullQueryOnce.Do(func() {
+		vb, err := buildVectorBackend(e.cfg)
+		if err != nil {
+			e.fullQueryErr = err
+			return
+		}
+		embedder, err := buildEmbedder(e.cfg, e.badgerStore)
+		if err != nil {
+			e.fullQueryErr = err
+			return
+		}
+		dims, err := embedder.Dimensions(ctx)
+		if err != nil {
+			e.fullQueryErr = fmt.Errorf("probe embedder dimensions: %w", err)
+			return
+		}
+		ns := backend.Namespace{Name: e.cfg.Vector.Collection, Dimensions: dims, Distance: "cosine"}
+		e.fullQuery = query.New(e.store, e.badgerStore, vb, embedder, ns, e.cfg.Vector.Backend)
+	})
+	return e.fullQuery, e.fullQueryErr
 }
 
 // Status returns the `ragctl status` snapshot, including a live backend
@@ -342,6 +402,224 @@ func (e *engine) Plan(ctx context.Context, projectID string) (any, error) {
 // GC plans and runs garbage collection.
 func (e *engine) GC(ctx context.Context, dryRun bool, out io.Writer) (api.GCResult, error) {
 	return RunGC(ctx, e.store, e.badgerStore, e.cfg, dryRun, out)
+}
+
+// Search runs a knowledge search, the work behind the search_dependency_docs
+// MCP tool.
+func (e *engine) Search(ctx context.Context, req api.SearchRequest) (api.SearchResponse, error) {
+	svc, err := e.fullQueryService(ctx)
+	if err != nil {
+		return api.SearchResponse{}, err
+	}
+	res, err := svc.SearchKnowledge(ctx, query.Query{
+		ProjectID:  req.ProjectID,
+		Text:       req.Text,
+		Dependency: req.Dependency,
+		Mode:       query.QueryMode(req.Mode),
+		TopK:       req.TopK,
+	})
+	if err != nil {
+		return api.SearchResponse{}, err
+	}
+	chunks := make([]api.SearchChunk, len(res.Chunks))
+	for i, c := range res.Chunks {
+		chunks[i] = api.SearchChunk{
+			ChunkID:    c.ChunkID,
+			Content:    c.Content,
+			Score:      c.Score,
+			Ecosystem:  c.Ecosystem,
+			Dependency: c.Dependency,
+			Version:    c.Version,
+			Generation: c.Generation,
+			SourceType: c.SourceType,
+			Authority:  c.Authority,
+			TrustClass: string(c.TrustClass),
+		}
+	}
+	return api.SearchResponse{Chunks: chunks}, nil
+}
+
+// ProjectDependencies lists a project's resolved dependencies, the work
+// behind the list_project_dependencies MCP tool.
+func (e *engine) ProjectDependencies(ctx context.Context, projectID string) (api.ProjectDependenciesResponse, error) {
+	deps, err := e.baseQueryService().GetProjectDependencies(ctx, projectID)
+	if err != nil {
+		return api.ProjectDependenciesResponse{}, err
+	}
+	out := make([]api.ProjectDependency, len(deps))
+	for i, d := range deps {
+		out[i] = api.ProjectDependency{
+			Ecosystem:           string(d.Dependency.Dependency.Ecosystem),
+			Name:                d.Dependency.Dependency.Name,
+			Direct:              d.Dependency.Dependency.Direct,
+			Version:             d.Dependency.Version,
+			ResolvedBy:          d.Dependency.ResolvedBy,
+			HasActiveGeneration: d.HasActiveGeneration,
+		}
+	}
+	return api.ProjectDependenciesResponse{Dependencies: out}, nil
+}
+
+// DependencyVersion resolves one package's version within a project, the
+// work behind the get_dependency_version MCP tool.
+func (e *engine) DependencyVersion(ctx context.Context, projectID, pkg string) (api.DependencyVersionResponse, error) {
+	dv, err := e.baseQueryService().GetDependencyVersion(ctx, projectID, pkg)
+	if err != nil {
+		return api.DependencyVersionResponse{}, err
+	}
+	return api.DependencyVersionResponse{
+		Ecosystem:  string(dv.Dependency.Ecosystem),
+		Name:       dv.Dependency.Name,
+		Direct:     dv.Dependency.Direct,
+		Version:    dv.Version,
+		ResolvedBy: dv.ResolvedBy,
+		Checksum:   dv.Checksum,
+	}, nil
+}
+
+// ReleaseChanges gets release-note excerpts between two versions of a
+// dependency, the work behind the get_release_changes MCP tool.
+func (e *engine) ReleaseChanges(ctx context.Context, dependency, from, to string) (api.ReleaseChangesResponse, error) {
+	changes, err := e.baseQueryService().GetReleaseChanges(ctx, dependency, from, to)
+	if err != nil {
+		return api.ReleaseChangesResponse{}, err
+	}
+	out := make([]api.ReleaseChange, len(changes))
+	for i, c := range changes {
+		out[i] = api.ReleaseChange{Ecosystem: c.Ecosystem, Version: c.Version, Excerpt: c.Excerpt}
+	}
+	return api.ReleaseChangesResponse{Changes: out}, nil
+}
+
+// KnowledgeStatus summarizes fleet-wide sync coverage, the work behind
+// the knowledge_status MCP tool.
+func (e *engine) KnowledgeStatus(ctx context.Context) (api.KnowledgeStatusResponse, error) {
+	st, err := e.baseQueryService().Status(ctx)
+	if err != nil {
+		return api.KnowledgeStatusResponse{}, err
+	}
+	projects := make([]api.ProjectRef, len(st.Projects))
+	for i, p := range st.Projects {
+		projects[i] = api.ProjectRef{ID: p.ID, Root: p.Root}
+	}
+	return api.KnowledgeStatusResponse{
+		TotalProjects:           st.TotalProjects,
+		TotalDependencies:       st.TotalDependencies,
+		WithActiveGeneration:    st.WithActiveGeneration,
+		WithoutActiveGeneration: st.WithoutActiveGeneration,
+		Projects:                projects,
+	}, nil
+}
+
+// ProjectList lists every registered project, the work behind
+// `ragctl project list`.
+func (e *engine) ProjectList(ctx context.Context) (api.ProjectListResponse, error) {
+	projects, err := e.store.ListProjects(ctx)
+	if err != nil {
+		return api.ProjectListResponse{}, fmt.Errorf("list projects: %w", err)
+	}
+	out := make([]api.ProjectSummary, len(projects))
+	for i, p := range projects {
+		out[i] = api.ProjectSummary{ID: p.ID, Root: p.Root}
+	}
+	return api.ProjectListResponse{Projects: out}, nil
+}
+
+// ProjectGet gets one project's full detail, the work behind
+// `ragctl project show` and `ragctl deps`.
+func (e *engine) ProjectGet(ctx context.Context, projectID string) (api.ProjectGetResponse, error) {
+	// The friendly message is built here, not left to the caller to
+	// construct from an error type: an HTTP error crossing the daemon
+	// socket is a plain string (api.Error), not a wrapped Go error a
+	// client could errors.Is against bboltstore.ErrNotFound.
+	p, err := e.store.GetProject(ctx, projectID)
+	if errors.Is(err, bboltstore.ErrNotFound) {
+		return api.ProjectGetResponse{}, fmt.Errorf("no registered project with ID %s (run `ragctl project list` to see registered projects)", projectID)
+	}
+	if err != nil {
+		return api.ProjectGetResponse{}, fmt.Errorf("get project %s: %w", projectID, err)
+	}
+	resp := api.ProjectGetResponse{ID: p.ID, Root: p.Root, CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt}
+
+	res, err := e.store.GetResolution(ctx, projectID)
+	if errors.Is(err, bboltstore.ErrNotFound) {
+		return resp, nil
+	}
+	if err != nil {
+		return api.ProjectGetResponse{}, fmt.Errorf("get resolution for %s: %w", projectID, err)
+	}
+	resp.HasResolution = true
+	resp.Ecosystem = string(res.Ecosystem)
+	resp.Fingerprint = res.Fingerprint
+	resp.Dependencies = make([]api.DependencyInfo, len(res.Dependencies))
+	for i, d := range res.Dependencies {
+		resp.Dependencies[i] = api.DependencyInfo{
+			Ecosystem: string(d.Dependency.Ecosystem),
+			Name:      d.Dependency.Name,
+			Version:   d.Version,
+			Direct:    d.Dependency.Direct,
+		}
+	}
+	return resp, nil
+}
+
+// Describe builds the fleet-wide (or filtered) knowledge report, the
+// work behind `ragctl describe`.
+func (e *engine) Describe(ctx context.Context, args []string, checkLiveness bool) (any, error) {
+	reg, err := loadRegistryForCLI(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("load registry: %w", err)
+	}
+
+	var filterPairs []depPair
+	switch len(args) {
+	case 1:
+		filterPairs, err = aliasPairs(reg, args[0])
+		if err != nil {
+			return nil, err
+		}
+	case 2:
+		filterPairs = []depPair{{ecosystem: domain.Ecosystem(args[0]), pkg: args[1]}}
+	}
+
+	return buildReport(ctx, e.store, e.badgerStore, reg, e.cfg.Vector.Backend, filterPairs, checkLiveness)
+}
+
+// doctorChecksInDaemon is every doctorChecks entry except the last two
+// (git on PATH, package managers on PATH) — the ones that must run
+// against the calling user's own shell PATH, never the daemon's. A
+// slice, not a name filter, since doctorChecks is a small, hand-authored
+// literal with those two already last; doctor_test.go's own ordering
+// tests would catch a reorder that broke this assumption.
+var doctorChecksInDaemon = doctorChecks[:len(doctorChecks)-2]
+
+// Doctor runs every doctor check that needs this daemon's stores, the
+// work behind `ragctl doctor` when a daemon is reachable. The stores are
+// already open and config/registry already loaded, so doctorEnv here
+// carries no error states the way the no-daemon fallback path's does.
+func (e *engine) Doctor(ctx context.Context) (api.DoctorResponse, error) {
+	reg, regErr := loadRegistryForCLI(ctx)
+	env := &doctorEnv{cfg: e.cfg, store: e.store, badger: e.badgerStore, registry: reg, registryErr: regErr, now: time.Now()}
+
+	checks := make([]api.CheckResultWire, len(doctorChecksInDaemon))
+	for i, c := range doctorChecksInDaemon {
+		sev, detail := c.run(ctx, env)
+		checks[i] = api.CheckResultWire{Name: c.name, Severity: int(sev), Detail: detail}
+	}
+
+	needed, sev, detail, ok := packageManagersNeeded(ctx, env)
+	if !ok {
+		// The one check that determines what executables are needed
+		// failed outright (not just "found none") — report it as its own
+		// check entry rather than silently omitting NeededExecutables.
+		checks = append(checks, api.CheckResultWire{Name: "package managers on PATH", Severity: int(sev), Detail: detail})
+		return api.DoctorResponse{Checks: checks}, nil
+	}
+	neededWire := make([]api.NeededExecutable, 0, len(needed))
+	for exe, count := range needed {
+		neededWire = append(neededWire, api.NeededExecutable{Name: exe, Count: count})
+	}
+	return api.DoctorResponse{Checks: checks, NeededExecutables: neededWire}, nil
 }
 
 func newDaemonCmd() *cobra.Command {

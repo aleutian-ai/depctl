@@ -1,7 +1,7 @@
 # WATCH-005: Daemon process and lifecycle
 
 **Epic:** Watch Mode
-**Status:** planned
+**Status:** done
 **Depends on:** WATCH-004
 **Estimated size:** medium
 
@@ -102,3 +102,6 @@ CLI:
 - [ ] Second instance, stale socket, SIGTERM, and `daemon stop` behave as specified, with tests.
 - [ ] No TCP listener; socket mode 0600.
 - [ ] `docs/architecture.md` and a new `docs/internal/daemon.md` (plus the `docs/internal/README.md` index) describe the process and its lifecycle.
+
+## Post-implementation note
+`ragctl daemon run`/`status`/`stop` (`internal/cli/daemon.go`) implement this. Hardened further in a later pass: `openControlStoreForDaemonRun`'s 200ms fail-fast lock timeout and `spawnDaemonOnce`'s in-process single-flight guard close a real race where a losing auto-start candidate could inherit an abandoned lock and start an unrequested second daemon; `closeWithTimeout` force-exits past a hung store `Close()` at shutdown rather than hanging forever. See `docs/internal/daemon.md`.

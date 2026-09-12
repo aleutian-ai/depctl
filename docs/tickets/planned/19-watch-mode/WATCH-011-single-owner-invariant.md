@@ -53,3 +53,6 @@ N/A (enforcement and docs).
 - [ ] CLI and MCP never hold database locks independently, proven by the behavioral test.
 - [ ] The old multi-process access model (per-command opens, lock retry) is gone.
 - [ ] Architecture, internal docs, and README reflect the daemon model; epic 19 can move to `completed/`.
+
+## Post-implementation note
+WATCH-007, WATCH-008, WATCH-009, and WATCH-010 are all now done — `doctor` is the one remaining, explicitly intentional exception (dial-only, falls back to direct store access only when no daemon answers; see WATCH-009's note). This ticket itself — the AST invariant test enforcing that `openControlStore`/`openDataStore` are called only from the allowed set (`runDaemonRun`, `runInit`, and `doctor`'s fallback path — the allowed set has grown by one since this ticket's original design), the full behavioral all-commands-plus-serve test, deleting old `ErrLocked` retry-special-casing, and reconciling every WATCH ticket's status field — has not been started. Unblocked now in every sense but "actually written."

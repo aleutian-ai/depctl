@@ -1,7 +1,7 @@
 # WATCH-012: Client daemon auto-start
 
 **Epic:** Watch Mode
-**Status:** planned
+**Status:** done
 **Depends on:** WATCH-005
 **Estimated size:** small
 
@@ -111,3 +111,6 @@ and exits 0. It never runs a watcher itself. With `daemon.autostart: false` it p
 - [ ] `ragctl watch` is a shim that ensures the daemon and exits.
 - [ ] No launchd/systemd code.
 - [ ] `docs/internal/config.md` (`daemon.autostart`), `docs/internal/daemon.md`, and README quick-start updated. With auto-start, the quick-start needs no `daemon run` step.
+
+## Post-implementation note
+`ensureDaemon`/`spawnDaemon` (`internal/cli/daemon.go`) implement this. A real race was found and fixed after initial implementation: concurrent auto-start callers used to each spawn their own subprocess to race for the lock, and a loser could still be parked in the lock wait after the winner was told to shut down, then inherit the freed lock and start a second, unrequested daemon. `spawnDaemonOnce` (in-process single-flight) plus a fail-fast 200ms lock timeout for the daemon's own startup attempt close this.

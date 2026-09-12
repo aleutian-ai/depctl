@@ -42,6 +42,7 @@ For the full shipped-behavior narrative and per-command sequence diagrams, see [
 
 - [query](query.md) — vector search over a project's active generation.
 - [mcp](mcp.md) — the MCP server exposing query/registry tools to agents.
+- [daemon](daemon.md) — the single-owner store process (ADR-011): HTTP/JSON API over a Unix socket, the sync+GC scheduler, and the in-process watcher every CLI command becomes a thin client of.
 
 ## CLI
 
