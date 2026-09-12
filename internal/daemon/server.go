@@ -82,7 +82,10 @@ type Options struct {
 	Debounce       time.Duration
 	MCPEnabled     bool
 	EnableSyncTool bool
-	Logf           func(format string, args ...any)
+	// ConfigFingerprint is config.Config.Fingerprint() for the config
+	// this daemon loaded at startup — see api.Health.ConfigFingerprint.
+	ConfigFingerprint string
+	Logf              func(format string, args ...any)
 	// Out receives progress from syncs the daemon starts itself (watch),
 	// as opposed to those streamed back to a waiting client.
 	Out io.Writer
@@ -207,14 +210,15 @@ func (s *Server) routes() http.Handler {
 
 func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, api.Health{
-		PID:            os.Getpid(),
-		StartedAt:      s.started,
-		Socket:         s.opts.Socket,
-		ControlPath:    s.opts.ControlPath,
-		Version:        s.opts.Version,
-		Watching:       s.watcher != nil,
-		MCPEnabled:     s.opts.MCPEnabled,
-		EnableSyncTool: s.opts.EnableSyncTool,
+		PID:               os.Getpid(),
+		StartedAt:         s.started,
+		Socket:            s.opts.Socket,
+		ControlPath:       s.opts.ControlPath,
+		Version:           s.opts.Version,
+		Watching:          s.watcher != nil,
+		MCPEnabled:        s.opts.MCPEnabled,
+		EnableSyncTool:    s.opts.EnableSyncTool,
+		ConfigFingerprint: s.opts.ConfigFingerprint,
 	})
 }
 

@@ -4,6 +4,8 @@
 package config
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -191,4 +193,21 @@ func (c Config) Save(path string) error {
 		return fmt.Errorf("write config %s: %w", path, err)
 	}
 	return nil
+}
+
+// Fingerprint hashes c's canonical YAML encoding — not the on-disk
+// bytes, so cosmetic differences (comments, key order, whitespace) never
+// register as a change. The daemon computes this once at startup
+// (runDaemonRun) and reports it over /v1/health; every ensureDaemon call
+// and `ragctl doctor` compare it against a fresh load's fingerprint to
+// warn when config.yaml has changed since the daemon started and hasn't
+// taken effect yet (config is loaded once for the daemon's whole
+// lifetime — see docs/internal/daemon.md).
+func (c Config) Fingerprint() (string, error) {
+	data, err := yaml.Marshal(c)
+	if err != nil {
+		return "", fmt.Errorf("marshal config: %w", err)
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:]), nil
 }

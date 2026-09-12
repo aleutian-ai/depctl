@@ -1,7 +1,7 @@
 # WATCH-011: Enforce the single-owner invariant
 
 **Epic:** Watch Mode
-**Status:** planned
+**Status:** partial — see Post-implementation note
 **Depends on:** WATCH-007, WATCH-008, WATCH-009, WATCH-010
 **Estimated size:** small
 
@@ -49,10 +49,16 @@ N/A (enforcement and docs).
 - Full suite natively and via `hack/test-linux.sh`. The Linux container has no launchd/systemd concerns; Unix sockets work there as-is.
 
 ## Acceptance criteria
-- [ ] Only `daemon run` and `init` open persistent stores, enforced by a test.
-- [ ] CLI and MCP never hold database locks independently, proven by the behavioral test.
-- [ ] The old multi-process access model (per-command opens, lock retry) is gone.
-- [ ] Architecture, internal docs, and README reflect the daemon model; epic 19 can move to `completed/`.
+- [x] Only `daemon run`, `init`, and `doctor`'s deliberate fallback open persistent stores, enforced by a test (`TestOnlyAllowedFunctionsOpenStoresDirectly`) — one more exception than originally scoped, since `doctor` needed a real fallback rather than a full migration (see WATCH-009's note).
+- [ ] CLI and MCP never hold database locks independently, proven by the behavioral test. (Believed true — verified live for `project`/`deps`/`doctor`/`describe`/`serve` individually — but no single behavioral test exercises all of them plus `serve` together yet.)
+- [ ] The old multi-process access model (per-command opens, lock retry) is gone. (Not audited for leftover `ErrLocked`-retry code specifically.)
+- [x] Internal docs (`docs/internal/cli.md`, `daemon.md`, `control.md`) reflect the daemon model. Architecture.md and README not separately touched; epic 19 stays in `planned/` until the remaining items above are done, per CLAUDE.md's "every ticket done" rule for moving to `completed/`.
 
 ## Post-implementation note
-WATCH-007, WATCH-008, WATCH-009, and WATCH-010 are all now done — `doctor` is the one remaining, explicitly intentional exception (dial-only, falls back to direct store access only when no daemon answers; see WATCH-009's note). This ticket itself — the AST invariant test enforcing that `openControlStore`/`openDataStore` are called only from the allowed set (`runDaemonRun`, `runInit`, and `doctor`'s fallback path — the allowed set has grown by one since this ticket's original design), the full behavioral all-commands-plus-serve test, deleting old `ErrLocked` retry-special-casing, and reconciling every WATCH ticket's status field — has not been started. Unblocked now in every sense but "actually written."
+WATCH-007, WATCH-008, WATCH-009, and WATCH-010 are all now done — `doctor` is the one remaining, explicitly intentional exception (dial-only, falls back to direct store access only when no daemon answers; see WATCH-009's note).
+
+This ticket itself, partial:
+- **Done:** the AST invariant test (`internal/cli/invariant_test.go`, `TestOnlyAllowedFunctionsOpenStoresDirectly`) — parses every non-test file in `internal/cli`, fails if any function outside a closed six-name allow-list (`openControlStore`, `openDataStore`, `openControlStoreForDaemonRun`, `runInit`, `runDaemonRun`, `runDoctorDirect` — one more than this ticket's original design anticipated, since `doctor` ended up with a real fallback path rather than being fully migrated) calls a direct-open function. Verified to actually catch a violation, not just pass vacuously, by temporarily introducing one during development and confirming the test failed with a specific, actionable message.
+- **Not done:** the full behavioral all-commands-plus-serve test, deleting old `ErrLocked` retry-special-casing (need to audit whether any remains — most of it was already gone by the time this ticket was picked back up), and reconciling every other WATCH ticket's own status field (WATCH-004 through WATCH-010 already got this treatment individually; WATCH-002/003 predate this scheme).
+
+Two related hardening items landed alongside this, not originally scoped to WATCH-011 but discovered while assessing whether the daemon architecture as a whole was actually defensible: every `daemon/client.Client` method now wraps its call in a timeout (`defaultRequestTimeout`/`describeRequestTimeout`/`longRunningRequestTimeout` — `c.http` itself set none before, the same gap already found and fixed in the qdrant client), and `config.Config.Fingerprint()` plus `api.Health.ConfigFingerprint` make the daemon's frozen-at-startup config drift detectable and surfaced (`ensureDaemon`'s stderr warning, `daemon status`'s `config:` line, and a new `doctor` check) rather than silent.

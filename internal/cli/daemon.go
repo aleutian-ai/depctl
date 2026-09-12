@@ -91,6 +91,7 @@ func ensureDaemon(ctx context.Context) (*client.Client, error) {
 	}
 	c, err := client.Dial(ctx, socket)
 	if err == nil {
+		warnIfConfigStale(ctx, c)
 		return c, nil
 	}
 	if !errors.Is(err, client.ErrNotRunning) {
@@ -111,6 +112,53 @@ func ensureDaemon(ctx context.Context) (*client.Client, error) {
 		return nil, err
 	}
 	return waitForDaemon(ctx, socket)
+}
+
+// warnIfConfigStale prints a one-line warning to stderr if config.yaml
+// has changed since the running daemon loaded it — config is loaded
+// once for the daemon's whole lifetime (see docs/internal/daemon.md),
+// so an edit doesn't take effect until the daemon is restarted. Best
+// effort: any error here is swallowed rather than surfaced, since a
+// stale-config warning is a diagnostic nicety, never a reason to fail
+// the caller's actual command. Only called for a daemon ensureDaemon
+// reused via Dial — one just spawned obviously loaded current config.
+func warnIfConfigStale(ctx context.Context, c *client.Client) {
+	health, err := c.Health(ctx)
+	if err != nil {
+		return
+	}
+	stale, err := configIsStale(health.ConfigFingerprint)
+	if err != nil || !stale {
+		return
+	}
+	fmt.Fprintf(os.Stderr, "warning: config.yaml has changed since the running daemon (pid %d) started; the change won't take effect until it restarts — run `ragctl daemon stop` (the next command auto-starts a fresh one)\n", health.PID)
+}
+
+// configIsStale reports whether config.yaml's current fingerprint
+// differs from daemonFingerprint (a Health response's ConfigFingerprint).
+func configIsStale(daemonFingerprint string) (bool, error) {
+	cfg, err := loadRagctlConfig()
+	if err != nil {
+		return false, err
+	}
+	current, err := cfg.Fingerprint()
+	if err != nil {
+		return false, err
+	}
+	return current != daemonFingerprint, nil
+}
+
+// configFreshnessLabel is configIsStale rendered for `ragctl daemon
+// status`'s "config:" line.
+func configFreshnessLabel(daemonFingerprint string) string {
+	stale, err := configIsStale(daemonFingerprint)
+	if err != nil {
+		return "unknown (could not load config.yaml)"
+	}
+	if stale {
+		return "stale (edited since the daemon started; run `ragctl daemon stop`)"
+	}
+	return "current"
 }
 
 // spawnAttempt is one in-flight call to spawnDaemon for a socket: done
@@ -658,6 +706,10 @@ func runDaemonRun(cmd *cobra.Command) error {
 	if err != nil {
 		return err
 	}
+	configFingerprint, err := cfg.Fingerprint()
+	if err != nil {
+		return fmt.Errorf("fingerprint config: %w", err)
+	}
 	socket, err := socketPath()
 	if err != nil {
 		return err
@@ -702,16 +754,17 @@ func runDaemonRun(cmd *cobra.Command) error {
 	}()
 
 	srv := daemon.New(daemon.Options{
-		Engine:         &engine{store: store, badgerStore: badgerStore, cfg: cfg, controlPath: controlPath, badgerPath: badgerPath},
-		Socket:         socket,
-		ControlPath:    controlPath,
-		Version:        ragctlVersion,
-		WatchEnabled:   cfg.Watch.Enabled,
-		Debounce:       cfg.Watch.Debounce,
-		MCPEnabled:     cfg.Server.MCP.Enabled,
-		EnableSyncTool: cfg.Server.MCP.EnableSyncTool,
-		Logf:           logf,
-		Out:            out,
+		Engine:            &engine{store: store, badgerStore: badgerStore, cfg: cfg, controlPath: controlPath, badgerPath: badgerPath},
+		Socket:            socket,
+		ControlPath:       controlPath,
+		Version:           ragctlVersion,
+		WatchEnabled:      cfg.Watch.Enabled,
+		Debounce:          cfg.Watch.Debounce,
+		MCPEnabled:        cfg.Server.MCP.Enabled,
+		EnableSyncTool:    cfg.Server.MCP.EnableSyncTool,
+		ConfigFingerprint: configFingerprint,
+		Logf:              logf,
+		Out:               out,
 	})
 	if err := srv.Serve(ctx); err != nil {
 		return err
@@ -764,6 +817,7 @@ func runDaemonStatus(cmd *cobra.Command) error {
 	fmt.Fprintf(out, "%-14s %s\n", "version:", h.Version)
 	fmt.Fprintf(out, "%-14s %s\n", "uptime:", time.Since(h.StartedAt).Truncate(time.Second))
 	fmt.Fprintf(out, "%-14s %t\n", "watching:", h.Watching)
+	fmt.Fprintf(out, "%-14s %s\n", "config:", configFreshnessLabel(h.ConfigFingerprint))
 	return nil
 }
 

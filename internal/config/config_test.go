@@ -33,6 +33,46 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	}
 }
 
+func TestFingerprintDetectsARealChangeNotARoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	original := Default(dir)
+
+	f1, err := original.Fingerprint()
+	if err != nil {
+		t.Fatalf("Fingerprint: %v", err)
+	}
+
+	// A save-then-load round trip must not register as a change: the
+	// whole point is comparing what the daemon actually loaded against
+	// a fresh load, not raw file bytes.
+	path := filepath.Join(dir, "config.yaml")
+	if err := original.Save(path); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	reloaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	f2, err := reloaded.Fingerprint()
+	if err != nil {
+		t.Fatalf("Fingerprint (reloaded): %v", err)
+	}
+	if f1 != f2 {
+		t.Errorf("fingerprint changed across a save/load round trip: %s vs %s", f1, f2)
+	}
+
+	// An actual semantic change must register.
+	changed := reloaded
+	changed.Embedding.Model = "a-different-model"
+	f3, err := changed.Fingerprint()
+	if err != nil {
+		t.Fatalf("Fingerprint (changed): %v", err)
+	}
+	if f3 == f2 {
+		t.Error("fingerprint did not change after a real config edit")
+	}
+}
+
 func TestLoadMissingFile(t *testing.T) {
 	dir := t.TempDir()
 	_, err := Load(filepath.Join(dir, "does-not-exist.yaml"))

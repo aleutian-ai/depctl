@@ -50,6 +50,11 @@ type Health struct {
 	Watching       bool      `json:"watching"`
 	MCPEnabled     bool      `json:"mcp_enabled"`
 	EnableSyncTool bool      `json:"enable_sync_tool"`
+	// ConfigFingerprint is config.Config.Fingerprint() as of when this
+	// daemon started — config is loaded once for the daemon's whole
+	// lifetime, so callers compare this against a fresh load's
+	// fingerprint to detect an on-disk change that hasn't taken effect.
+	ConfigFingerprint string `json:"config_fingerprint"`
 }
 
 // Status is the `ragctl status` snapshot; text and --json both render

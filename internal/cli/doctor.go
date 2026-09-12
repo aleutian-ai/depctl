@@ -198,7 +198,30 @@ func runDoctorViaDaemon(ctx context.Context, c *client.Client) ([]CheckResult, e
 		sev, detail := checkPackageManagersOnPath(exec.LookPath, needed)
 		results = append(results, CheckResult{Name: "package managers on PATH", Severity: sev, Detail: detail})
 	}
+
+	cfgSev, cfgDetail := checkConfigFreshness(ctx, c)
+	results = append(results, CheckResult{Name: "config matches running daemon", Severity: cfgSev, Detail: cfgDetail})
 	return results, nil
+}
+
+// checkConfigFreshness is doctor's client-side check that config.yaml
+// hasn't changed since the daemon it's talking to started — config is
+// loaded once for the daemon's whole lifetime, so an edit silently has
+// no effect until a restart. Not shaped like the other check functions
+// (ctx, *doctorEnv): it needs the daemon's Health, not a doctorEnv.
+func checkConfigFreshness(ctx context.Context, c *client.Client) (Severity, string) {
+	health, err := c.Health(ctx)
+	if err != nil {
+		return SeverityUnhealthy, err.Error()
+	}
+	stale, err := configIsStale(health.ConfigFingerprint)
+	if err != nil {
+		return SeverityUnhealthy, err.Error()
+	}
+	if stale {
+		return SeverityWarning, fmt.Sprintf("config.yaml has changed since the daemon (pid %d) started; run `ragctl daemon stop` to pick it up", health.PID)
+	}
+	return SeverityOK, "matches"
 }
 
 func hasCheckNamed(results []CheckResult, name string) bool {
