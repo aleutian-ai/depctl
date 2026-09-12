@@ -119,8 +119,13 @@ func TestEngineSyncResolvesFirstWhenAsked(t *testing.T) {
 	isolateEnv(t)
 	requireGo(t)
 	runInitForTest(t)
+	useRealRagctlBinary(t)
 	deadEndpointsConfig(t, nil)
 	root := scanDepFixture(t)
+	// The daemon `scan` auto-started still holds the control store's
+	// exclusive lock; release it before opening the store directly below
+	// (projectIDForRoot, and testEngine's store).
+	stopRunningDaemon(t)
 	id := projectIDForRoot(t, root)
 	addBarDependency(t, root)
 
@@ -159,8 +164,13 @@ func TestEngineProjectsListsResolvedProjects(t *testing.T) {
 	isolateEnv(t)
 	requireGo(t)
 	runInitForTest(t)
+	useRealRagctlBinary(t)
 	deadEndpointsConfig(t, nil)
 	root := scanDepFixture(t)
+	// The daemon `scan` auto-started still holds the control store's
+	// exclusive lock; release it before testEngine opens the store
+	// directly.
+	stopRunningDaemon(t)
 
 	e := testEngine(t)
 	projects, err := e.Projects(context.Background())

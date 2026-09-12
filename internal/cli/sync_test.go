@@ -14,6 +14,7 @@ func TestSyncDryRunPerformsNoWrites(t *testing.T) {
 	isolateEnv(t)
 	requireGo(t)
 	runInitForTest(t)
+	useRealRagctlBinary(t)
 	scanDepFixture(t)
 
 	cmd := NewRootCmd()
@@ -28,6 +29,9 @@ func TestSyncDryRunPerformsNoWrites(t *testing.T) {
 	}
 
 	// No reference should have been recorded — dry-run must not write.
+	// The daemon still holds the control store's exclusive lock; release
+	// it before reading the store directly.
+	stopRunningDaemon(t)
 	store, err := openControlStore()
 	if err != nil {
 		t.Fatalf("openControlStore: %v", err)
@@ -46,6 +50,7 @@ func TestSyncOfflineSkipsSyncVersionButRecordsReference(t *testing.T) {
 	isolateEnv(t)
 	requireGo(t)
 	runInitForTest(t)
+	useRealRagctlBinary(t)
 	root := scanDepFixture(t)
 
 	cmd := NewRootCmd()
@@ -59,7 +64,9 @@ func TestSyncOfflineSkipsSyncVersionButRecordsReference(t *testing.T) {
 		t.Errorf("offline sync output missing skip line:\n%s", out.String())
 	}
 
-	// Find the project ID that was scanned.
+	// Find the project ID that was scanned. The daemon still holds the
+	// control store's exclusive lock; release it first.
+	stopRunningDaemon(t)
 	store, err := openControlStore()
 	if err != nil {
 		t.Fatalf("openControlStore: %v", err)
@@ -94,6 +101,7 @@ func TestSyncNoOpAfterOfflineSyncPerformsNoFurtherReferenceChanges(t *testing.T)
 	isolateEnv(t)
 	requireGo(t)
 	runInitForTest(t)
+	useRealRagctlBinary(t)
 	scanDepFixture(t)
 
 	first := NewRootCmd()
@@ -130,8 +138,13 @@ func TestSyncNoOpPlanMakesNoNetworkCalls(t *testing.T) {
 	isolateEnv(t)
 	requireGo(t)
 	runInitForTest(t)
+	useRealRagctlBinary(t)
 	root := scanDepFixture(t)
 
+	// The daemon `scan` auto-started still holds the control store's
+	// exclusive lock; release it before reading and writing the store
+	// directly. `sync` below auto-starts a fresh daemon of its own.
+	stopRunningDaemon(t)
 	store, err := openControlStore()
 	if err != nil {
 		t.Fatalf("openControlStore: %v", err)
@@ -193,6 +206,7 @@ func TestSyncDependencyFilter(t *testing.T) {
 	isolateEnv(t)
 	requireGo(t)
 	runInitForTest(t)
+	useRealRagctlBinary(t)
 	scanDepFixture(t)
 
 	cmd := NewRootCmd()

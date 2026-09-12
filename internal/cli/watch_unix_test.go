@@ -18,9 +18,9 @@ func TestDaemonResyncsProjectWhenGoModChanges(t *testing.T) {
 	requireGo(t)
 	runInitForTest(t)
 	deadEndpointsConfig(t, func(c *config.Config) { c.Watch.Debounce = 100 * time.Millisecond })
-	root := scanDepFixture(t)
 
 	h := startDaemon(t)
+	root := scanDepFixture(t)
 	waitFor(t, "the daemon to watch the fixture", func() bool {
 		return strings.Contains(h.out.String(), "watching "+root+" (go.mod")
 	})

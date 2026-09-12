@@ -45,7 +45,17 @@ type Store struct {
 // Open opens (creating if necessary) the bbolt database at path and
 // ensures every control-plane bucket exists.
 func Open(path string) (*Store, error) {
-	db, err := bolt.Open(path, 0o600, &bolt.Options{Timeout: lockTimeout})
+	return OpenWithTimeout(path, lockTimeout)
+}
+
+// OpenWithTimeout is Open with an explicit file-lock wait, for callers
+// that want to fail faster (or slower) than the default: `ragctl daemon
+// run` racing another auto-started candidate for the same control.db
+// wants near-zero, so a losing candidate exits before the winner could
+// plausibly have already been asked to shut down (see internal/cli's
+// spawnDaemonOnce).
+func OpenWithTimeout(path string, timeout time.Duration) (*Store, error) {
+	db, err := bolt.Open(path, 0o600, &bolt.Options{Timeout: timeout})
 	if errors.Is(err, bolt.ErrTimeout) {
 		return nil, fmt.Errorf("open bbolt store %s: %w", path, ErrLocked)
 	}

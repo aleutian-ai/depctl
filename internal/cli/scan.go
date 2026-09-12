@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"path/filepath"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -50,20 +52,30 @@ func newScanCmd() *cobra.Command {
 }
 
 func runScan(cmd *cobra.Command, root string) error {
-	detected, err := project.Scan(context.Background(), root)
+	// The daemon's working directory isn't the user's, so the path is
+	// resolved here and sent absolute.
+	abs, err := filepath.Abs(root)
 	if err != nil {
-		return fmt.Errorf("scan %s: %w", root, err)
+		return fmt.Errorf("resolve %s: %w", root, err)
+	}
+	c, err := ensureDaemon(cmd.Context())
+	if err != nil {
+		return err
+	}
+	_, err = c.Resolve(cmd.Context(), abs, cmd.OutOrStdout())
+	return err
+}
+
+// scanAndResolve discovers projects under root, registers them, and
+// resolves each one's dependencies, returning the project IDs it
+// touched. This is `ragctl scan`'s work, run inside the daemon.
+func scanAndResolve(ctx context.Context, store *bboltstore.Store, root string, out io.Writer) ([]string, error) {
+	detected, err := project.Scan(ctx, root)
+	if err != nil {
+		return nil, fmt.Errorf("scan %s: %w", root, err)
 	}
 
-	store, err := openControlStore()
-	if err != nil {
-		return fmt.Errorf("open control store: %w", err)
-	}
-	defer store.Close()
-
-	ctx := context.Background()
-	out := cmd.OutOrStdout()
-
+	var ids []string
 	var newCount, existingCount, unsupportedCount int
 
 	for _, dp := range detected {
@@ -77,7 +89,7 @@ func runScan(cmd *cobra.Command, root string) error {
 		existing, err := store.GetProject(ctx, id)
 		isNew := errors.Is(err, bboltstore.ErrNotFound)
 		if err != nil && !isNew {
-			fmt.Fprintf(cmd.ErrOrStderr(), "error        %-8s %s: %v\n", dp.Ecosystem, dp.Root, err)
+			fmt.Fprintf(out, "error        %-8s %s: %v\n", dp.Ecosystem, dp.Root, err)
 			continue
 		}
 
@@ -87,9 +99,10 @@ func runScan(cmd *cobra.Command, root string) error {
 			p.CreatedAt = existing.CreatedAt
 		}
 		if err := store.PutProject(ctx, p); err != nil {
-			fmt.Fprintf(cmd.ErrOrStderr(), "error        %-8s %s: %v\n", dp.Ecosystem, dp.Root, err)
+			fmt.Fprintf(out, "error        %-8s %s: %v\n", dp.Ecosystem, dp.Root, err)
 			continue
 		}
+		ids = append(ids, id)
 
 		if isNew {
 			newCount++
@@ -101,11 +114,11 @@ func runScan(cmd *cobra.Command, root string) error {
 
 		res, err := resolvers[dp.Ecosystem].Resolve(ctx, dp.Root)
 		if err != nil {
-			fmt.Fprintf(cmd.ErrOrStderr(), "resolve error %-8s %s: %v\n", dp.Ecosystem, dp.Root, err)
+			fmt.Fprintf(out, "resolve error %-8s %s: %v\n", dp.Ecosystem, dp.Root, err)
 			continue
 		}
 		if err := store.PutResolution(ctx, id, res); err != nil {
-			fmt.Fprintf(cmd.ErrOrStderr(), "resolve error %-8s %s: %v\n", dp.Ecosystem, dp.Root, err)
+			fmt.Fprintf(out, "resolve error %-8s %s: %v\n", dp.Ecosystem, dp.Root, err)
 			continue
 		}
 		fmt.Fprintf(out, "resolved     %-8s %s: %d dependencies\n", dp.Ecosystem, dp.Root, len(res.Dependencies))
@@ -114,5 +127,5 @@ func runScan(cmd *cobra.Command, root string) error {
 	fmt.Fprintf(out, "\ndiscovered %d, new %d, existing %d, unsupported %d\n",
 		len(detected), newCount, existingCount, unsupportedCount)
 
-	return nil
+	return ids, nil
 }

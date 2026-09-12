@@ -91,6 +91,37 @@ graph TD
 
 Green = fully implemented. Dashed/grey = registered but returns `feature not implemented in this build`. (`config` itself is just a parent grouping — `config validate` is its one real subcommand.)
 
+## Daemon architecture (`ragctl daemon`, ADR-011)
+
+Badger only allows one open handle per process, which meant every command needing stored state had to open and close its own `bboltStore`/`badgerStore` per invocation — fine for one-shot commands, but incompatible with `ragctl watch` holding both open indefinitely to react to file changes, and with `ragctl serve` (MCP) and a plain CLI command ever running side by side. ADR-011 resolves this by making `ragctl daemon run` the one process that owns both stores for its whole lifetime; every other command becomes a thin client of it.
+
+```mermaid
+flowchart LR
+    subgraph client["ragctl scan / plan / sync / gc (CLI)"]
+        C1["ensureDaemon(ctx)"] --> C2["client.Dial(socket)"]
+    end
+    C2 -->|answers| D0["daemon already running"]
+    C2 -->|ErrNotRunning| C3{"daemon.autostart?"}
+    C3 -->|false| C4["notRunningError:<br/>run `ragctl daemon run`"]
+    C3 -->|true| C5["spawnDaemonOnce(socket)"]
+    C5 --> C6["spawn `ragctl daemon run`,<br/>detached, logs to ragctld.log"]
+    C6 --> C7["waitForDaemon: poll socket"]
+
+    subgraph daemon["ragctl daemon run (one process)"]
+        S1["openControlStoreForDaemonRun<br/>(200ms lock timeout)"] -->|ErrLocked| S2["ownershipError:<br/>probe socket, report who owns it"]
+        S1 -->|acquired| S3["bind unix socket, HTTP API"]
+        S3 --> S4["Scheduler: one sync per project,<br/>collapses queued requests"]
+        S3 --> S5["watch subsystem (if enabled)"]
+        S3 -->|Shutdown RPC or signal| S6["close listener, scheduler.Wait(),<br/>closeWithTimeout both stores"]
+    end
+```
+
+Ownership of the control store's file lock, not the socket file, decides who the daemon is (a crash leaves a stale socket behind, but never the lock) — `openControlStoreForDaemonRun` uses a short 200ms timeout rather than the general-purpose `bboltstore.Open` default of 2s, so a losing candidate in a concurrent auto-start race fails fast and exits instead of parking inside the lock wait. That matters because of a real bug found and fixed in this arc: `ensureDaemon` used to let every concurrent caller spawn its own `daemon run` subprocess to race for the lock via `bolt.Open`'s retry-with-timeout; a losing subprocess could still be blocked inside that wait after the winner had already come up and answered, and if the winner was then told to shut down, the loser could wake up, grab the now-free lock, and start a brand-new, unrequested daemon nobody would ever ask to stop. `spawnDaemonOnce` (`internal/cli/daemon.go`) closes the in-process half of that window with a channel-based single-flight guard — concurrent `ensureDaemon` callers in one process share one spawn attempt and its result rather than each racing their own subprocess — and the fail-fast lock timeout closes the cross-process half.
+
+`internal/daemon/scheduler.go`'s `Scheduler` deliberately does not cancel a sync already under way when the daemon is asked to shut down (`context.WithoutCancel`, ADR-011 §7) — leaving it half-built would be worse than letting it finish — but bounds it with `maxSyncDuration` (30 minutes) so a hung network call to an unreachable embedder or vector backend can't keep the process alive forever. The stores' own `Close()` calls at shutdown are similarly bounded (`closeWithTimeout`, 10s each) and force-exit rather than hang indefinitely.
+
+Not every command goes through the daemon: `ragctl project`/`ragctl deps` still open the control store directly (read-only, short-lived), by design rather than oversight — see `internal/cli/project.go`/`deps.go`.
+
 ## `ragctl init` flow
 
 ```mermaid
@@ -156,6 +187,8 @@ sequenceDiagram
 ```
 
 ## `ragctl scan` flow
+
+`scan` runs through the daemon (see "Daemon architecture" above) — `runScan` calls `ensureDaemon(ctx)` and the daemon runs `scanAndResolve` against the stores it owns, rather than `scan` opening them itself. The flow below is otherwise unchanged.
 
 ```mermaid
 sequenceDiagram
@@ -275,6 +308,8 @@ sequenceDiagram
 
 ## `ragctl plan` / `ragctl sync` flow
 
+Both commands run through the daemon (see "Daemon architecture" above): `computePlans` and sync execution happen inside the daemon process against the stores it owns, reached via `ensureDaemon(ctx)`, not opened directly by the CLI invocation.
+
 Epic 15 is where the CLI first drives the epic 11–14 pipeline — `internal/planner.Plan` (PLAN-001) is a pure diff function; `computePlans` (shared by both commands, `internal/cli/plan.go`) is the only place that reads bbolt/registry state to feed it. Every dependency in a project's stored `Resolution` gets diffed against its stored `VersionReference`s (new `internal/control/bbolt/references.go`, one row per project+dependency, `references` bucket) and whether an active generation already exists for that exact version (`Store.GetActiveGeneration`, checked once per distinct dependency version via `planner.GenerationKey`).
 
 ```mermaid
@@ -299,6 +334,8 @@ sequenceDiagram
 `ragctl sync` computes the identical plan, then (unless `--dry-run`) executes it: `ADD_REFERENCE` calls `Store.AddReference` with `Reason: "project"`; `DROP_REFERENCE` calls `retention.DropReference` (epic 16 — RET-002's grace-period bookkeeping, not a bare delete); each `SYNC_VERSION` drives `generation.Create` → `Build` → `Replicate` → `validate.Run` → `promote.Promote` in sequence — the first real caller of the epic 11–14 vertical slice `TestRunThenPromoteEndToEnd` proved in isolation. The embedder/vector-backend/git-cache pipeline is built **lazily**, on the first `SYNC_VERSION` action that actually needs it (a `getPipeline()` closure memoized across the run) — an earlier version built it unconditionally whenever `--offline` wasn't passed, which meant even a genuinely no-op sync made a live call to probe the embedder's dimensions; caught by writing PLAN-003's "no-change sync performs zero backend writes" acceptance criterion as an actual test instead of trusting it was already true (`TestSyncNoOpPlanMakesNoNetworkCalls`). `--offline` skips `SYNC_VERSION` actions outright (reported as `SKIP`, not failed) without needing the pipeline at all; `--force` overrides only a VAL-002 (`Sanity`) failure, never `Structural`/`VersionCorrectness` — those indicate a broken replica, not a plausible-but-flagged count change. One dependency's sync failure is caught and reported per-action; the loop continues to the next action regardless, and the command's own exit code (not a panic or early return) reflects whether any action failed.
 
 ## `ragctl gc` flow
+
+`gc` also runs through the daemon (see "Daemon architecture" above) via `ensureDaemon(ctx)` and `RunGC`.
 
 Epic 16 closes the loop `ragctl sync` opened: `planner.Plan`'s `GC_CANDIDATE` markers (epic 15) were always provisional — every version a project dropped was marked a candidate unconditionally, because nothing yet knew whether *another* project still referenced it. RET-001 rewrote the `references` bbolt bucket to make that answerable: keyed `<ecosystem>|<package>|<version>|<project-id>|<reason>` (not the epic-15-interim `<project-id>|<ecosystem>|<package>`), so a version can carry multiple simultaneous references — from different projects, and from non-project reasons (`"latest"`, `"manual_pin"`, `"grace_period"`).
 

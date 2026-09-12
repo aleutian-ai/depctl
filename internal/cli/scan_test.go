@@ -89,6 +89,7 @@ func writeFile(t *testing.T, dir, name, content string) {
 
 func TestScanFixtureTreeAllUnsupported(t *testing.T) {
 	isolateEnv(t)
+	useRealRagctlBinary(t)
 	// Neither fixture uses go.mod, a Python manifest, or package.json: go,
 	// python, and node are genuinely supported ecosystems
 	// (internal/resolver/golang, internal/resolver/python,
@@ -121,6 +122,7 @@ func TestScanRegistersSupportedEcosystem(t *testing.T) {
 	isolateEnv(t)
 	withSupportedEcosystem(t, domain.EcosystemGo)
 	requireGo(t)
+	useRealRagctlBinary(t)
 
 	root := t.TempDir()
 	writeGoMod(t, filepath.Join(root, "service-go"), "module example.com/service-go\n\ngo 1.21\n")
@@ -143,6 +145,9 @@ func TestScanRegistersSupportedEcosystem(t *testing.T) {
 		t.Errorf("unexpected summary:\n%s", out.String())
 	}
 
+	// The daemon `scan` auto-started still holds the control store's
+	// exclusive lock; release it before reading the store directly.
+	stopRunningDaemon(t)
 	store, err := openControlStore()
 	if err != nil {
 		t.Fatalf("openControlStore: %v", err)
@@ -168,6 +173,7 @@ func TestScanRegistersSupportedEcosystem(t *testing.T) {
 func TestScanRegistersPythonEcosystem(t *testing.T) {
 	isolateEnv(t)
 	runInitForTest(t)
+	useRealRagctlBinary(t)
 
 	root := t.TempDir()
 	touch(t, filepath.Join(root, "service-java", "pom.xml")) // stays unsupported
@@ -189,6 +195,9 @@ func TestScanRegistersPythonEcosystem(t *testing.T) {
 		t.Errorf("unexpected summary:\n%s", out.String())
 	}
 
+	// The daemon `scan` auto-started still holds the control store's
+	// exclusive lock; release it before reading the store directly.
+	stopRunningDaemon(t)
 	store, err := openControlStore()
 	if err != nil {
 		t.Fatalf("openControlStore: %v", err)
@@ -217,6 +226,7 @@ func TestScanRegistersPythonEcosystem(t *testing.T) {
 func TestScanRegistersNodeEcosystem(t *testing.T) {
 	isolateEnv(t)
 	runInitForTest(t)
+	useRealRagctlBinary(t)
 
 	root := t.TempDir()
 	touch(t, filepath.Join(root, "service-java", "pom.xml")) // stays unsupported
@@ -240,6 +250,9 @@ func TestScanRegistersNodeEcosystem(t *testing.T) {
 		t.Errorf("unexpected summary:\n%s", out.String())
 	}
 
+	// The daemon `scan` auto-started still holds the control store's
+	// exclusive lock; release it before reading the store directly.
+	stopRunningDaemon(t)
 	store, err := openControlStore()
 	if err != nil {
 		t.Fatalf("openControlStore: %v", err)
@@ -269,6 +282,7 @@ func TestScanTwiceIsIdempotent(t *testing.T) {
 	isolateEnv(t)
 	withSupportedEcosystem(t, domain.EcosystemGo)
 	requireGo(t)
+	useRealRagctlBinary(t)
 
 	root := t.TempDir()
 	writeGoMod(t, filepath.Join(root, "service-go"), "module example.com/service-go\n\ngo 1.21\n")
@@ -300,6 +314,9 @@ func TestScanTwiceIsIdempotent(t *testing.T) {
 		t.Errorf("second scan: unexpected summary:\n%s", second)
 	}
 
+	// The daemon `scan` auto-started still holds the control store's
+	// exclusive lock; release it before reading the store directly.
+	stopRunningDaemon(t)
 	store, err := openControlStore()
 	if err != nil {
 		t.Fatalf("openControlStore: %v", err)

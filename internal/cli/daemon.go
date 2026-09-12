@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
@@ -42,6 +43,35 @@ const (
 	autostartPoll = 100 * time.Millisecond
 )
 
+// storeCloseTimeout bounds how long runDaemonRun's shutdown waits for a
+// store's Close to return, in closeWithTimeout.
+const storeCloseTimeout = 10 * time.Second
+
+// closeWithTimeout runs close and returns once it completes or timeout
+// elapses, whichever comes first. A deferred store.Close() blocking
+// forever (observed: badgerStore.Close() hanging specifically on the
+// auto-start daemon lifecycle, root cause not yet found) would otherwise
+// keep the whole daemon process alive indefinitely after Shutdown was
+// already requested and the socket already closed — every client-side
+// check that the daemon "stopped" only confirms the socket is gone, not
+// that the process exited. Writes directly to stderr rather than
+// through the daemon's own logf: this is the one path that must still
+// report something even if whatever's wrong extends to the daemon's
+// normal output machinery.
+func closeWithTimeout(name string, close func() error, timeout time.Duration) {
+	done := make(chan error, 1)
+	go func() { done <- close() }()
+	select {
+	case err := <-done:
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "close %s: %v\n", name, err)
+		}
+	case <-time.After(timeout):
+		fmt.Fprintf(os.Stderr, "close %s did not complete within %s; exiting anyway\n", name, timeout)
+		os.Exit(1)
+	}
+}
+
 // daemonExecutable is the binary auto-start spawns. It is empty in
 // normal use (meaning "this binary"); tests point it at a real ragctl
 // they built, since os.Executable under `go test` is the test binary.
@@ -74,10 +104,53 @@ func ensureDaemon(ctx context.Context) (*client.Client, error) {
 	if err := requireInitialized(); err != nil {
 		return nil, err
 	}
-	if err := spawnDaemon(); err != nil {
+	if err := spawnDaemonOnce(socket); err != nil {
 		return nil, err
 	}
 	return waitForDaemon(ctx, socket)
+}
+
+// spawnAttempt is one in-flight call to spawnDaemon for a socket: done
+// closes once err is safe to read (the write happens-before the close).
+type spawnAttempt struct {
+	done chan struct{}
+	err  error
+}
+
+var (
+	spawnMu       sync.Mutex
+	spawnAttempts = map[string]*spawnAttempt{}
+)
+
+// spawnDaemonOnce runs spawnDaemon at most once per socket at a time:
+// concurrent ensureDaemon callers in this process (e.g. several commands
+// racing to auto-start) share one attempt and its result instead of each
+// spawning their own subprocess to race bolt.Open's file lock. That
+// race is otherwise real: a losing subprocess can sit blocked in the
+// lock wait past the point the winner already answered, and later
+// inherit the lock — starting a brand new, unrequested daemon — if the
+// winner happens to be told to shut down while it's still waiting. This
+// only closes the window for callers sharing one process; a losing
+// daemon subprocess itself still relies on openControlStoreForDaemonRun's
+// fail-fast timeout to exit before that can happen.
+func spawnDaemonOnce(socket string) error {
+	spawnMu.Lock()
+	if a, ok := spawnAttempts[socket]; ok {
+		spawnMu.Unlock()
+		<-a.done
+		return a.err
+	}
+	a := &spawnAttempt{done: make(chan struct{})}
+	spawnAttempts[socket] = a
+	spawnMu.Unlock()
+
+	a.err = spawnDaemon()
+	close(a.done)
+
+	spawnMu.Lock()
+	delete(spawnAttempts, socket)
+	spawnMu.Unlock()
+	return a.err
 }
 
 // requireNoDaemon fails if a daemon is running, for the few commands
@@ -130,6 +203,11 @@ func spawnDaemon() error {
 		var err error
 		if exe, err = os.Executable(); err != nil {
 			return fmt.Errorf("locate the ragctl binary: %w", err)
+		}
+		// Under `go test` this is the test binary, and spawning it would
+		// re-run tests instead of starting a daemon.
+		if strings.HasSuffix(filepath.Base(exe), ".test") {
+			return fmt.Errorf("refusing to auto-start %s: it is a test binary, not ragctl", exe)
 		}
 	}
 	logPath, err := daemonLogPath()
@@ -235,6 +313,37 @@ func (e *engine) Sync(ctx context.Context, projectID string, opts daemon.SyncOpt
 	return api.SyncResult{ProjectID: projectID, Synced: synced, Failed: failed, Skipped: skipped}, err
 }
 
+// ProjectIDs returns every registered project, resolved or not — what a
+// `ragctl sync` with no --project covers.
+func (e *engine) ProjectIDs(ctx context.Context) ([]string, error) {
+	projects, err := e.store.ListProjects(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list projects: %w", err)
+	}
+	ids := make([]string, 0, len(projects))
+	for _, p := range projects {
+		ids = append(ids, p.ID)
+	}
+	return ids, nil
+}
+
+// Scan discovers and resolves projects under root, the work behind
+// `ragctl scan`.
+func (e *engine) Scan(ctx context.Context, root string, out io.Writer) ([]string, error) {
+	return scanAndResolve(ctx, e.store, root, out)
+}
+
+// Plan returns the desired-state plan. The result is the CLI's own plan
+// type, which the client decodes back into it.
+func (e *engine) Plan(ctx context.Context, projectID string) (any, error) {
+	return computePlans(ctx, e.store, e.cfg.Vector.Backend, projectID)
+}
+
+// GC plans and runs garbage collection.
+func (e *engine) GC(ctx context.Context, dryRun bool, out io.Writer) (api.GCResult, error) {
+	return RunGC(ctx, e.store, e.badgerStore, e.cfg, dryRun, out)
+}
+
 func newDaemonCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "daemon",
@@ -287,20 +396,20 @@ func runDaemonRun(cmd *cobra.Command) error {
 	// Ownership of the control store, not the socket file, decides who is
 	// the daemon (ADR-011): a crash leaves a socket behind, but never the
 	// lock.
-	store, err := openControlStore()
+	store, err := openControlStoreForDaemonRun()
 	if err != nil {
 		if errors.Is(err, bboltstore.ErrLocked) {
 			return ownershipError(cmd.Context(), socket, controlPath)
 		}
 		return fmt.Errorf("open control store: %w", err)
 	}
-	defer store.Close()
+	defer closeWithTimeout("control store", store.Close, storeCloseTimeout)
 
 	badgerStore, err := openDataStore()
 	if err != nil {
 		return fmt.Errorf("open data store: %w", err)
 	}
-	defer badgerStore.Close()
+	defer closeWithTimeout("data store", badgerStore.Close, storeCloseTimeout)
 
 	out := &lockedWriter{w: cmd.OutOrStdout()}
 	logf := func(format string, args ...any) {

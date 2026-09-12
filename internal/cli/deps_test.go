@@ -29,6 +29,7 @@ func TestDepsListsResolvedDependencies(t *testing.T) {
 	isolateEnv(t)
 	requireGo(t)
 	runInitForTest(t)
+	useRealRagctlBinary(t)
 
 	base := t.TempDir()
 	writeGoMod(t, filepath.Join(base, "foolocal"), "module example.com/foo\n\ngo 1.21\n")
@@ -41,6 +42,11 @@ func TestDepsListsResolvedDependencies(t *testing.T) {
 	if err := scanCmd.Execute(); err != nil {
 		t.Fatalf("scan: %v", err)
 	}
+
+	// `project list` and `deps` open the control store directly (they
+	// haven't moved to the daemon); release the lock the auto-started
+	// daemon still holds.
+	stopRunningDaemon(t)
 
 	listCmd := NewRootCmd()
 	listCmd.SetArgs([]string{"project", "list"})

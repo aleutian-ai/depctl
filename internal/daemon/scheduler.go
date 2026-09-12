@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"time"
 
 	"aleutian-ai/ragctl/internal/daemon/api"
 )
@@ -13,6 +14,12 @@ import (
 // ErrShuttingDown is delivered to sync requests that the daemon will
 // never run because it is stopping.
 var ErrShuttingDown = errors.New("ragctl daemon is shutting down")
+
+// maxSyncDuration bounds one sync run so a hung network call (an
+// unreachable embedder or vector backend) can never keep the daemon
+// process alive forever — see execute's own comment for why this
+// doesn't conflict with "never cancel an in-flight sync."
+const maxSyncDuration = 30 * time.Minute
 
 // SyncOptions are the knobs one sync run takes. Resolve is set by
 // watch-triggered requests, which re-resolve the project first; a plain
@@ -176,8 +183,20 @@ func (s *Scheduler) execute(projectID string, opts SyncOptions, waiters []*waite
 	s.global.Lock()
 	defer s.global.Unlock()
 
+	// context.WithoutCancel deliberately survives Shutdown (a sync
+	// already under way must finish, not leave a half-built generation —
+	// see the type doc). But "survives shutdown" and "runs forever" are
+	// different guarantees: without a ceiling, a single hung network call
+	// inside run (an unreachable embedder or vector backend) keeps this
+	// goroutine — and Scheduler.Wait, and therefore the whole daemon
+	// process — alive indefinitely. maxSyncDuration bounds it generously
+	// (real syncs in this codebase's own corpus testing finished in well
+	// under a minute even for large repos) while still never cancelling
+	// a healthy, progressing sync early.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(s.base), maxSyncDuration)
+	defer cancel()
 	out := writerFor(waiters)
-	res, err := s.run(context.WithoutCancel(s.base), projectID, opts, out)
+	res, err := s.run(ctx, projectID, opts, out)
 	if err != nil {
 		s.logf("%s: %v", projectID, err)
 	}

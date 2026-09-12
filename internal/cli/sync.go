@@ -13,6 +13,7 @@ import (
 	"aleutian-ai/ragctl/internal/backend"
 	"aleutian-ai/ragctl/internal/config"
 	bboltstore "aleutian-ai/ragctl/internal/control/bbolt"
+	"aleutian-ai/ragctl/internal/daemon/api"
 	badgerstore "aleutian-ai/ragctl/internal/data/badger"
 	"aleutian-ai/ragctl/internal/data/generation"
 	"aleutian-ai/ragctl/internal/domain"
@@ -45,37 +46,29 @@ func newSyncCmd() *cobra.Command {
 }
 
 func runSync(cmd *cobra.Command, projectID, dependency string, dryRun, offline, force bool) error {
-	ctx := context.Background()
-
-	store, err := openControlStore()
-	if err != nil {
-		return fmt.Errorf("open control store: %w", err)
-	}
-	defer store.Close()
-
-	cfg, err := loadRagctlConfig()
+	c, err := ensureDaemon(cmd.Context())
 	if err != nil {
 		return err
 	}
 
 	if dryRun {
-		plans, err := computePlans(ctx, store, cfg.Vector.Backend, projectID)
-		if err != nil {
+		var plans []projectPlan
+		if err := c.Plan(cmd.Context(), projectID, &plans); err != nil {
 			return err
 		}
 		printPlans(cmd, plans)
 		return nil
 	}
 
-	badgerStore, err := openDataStore()
-	if err != nil {
-		return fmt.Errorf("open data store: %w", err)
-	}
-	defer badgerStore.Close()
-
-	_, failed, _, err := RunSync(ctx, store, badgerStore, cfg, projectID, dependency, offline, force, cmd.OutOrStdout())
+	req := api.SyncRequest{ProjectID: projectID, Dependency: dependency, Offline: offline, Force: force}
+	resp, err := c.Sync(cmd.Context(), req, cmd.OutOrStdout())
 	if err != nil {
 		return err
+	}
+
+	var failed int
+	for _, r := range resp.Results {
+		failed += r.Failed
 	}
 	if failed > 0 {
 		return fmt.Errorf("%d sync action(s) failed", failed)

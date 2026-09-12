@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -25,7 +26,9 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 		t.Fatalf("Load: %v", err)
 	}
 
-	if got != want {
+	// Not got != want: Daemon.Autostart is a *bool (nil means "unset"),
+	// so equal round-tripped values still land in distinct allocations.
+	if !reflect.DeepEqual(got, want) {
 		t.Errorf("round-trip mismatch:\n got:  %+v\n want: %+v", got, want)
 	}
 }

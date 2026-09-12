@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"aleutian-ai/ragctl/internal/config"
 	bboltstore "aleutian-ai/ragctl/internal/control/bbolt"
@@ -78,6 +79,24 @@ func openControlStore() (*bboltstore.Store, error) {
 		return nil, err
 	}
 	return bboltstore.Open(path)
+}
+
+// daemonStartupLockTimeout bounds how long `ragctl daemon run` itself
+// waits for control.db's file lock, far shorter than openControlStore's
+// default: a losing candidate in a concurrent auto-start race must find
+// out and exit almost immediately, not park inside the lock wait long
+// enough to inherit it later if the winner is asked to shut down in the
+// meantime (see spawnDaemonOnce).
+const daemonStartupLockTimeout = 200 * time.Millisecond
+
+// openControlStoreForDaemonRun is openControlStore with a fail-fast lock
+// wait, for `ragctl daemon run`'s own attempt to become the owner.
+func openControlStoreForDaemonRun() (*bboltstore.Store, error) {
+	path, err := controlDBPath()
+	if err != nil {
+		return nil, err
+	}
+	return bboltstore.OpenWithTimeout(path, daemonStartupLockTimeout)
 }
 
 // openDataStore opens the Badger data-plane store at its default

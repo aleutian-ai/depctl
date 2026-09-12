@@ -35,6 +35,7 @@ func TestPlanNewProjectShowsAddReferenceAndSyncVersion(t *testing.T) {
 	isolateEnv(t)
 	requireGo(t)
 	runInitForTest(t)
+	useRealRagctlBinary(t)
 	scanDepFixture(t)
 
 	cmd := NewRootCmd()
@@ -61,6 +62,7 @@ func TestPlanNeverWritesState(t *testing.T) {
 	isolateEnv(t)
 	requireGo(t)
 	runInitForTest(t)
+	useRealRagctlBinary(t)
 	scanDepFixture(t)
 
 	// Run plan twice; if it wrote any VersionReference or generation
@@ -88,6 +90,7 @@ func TestPlanJSONRoundTrips(t *testing.T) {
 	isolateEnv(t)
 	requireGo(t)
 	runInitForTest(t)
+	useRealRagctlBinary(t)
 	scanDepFixture(t)
 
 	cmd := NewRootCmd()
