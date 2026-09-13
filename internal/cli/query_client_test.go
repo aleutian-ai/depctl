@@ -101,11 +101,49 @@ func TestDaemonSyncTriggerRoundTripsThroughRealDaemon(t *testing.T) {
 	// Scheduler.Request/RunSync path at all (a transport-level failure
 	// would surface as err != nil here, not a per-item failed count).
 	trigger := &daemonSyncTrigger{c: c}
-	synced, failed, skipped, err := trigger.SyncProject(ctx, st.Projects[0].ID)
+	var lines []string
+	synced, failed, skipped, err := trigger.SyncProject(ctx, st.Projects[0].ID, func(line string) {
+		lines = append(lines, line)
+	})
 	if err != nil {
 		t.Fatalf("SyncProject: %v", err)
 	}
 	if synced != 0 || failed != 1 || skipped != 0 {
 		t.Errorf("SyncProject = synced=%d failed=%d skipped=%d, want synced=0 failed=1 skipped=0 (the one action failed for lack of a backend, not the RPC itself)", synced, failed, skipped)
+	}
+	if len(lines) == 0 {
+		t.Error("SyncProject's progress callback got no lines, want at least the FAIL line RunSync streams")
+	}
+}
+
+func TestLineWriterSplitsOnNewlines(t *testing.T) {
+	var got []string
+	w := lineWriter(func(line string) { got = append(got, line) })
+
+	if _, err := w.Write([]byte("first\nsecond\n")); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	if _, err := w.Write([]byte("thi")); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	if _, err := w.Write([]byte("rd\n")); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+
+	want := []string{"first", "second", "third"}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("line %d = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+func TestLineWriterNilCallbackDiscardsSilently(t *testing.T) {
+	w := lineWriter(nil)
+	if _, err := w.Write([]byte("anything\n")); err != nil {
+		t.Fatalf("Write: %v", err)
 	}
 }

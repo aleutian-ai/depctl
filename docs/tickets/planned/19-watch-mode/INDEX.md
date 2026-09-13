@@ -27,6 +27,7 @@ ragctl CLI / MCP (serve) / watcher
 - [WATCH-010](WATCH-010-serve-mcp-proxy.md) — `ragctl serve` becomes a stdio MCP proxy; no store access, same tools.
 - [WATCH-011](WATCH-011-single-owner-invariant.md) — Enforce "only the daemon owns the stores" with tests; remove the old model; docs.
 - [WATCH-012](WATCH-012-daemon-autostart.md) — Clients auto-start the daemon when it's absent (`daemon.autostart`, default true); `ragctl watch` becomes a deprecated shim.
+- [WATCH-013](WATCH-013-mcp-progress-notifications.md) — `sync_project`/`scan_project` relay their streamed per-dependency output as MCP progress notifications, closing the "no feedback during a long sync" gap found during MCP-bootstrapping follow-up.
 
 ## Build order
 004 → 005 → **012** → 006 → then 007, 008, 009 in any order (all need 005; 007/008 need 006) → 010 (needs 008's sync endpoint) → 011.

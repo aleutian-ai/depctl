@@ -84,7 +84,7 @@ and exits 0. It never runs a watcher itself. With `daemon.autostart: false` it p
 - Output: a detached daemon process; `ragctld.log` beside `control.db`; the command proceeds normally.
 
 ## Failure behavior
-- Not initialized (no config or `control.db`): `ensureDaemon` doesn't spawn. It returns the existing "run `ragctl init` first" error, so it never spawns a daemon that fails immediately.
+- Not initialized (no `control.db`): reconciled by the MCP-bootstrapping fix (`docs/scratch/mcp-bootstrapping.md`) — `ensureDaemon` no longer refuses here. It calls `ensureInitialized`, which transparently runs the same idempotent work `ragctl init` does before spawning, so an MCP session with no terminal to run `ragctl init` from isn't stranded.
 - Daemon fails to start (bad config, socket path too long): the client reports the timeout plus the log tail.
 - `daemon.autostart: false`: the WATCH-005 error, unchanged.
 

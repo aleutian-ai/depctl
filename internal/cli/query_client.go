@@ -1,7 +1,12 @@
 package cli
 
 import (
+	"bytes"
 	"context"
+	"fmt"
+	"io"
+	"path/filepath"
+	"strings"
 
 	"aleutian-ai/ragctl/internal/daemon/api"
 	"aleutian-ai/ragctl/internal/daemon/client"
@@ -127,8 +132,8 @@ type daemonSyncTrigger struct {
 	c *client.Client
 }
 
-func (t *daemonSyncTrigger) SyncProject(ctx context.Context, projectID string) (synced, failed, skipped int, err error) {
-	resp, err := t.c.Sync(ctx, api.SyncRequest{ProjectID: projectID}, nil)
+func (t *daemonSyncTrigger) SyncProject(ctx context.Context, projectID string, progress func(line string)) (synced, failed, skipped int, err error) {
+	resp, err := t.c.Sync(ctx, api.SyncRequest{ProjectID: projectID}, lineWriter(progress))
 	if err != nil {
 		return 0, 0, 0, err
 	}
@@ -138,4 +143,56 @@ func (t *daemonSyncTrigger) SyncProject(ctx context.Context, projectID string) (
 		skipped += r.Skipped
 	}
 	return synced, failed, skipped, nil
+}
+
+// daemonScanTrigger implements mcp.ScanTrigger over the daemon's HTTP
+// API, so the scan_project MCP tool goes through the same
+// Scheduler.LockProject-guarded resolve every other scan trigger (CLI)
+// already does.
+type daemonScanTrigger struct {
+	c *client.Client
+}
+
+func (t *daemonScanTrigger) ScanProject(ctx context.Context, root string, progress func(line string)) (ids []string, summary string, err error) {
+	abs, err := filepath.Abs(root)
+	if err != nil {
+		return nil, "", fmt.Errorf("resolve %s: %w", root, err)
+	}
+	var buf bytes.Buffer
+	res, err := t.c.Resolve(ctx, abs, io.MultiWriter(&buf, lineWriter(progress)))
+	if err != nil {
+		return nil, buf.String(), err
+	}
+	return res.ProjectIDs, buf.String(), nil
+}
+
+// lineWriter adapts a per-line callback to io.Writer, for handing to
+// client.Client's streamed calls (WATCH-013). client.stream already
+// delivers one already-newline-terminated server line per Write call
+// (fmt.Fprintln(out, line.Log)), so the buffering here is a defensive
+// fallback, not load-bearing. fn may be nil, meaning no callback is
+// wanted — that's the plain sync/scan case, no progress token attached.
+func lineWriter(fn func(line string)) io.Writer {
+	if fn == nil {
+		return io.Discard
+	}
+	return &lineCallbackWriter{fn: fn}
+}
+
+type lineCallbackWriter struct {
+	fn  func(line string)
+	buf bytes.Buffer
+}
+
+func (w *lineCallbackWriter) Write(p []byte) (int, error) {
+	w.buf.Write(p)
+	for {
+		chunk, err := w.buf.ReadBytes('\n')
+		if err != nil {
+			w.buf.Write(chunk) // incomplete line: put the unread remainder back
+			break
+		}
+		w.fn(strings.TrimRight(string(chunk), "\n"))
+	}
+	return len(p), nil
 }

@@ -59,6 +59,7 @@ func runServe(cmd *cobra.Command) error {
 		Query:          &daemonQueryService{c: c},
 		Sync:           &daemonSyncTrigger{c: c},
 		EnableSyncTool: health.EnableSyncTool,
+		Scan:           &daemonScanTrigger{c: c},
 	})
 
 	fmt.Fprintln(cmd.ErrOrStderr(), "ragctl MCP server starting (stdio transport)")

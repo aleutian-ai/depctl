@@ -40,8 +40,41 @@ func registerTools(sdk *sdkmcp.Server, deps Deps) {
 
 	sdkmcp.AddTool(sdk, &sdkmcp.Tool{
 		Name:        "sync_project",
-		Description: "Trigger a knowledge sync for a project. Disabled by default (server.mcp.enable_sync_tool: false) since a read-only client should never trigger network activity/writes unintentionally.",
-	}, syncProjectHandler(deps.Sync, deps.EnableSyncTool))
+		Description: "Trigger a knowledge sync for a project: builds/updates its searchable dependency documentation. Enabled by default (server.mcp.enable_sync_tool: false to disable for a read-only session). A first sync of a project with many dependencies clones and indexes each one, which can take a while — attach a progress token to the call to receive one notification per dependency as it completes.",
+	}, syncProjectHandler(deps.Query, deps.Sync, deps.EnableSyncTool))
+
+	sdkmcp.AddTool(sdk, &sdkmcp.Tool{
+		Name:        "scan_project",
+		Description: "Discover and register the project(s) under a directory (default: the MCP server's own working directory, typically the project you're already in) so the other tools have a project_id to work with. Call this first whenever knowledge_status shows no matching project — it's always safe to (re-)run. Registration only; call sync_project afterward to actually build searchable knowledge.",
+	}, scanProjectHandler(deps.Scan))
+}
+
+// progressReporter returns nil (meaning "don't bother") when the call
+// carried no progress token, so a client that never asks for progress
+// costs nothing extra. Otherwise it returns a per-line callback that
+// relays each line as an MCP progress notification (WATCH-013) with a
+// strictly increasing Progress count against the given total (0 when
+// unknown — the client renders that as indeterminate progress).
+// NotifyProgress errors are ignored: a progress update is best-effort
+// and must never fail the tool call itself.
+func progressReporter(ctx context.Context, req *sdkmcp.CallToolRequest, total int) func(line string) {
+	if req == nil || req.Params == nil {
+		return nil
+	}
+	token := req.Params.GetProgressToken()
+	if token == nil {
+		return nil
+	}
+	done := 0
+	return func(line string) {
+		done++
+		_ = req.Session.NotifyProgress(ctx, &sdkmcp.ProgressNotificationParams{
+			ProgressToken: token,
+			Progress:      float64(done),
+			Total:         float64(total),
+			Message:       line,
+		})
+	}
 }
 
 // --- search_dependency_docs ---
@@ -245,16 +278,51 @@ type SyncProjectOut struct {
 	Note    string `json:"note"`
 }
 
-func syncProjectHandler(sync SyncTrigger, enabled bool) sdkmcp.ToolHandlerFor[SyncProjectIn, SyncProjectOut] {
+func syncProjectHandler(query QueryService, sync SyncTrigger, enabled bool) sdkmcp.ToolHandlerFor[SyncProjectIn, SyncProjectOut] {
 	return func(ctx context.Context, req *sdkmcp.CallToolRequest, in SyncProjectIn) (*sdkmcp.CallToolResult, SyncProjectOut, error) {
 		if !enabled || sync == nil {
 			return nil, SyncProjectOut{}, errors.New("sync_project is disabled by config (server.mcp.enable_sync_tool: false)")
 		}
-		synced, failed, skipped, err := sync.SyncProject(ctx, in.ProjectID)
+		total := 0
+		if query != nil {
+			if deps, err := query.GetProjectDependencies(ctx, in.ProjectID); err == nil {
+				total = len(deps)
+			}
+		}
+		synced, failed, skipped, err := sync.SyncProject(ctx, in.ProjectID, progressReporter(ctx, req, total))
 		if err != nil {
 			return nil, SyncProjectOut{}, fmt.Errorf("sync_project: %w", err)
 		}
 		return nil, SyncProjectOut{Synced: synced, Failed: failed, Skipped: skipped, Note: securityNote}, nil
+	}
+}
+
+// --- scan_project ---
+
+type ScanProjectIn struct {
+	Root string `json:"root,omitempty" jsonschema:"directory to scan for projects, absolute or relative to the MCP server's working directory; omit to scan that working directory itself (the common case — the directory the agent session is already operating in)"`
+}
+
+type ScanProjectOut struct {
+	ProjectIDs []string `json:"project_ids"`
+	Summary    string   `json:"summary"`
+	Note       string   `json:"note"`
+}
+
+func scanProjectHandler(scan ScanTrigger) sdkmcp.ToolHandlerFor[ScanProjectIn, ScanProjectOut] {
+	return func(ctx context.Context, req *sdkmcp.CallToolRequest, in ScanProjectIn) (*sdkmcp.CallToolResult, ScanProjectOut, error) {
+		if scan == nil {
+			return nil, ScanProjectOut{}, errors.New("scan_project is unavailable in this session")
+		}
+		root := in.Root
+		if root == "" {
+			root = "."
+		}
+		ids, summary, err := scan.ScanProject(ctx, root, progressReporter(ctx, req, 0))
+		if err != nil {
+			return nil, ScanProjectOut{}, fmt.Errorf("scan_project: %w", err)
+		}
+		return nil, ScanProjectOut{ProjectIDs: ids, Summary: summary, Note: securityNote}, nil
 	}
 }
 
@@ -264,7 +332,7 @@ func syncProjectHandler(sync SyncTrigger, enabled bool) sdkmcp.ToolHandlerFor[Sy
 func toolError(err error) error {
 	switch {
 	case errors.Is(err, query.ErrProjectNotFound):
-		return fmt.Errorf("project not registered — run `ragctl scan` first: %w", err)
+		return fmt.Errorf("project not registered — call the scan_project tool first: %w", err)
 	case errors.Is(err, query.ErrDependencyNotFound):
 		return fmt.Errorf("dependency not found for this project: %w", err)
 	case errors.Is(err, query.ErrNoActiveGeneration):

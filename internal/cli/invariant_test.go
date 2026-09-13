@@ -31,6 +31,10 @@ var allowedStoreOpeners = map[string]bool{
 	// runInit creates the stores, so it must open them before a daemon
 	// can exist to hand that job to.
 	"runInit": true,
+	// initStores is runInit's actual work (and ensureInitialized's
+	// auto-init path) — the function that textually contains the direct
+	// bboltstore/badgerstore Open calls.
+	"initStores": true,
 	// runDaemonRun is the daemon itself becoming the one store owner.
 	"runDaemonRun": true,
 	// runDoctorDirect is doctor's deliberate no-daemon fallback: dial

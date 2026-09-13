@@ -48,10 +48,11 @@ Not sourced from the original implementation plan doc — added from `docs/scrat
 40. [40-structured-artifact-normalizers](40-structured-artifact-normalizers/INDEX.md) — OpenAPI and protobuf normalizers, one `KnowledgeObject` per operation/RPC method.
 41. [41-retrieval-and-embedding-experiments](41-retrieval-and-embedding-experiments/INDEX.md) — evidence-gated: bounded embedding concurrency, token-aware chunk sizing, chunk-overlap experiment run via the separate `context-evals` repository.
 42. [42-repo-graph-symbol-join](42-repo-graph-symbol-join/INDEX.md) — a thin external-symbol-provider interface and the join from a resolved call-site symbol to ragctl's exact-version evidence.
+43. [43-local-cache-reuse](43-local-cache-reuse/INDEX.md) — cutting duplicate/oversized dependency acquisition cost: fast-path from a dependency's already-local package-manager cache ($GOMODCACHE, node_modules, site-packages) when available (GIT-004), and blobless partial clone + sparse checkout scoped to what ragctl's normalizers actually read (GIT-005), once real usage shows the cost is worth paying down.
 
 ## Ticket ID prefixes in this directory
 
-`PY / NODE / RUST / JAVA / HTTP / VEC (010-014) / EVAL / OBS / EXT / SEC / LOCAL / LLAMA / CLIENT / DATA` — these match the task IDs used in the implementation plan directly, except `DATA` (see above). `REG` (epic 38, continuing from REG-008) continues epics 07/34's prefix. `NORM` (epic 40) continues epic 09's prefix into backlog use; `EMB`/`CHUNK` (epic 41) continue epics 12/10's prefixes. `CONF` (epic 39) and `GRAPH` (epic 42) are new prefixes, since Confluence/wiki acquisition and repo-graph symbol join don't exist yet elsewhere.
+`PY / NODE / RUST / JAVA / HTTP / VEC (010-014) / EVAL / OBS / EXT / SEC / LOCAL / LLAMA / CLIENT / DATA` — these match the task IDs used in the implementation plan directly, except `DATA` (see above). `REG` (epic 38, continuing from REG-008) continues epics 07/34's prefix. `NORM` (epic 40) continues epic 09's prefix into backlog use; `EMB`/`CHUNK` (epic 41) continue epics 12/10's prefixes. `CONF` (epic 39) and `GRAPH` (epic 42) are new prefixes, since Confluence/wiki acquisition and repo-graph symbol join don't exist yet elsewhere. `GIT` (epic 43, continuing from GIT-003) continues epic 08's prefix into backlog use.
 
 ## A note on `26-evaluation-framework`
 

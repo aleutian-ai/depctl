@@ -105,7 +105,7 @@ func ensureDaemon(ctx context.Context) (*client.Client, error) {
 	if !cfg.Daemon.AutostartEnabled() {
 		return nil, notRunningError(socket)
 	}
-	if err := requireInitialized(); err != nil {
+	if err := ensureInitialized(ctx); err != nil {
 		return nil, err
 	}
 	if err := spawnDaemonOnce(socket); err != nil {
@@ -232,17 +232,28 @@ func notRunningError(socket string) error {
 		client.ErrNotRunning, socket)
 }
 
-// requireInitialized refuses to auto-start a daemon that would fail
-// immediately because `ragctl init` hasn't run.
-func requireInitialized() error {
+// ensureInitialized runs the same work `ragctl init` does, silently
+// (status lines to stderr, not stdout — this runs ahead of an auto-start
+// a human never explicitly asked for), if the stores don't exist yet.
+// Auto-init on first use rather than a hard "run `ragctl init` first"
+// refusal: init has no interactive questions, so requiring a manual
+// step first serves no purpose except being a surprise blocker for an
+// MCP session that has no terminal to run it from — see
+// docs/scratch/mcp-bootstrapping.md.
+func ensureInitialized(ctx context.Context) error {
 	controlPath, err := controlDBPath()
 	if err != nil {
 		return err
 	}
-	if _, err := os.Stat(controlPath); errors.Is(err, fs.ErrNotExist) {
-		return fmt.Errorf("ragctl is not initialized (%s does not exist); run `ragctl init` first", controlPath)
+	if _, err := os.Stat(controlPath); err == nil {
+		return nil
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return err
 	}
-	return nil
+	if err := requireNoDaemon(ctx); err != nil {
+		return err
+	}
+	return initStores(os.Stderr)
 }
 
 // spawnDaemon starts `ragctl daemon run` detached. Its output goes to

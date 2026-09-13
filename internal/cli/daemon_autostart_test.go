@@ -206,13 +206,33 @@ func TestEnsureDaemonRespectsAutostartDisabled(t *testing.T) {
 	}
 }
 
-func TestEnsureDaemonRefusesBeforeInit(t *testing.T) {
+// TestEnsureDaemonAutoInitializesBeforeSpawning is the regression test
+// for the MCP bootstrapping gap: an agent session that's the very first
+// thing to ever touch this machine's ragctl install must not need a
+// human to run `ragctl init` in a terminal first — see
+// docs/scratch/mcp-bootstrapping.md.
+func TestEnsureDaemonAutoInitializesBeforeSpawning(t *testing.T) {
 	isolateEnv(t)
 	writeTestConfig(t, func(*config.Config) {})
+	useRealRagctlBinary(t)
 
-	_, err := ensureDaemon(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "ragctl init") {
-		t.Fatalf("ensureDaemon before init = %v, want it to point at `ragctl init`", err)
+	controlPath, err := controlDBPath()
+	if err != nil {
+		t.Fatalf("controlDBPath: %v", err)
+	}
+	if _, err := os.Stat(controlPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("control.db already exists before ensureDaemon ran: %v", err)
+	}
+
+	c, err := ensureDaemon(context.Background())
+	if err != nil {
+		t.Fatalf("ensureDaemon with no prior `ragctl init` = %v, want it to auto-initialize and succeed", err)
+	}
+	if _, err := c.Health(context.Background()); err != nil {
+		t.Fatalf("health: %v", err)
+	}
+	if _, err := os.Stat(controlPath); err != nil {
+		t.Errorf("control.db still missing after ensureDaemon: %v", err)
 	}
 }
 

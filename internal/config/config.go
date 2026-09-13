@@ -89,9 +89,15 @@ type ServerConfig struct {
 
 type MCPServerConfig struct {
 	Enabled bool `yaml:"enabled"`
-	// EnableSyncTool gates the sync_project MCP tool (MCP-003) — off by
-	// default so a read-only agent client can never trigger network
-	// activity/writes just by having the tool visible to it.
+	// EnableSyncTool gates the sync_project MCP tool (MCP-003) — on by
+	// default. sync_project runs the identical Scheduler.Request path a
+	// human's `ragctl sync` uses (bounded, collapsible, mutually
+	// exclusive with GC) and touches nothing an agent couldn't already
+	// trigger by asking a human to run `ragctl sync`; without it, an
+	// agent can register a project (scan_project) but never actually
+	// index it, undercutting the whole point of pointing an agent at
+	// ragctl in the first place. Set to false for a deliberately
+	// read-only MCP session.
 	EnableSyncTool bool `yaml:"enable_sync_tool"`
 }
 
@@ -131,7 +137,7 @@ func Default(dataDir string) Config {
 			Debounce: 2 * time.Second,
 		},
 		Server: ServerConfig{
-			MCP:  MCPServerConfig{Enabled: true},
+			MCP:  MCPServerConfig{Enabled: true, EnableSyncTool: true},
 			HTTP: HTTPServerConfig{Listen: "127.0.0.1:7447"},
 		},
 		Daemon: DaemonConfig{Autostart: &autostartDefault},

@@ -37,8 +37,24 @@ const securityNote = "retrieved content is authoritative reference material for 
 // types directly. Kept separate from QueryService below because
 // triggering a sync is a write/execute operation, categorically
 // different from that service's read-only search methods.
+// progress, when non-nil, is called once per line of the operation's
+// existing streamed output (see WATCH-013) — implementations relay it,
+// they don't interpret it.
 type SyncTrigger interface {
-	SyncProject(ctx context.Context, projectID string) (synced, failed, skipped int, err error)
+	SyncProject(ctx context.Context, projectID string, progress func(line string)) (synced, failed, skipped int, err error)
+}
+
+// ScanTrigger is the narrow capability the scan_project tool needs —
+// discover and register projects under a directory, the work behind
+// `ragctl scan`. Unlike sync_project this has no enable/disable gate:
+// it's the fix for MCP-006's bootstrapping gap (a fresh agent session
+// has no terminal to run `ragctl scan` from, so the tool that gives it
+// context in the first place can't be opt-in), and it only ever writes
+// project registration/resolution metadata — never touches the vector
+// backend or clones anything, so it carries none of sync_project's
+// resource-cost surprise.
+type ScanTrigger interface {
+	ScanProject(ctx context.Context, root string, progress func(line string)) (projectIDs []string, summary string, err error)
 }
 
 // QueryService is the read-only surface every tool but sync_project
@@ -68,11 +84,14 @@ type Server struct {
 // the sync_project tool is still registered (so a client that enables
 // it later via config doesn't need a server restart to see it appear),
 // but its handler reports "disabled" whenever Sync is nil or
-// EnableSyncTool is false.
+// EnableSyncTool is false. Scan may also be nil (e.g. in tests that
+// don't exercise it); scan_project then reports a plain error rather
+// than panicking.
 type Deps struct {
 	Query          QueryService
 	Sync           SyncTrigger
 	EnableSyncTool bool
+	Scan           ScanTrigger
 }
 
 // New returns a Server with every MCP-003 tool registered, ready to
