@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,6 +13,11 @@ import (
 // handleResolve runs `ragctl scan`'s discover-and-resolve for one root,
 // then refreshes the watched set so a newly registered project is
 // watched without waiting for the periodic refresh.
+//
+// Bounded by maxActionDuration, the same ceiling sync/GC runs use: scan
+// doesn't go through the scheduler (it's not mutually exclusive with
+// anything but a scan of the same project, via Scheduler.LockProject),
+// so without its own bound a hung resolver call had no ceiling at all.
 func (s *Server) handleResolve(w http.ResponseWriter, r *http.Request) {
 	var req api.ResolveRequest
 	if !decodeBody(w, r, &req) {
@@ -22,9 +28,12 @@ func (s *Server) handleResolve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	ctx, cancel := context.WithTimeout(r.Context(), maxActionDuration)
+	defer cancel()
+
 	stream(w, func(out io.Writer) (any, error) {
-		ids, err := s.opts.Engine.Scan(r.Context(), req.Root, out, s.scheduler.LockProject)
-		s.refreshProjects(r.Context())
+		ids, err := s.opts.Engine.Scan(ctx, req.Root, out, s.scheduler.LockProject)
+		s.refreshProjects(ctx)
 		if err != nil {
 			return nil, err
 		}

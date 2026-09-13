@@ -23,6 +23,13 @@ go build -o build/ragctl ./cmd/ragctl
 
 `ragctl` is designed to run natively on macOS and Linux — see [ADR-010](docs/adr/ADR-010-native-first-execution-model.md) for why: commands that touch your real project directories and toolchains (`scan`, `plan`, `sync`, `watch`) need direct host access, so the native binary is the primary way to run `ragctl`.
 
+**A background daemon owns your data** ([ADR-011](docs/adr/ADR-011-single-owner-daemon.md)): the first command above that needs stored state — `scan` in this case — silently starts one for you if none is already running, so there's no separate "start the daemon" step. It keeps running afterward (watching for dependency changes, ready for the next command or an MCP session) until you stop it:
+
+```bash
+./build/ragctl daemon status   # is one running, and is its config current?
+./build/ragctl daemon stop     # the next command auto-starts a fresh one
+```
+
 ## Using your own docs repo, offline, with a local model
 
 If you want `ragctl` to index a plain git repo of documents you own
@@ -35,7 +42,7 @@ pointing an MCP client at `ragctl serve`.
 
 ## Running in a container
 
-The container is reserved for the long-running `serve` daemon and for cross-platform testing — not required for day-to-day use.
+The container is mainly for cross-platform testing — not required for day-to-day use. `hack/run.sh` runs one command at a time (`--rm`, not long-running); if you want a persistent, containerized daemon rather than the native auto-started one, that's `ragctl daemon run`, not `ragctl serve` — `serve` itself is a thin stdio proxy with no state of its own (see ADR-011).
 
 ```bash
 hack/run.sh init      # builds the image, runs against a persistent named volume
