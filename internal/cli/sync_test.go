@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -317,10 +318,18 @@ func TestSyncReportsStructuredErrorForUnreachableVectorBackend(t *testing.T) {
 // TestFallbackManifestDerivesGithubURL covers REG-005: a Go dependency
 // shaped like a direct github.com/<org>/<repo> import derives a
 // single-source manifest instead of hitting the "no registry manifest"
-// error a genuinely unmapped package still gets.
+// error a genuinely unmapped package still gets. No HTTP call should
+// happen for this case — the fast path never needs one.
 func TestFallbackManifestDerivesGithubURL(t *testing.T) {
+	prev := vanityImportHTTPClient
+	vanityImportHTTPClient = &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		t.Fatal("resolveVanityImport was called for a github.com-shaped module path")
+		return nil, nil
+	})}
+	defer func() { vanityImportHTTPClient = prev }()
+
 	dep := domain.Dependency{Ecosystem: domain.EcosystemGo, Name: "github.com/dgraph-io/badger/v4"}
-	m, ok := fallbackManifest(dep)
+	m, ok := fallbackManifest(context.Background(), dep)
 	if !ok {
 		t.Fatal("fallbackManifest = false, want true for a github.com module path")
 	}
@@ -329,16 +338,102 @@ func TestFallbackManifestDerivesGithubURL(t *testing.T) {
 	}
 }
 
-func TestFallbackManifestRejectsVanityImportPath(t *testing.T) {
-	dep := domain.Dependency{Ecosystem: domain.EcosystemGo, Name: "google.golang.org/grpc"}
-	if _, ok := fallbackManifest(dep); ok {
-		t.Error("fallbackManifest = true for a vanity import path, want false (no fetchable location without HTTP go-import resolution)")
+// roundTripFunc adapts a plain function to http.RoundTripper, so tests
+// can redirect an http.Client at a local httptest.Server regardless of
+// what host the request under test was built for.
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
+
+// fakeVanityImportServer stands in for a real vanity-import host,
+// serving body at any path (mirroring how a real ?go-get=1 request is
+// answered regardless of the exact module subpath requested).
+func fakeVanityImportServer(t *testing.T, body string) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, body)
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// redirectVanityImportClient points vanityImportHTTPClient at srv for
+// the duration of the test, regardless of the request's original host —
+// exactly what a real go-import lookup does (GET https://<modulePath>),
+// just served locally instead of over the real network.
+func redirectVanityImportClient(t *testing.T, srv *httptest.Server) {
+	t.Helper()
+	prev := vanityImportHTTPClient
+	vanityImportHTTPClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		redirected := req.Clone(req.Context())
+		redirected.URL.Scheme = "http"
+		redirected.URL.Host = strings.TrimPrefix(srv.URL, "http://")
+		return http.DefaultTransport.RoundTrip(redirected)
+	})}
+	t.Cleanup(func() { vanityImportHTTPClient = prev })
+}
+
+// TestFallbackManifestResolvesVanityImportPath covers REG-008: a Go
+// module path with no github.com-shaped prefix, but a real go-import
+// meta tag, still derives a fallback manifest — the exact live gap
+// found running github.com/spf13/cobra's own transitive dependencies
+// (go.yaml.in/yaml/v3) through ragctl end to end.
+func TestFallbackManifestResolvesVanityImportPath(t *testing.T) {
+	srv := fakeVanityImportServer(t, `<html><head>
+<meta name="go-import" content="example.vanity/pkg git https://github.com/example/pkg">
+</head></html>`)
+	redirectVanityImportClient(t, srv)
+
+	dep := domain.Dependency{Ecosystem: domain.EcosystemGo, Name: "example.vanity/pkg"}
+	m, ok := fallbackManifest(context.Background(), dep)
+	if !ok {
+		t.Fatal("fallbackManifest = false, want true for a resolvable vanity import path")
+	}
+	if len(m.Sources) != 1 || m.Sources[0].URL != "https://github.com/example/pkg" {
+		t.Errorf("Sources = %+v, want one source at https://github.com/example/pkg", m.Sources)
+	}
+}
+
+// TestFallbackManifestResolvesVanityImportSubpackage covers a subpackage
+// import path (root != the full module path) — exactly go.yaml.in/yaml/v3's
+// own shape, where the go-import root is go.yaml.in/yaml.
+func TestFallbackManifestResolvesVanityImportSubpackage(t *testing.T) {
+	srv := fakeVanityImportServer(t, `<meta name="go-import" content="example.vanity/pkg git https://github.com/example/pkg" />`)
+	redirectVanityImportClient(t, srv)
+
+	dep := domain.Dependency{Ecosystem: domain.EcosystemGo, Name: "example.vanity/pkg/v3"}
+	m, ok := fallbackManifest(context.Background(), dep)
+	if !ok {
+		t.Fatal("fallbackManifest = false, want true for a subpackage of a resolvable vanity import root")
+	}
+	if len(m.Sources) != 1 || m.Sources[0].URL != "https://github.com/example/pkg" {
+		t.Errorf("Sources = %+v, want one source at https://github.com/example/pkg", m.Sources)
+	}
+}
+
+func TestFallbackManifestRejectsNonGitVanityImport(t *testing.T) {
+	srv := fakeVanityImportServer(t, `<meta name="go-import" content="example.vanity/pkg bzr https://example.vanity/pkg">`)
+	redirectVanityImportClient(t, srv)
+
+	dep := domain.Dependency{Ecosystem: domain.EcosystemGo, Name: "example.vanity/pkg"}
+	if _, ok := fallbackManifest(context.Background(), dep); ok {
+		t.Error("fallbackManifest = true for a non-git go-import VCS, want false (ragctl can only acquire from git)")
+	}
+}
+
+func TestFallbackManifestRejectsNoGoImportTag(t *testing.T) {
+	srv := fakeVanityImportServer(t, `<html><body>not a go-gettable page</body></html>`)
+	redirectVanityImportClient(t, srv)
+
+	dep := domain.Dependency{Ecosystem: domain.EcosystemGo, Name: "example.vanity/pkg"}
+	if _, ok := fallbackManifest(context.Background(), dep); ok {
+		t.Error("fallbackManifest = true for a page with no go-import tag, want false")
 	}
 }
 
 func TestFallbackManifestRejectsNonGoEcosystems(t *testing.T) {
 	dep := domain.Dependency{Ecosystem: domain.EcosystemNode, Name: "some-package"}
-	if _, ok := fallbackManifest(dep); ok {
+	if _, ok := fallbackManifest(context.Background(), dep); ok {
 		t.Error("fallbackManifest = true for a non-Go ecosystem, want false")
 	}
 }

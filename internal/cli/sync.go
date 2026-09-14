@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -223,25 +225,25 @@ type syncPipeline struct {
 
 // fallbackManifest derives a minimal, single-source manifest (REG-005)
 // for a dependency with no registry match, when its own identity already
-// carries a fetchable repo location — today, only a Go module path
-// directly shaped like github.com/<org>/<repo>[/...]. A vanity import
-// path (e.g. google.golang.org/grpc) has no such location without an
-// HTTP go-import lookup, which is separate, unbuilt work (REG-005's own
-// scope note) — those still hit the pre-existing "no registry manifest"
-// error, unchanged. The derived source is a real "git" type pointed at
-// the package's own repository, so it gets TrustRepository like any
-// other git source (TrustClassForSourceType, SEC-001) — the fact that
-// nobody hand-authored the YAML doesn't make the content itself less
+// carries a fetchable repo location — a Go module path directly shaped
+// like github.com/<org>/<repo>[/...], or (REG-008) a vanity import path
+// resolved via an HTTP go-import lookup, the same one `go get` itself
+// performs. The derived source is a real "git" type pointed at the
+// package's own repository, so it gets TrustRepository like any other
+// git source (TrustClassForSourceType, SEC-001) — the fact that nobody
+// hand-authored the YAML doesn't make the content itself less
 // authoritative, only its authority ranking, which is deliberately 0.
-func fallbackManifest(dep domain.Dependency) (registry.Manifest, bool) {
+func fallbackManifest(ctx context.Context, dep domain.Dependency) (registry.Manifest, bool) {
 	if dep.Ecosystem != domain.EcosystemGo {
 		return registry.Manifest{}, false
 	}
-	segments := strings.Split(dep.Name, "/")
-	if len(segments) < 3 || segments[0] != "github.com" {
+	url, ok := githubModuleURL(dep.Name)
+	if !ok {
+		url, ok = resolveVanityImport(ctx, dep.Name)
+	}
+	if !ok {
 		return registry.Manifest{}, false
 	}
-	url := "https://github.com/" + segments[1] + "/" + segments[2]
 	return registry.Manifest{
 		Metadata: registry.Metadata{Name: dep.Name},
 		Match:    registry.Match{Ecosystems: []domain.Ecosystem{dep.Ecosystem}, Packages: []string{dep.Name}},
@@ -250,13 +252,77 @@ func fallbackManifest(dep domain.Dependency) (registry.Manifest, bool) {
 	}, true
 }
 
+// githubModuleURL is the fast path: a Go module path already directly
+// shaped like github.com/<org>/<repo>[/...] needs no lookup at all.
+func githubModuleURL(modulePath string) (string, bool) {
+	segments := strings.Split(modulePath, "/")
+	if len(segments) < 3 || segments[0] != "github.com" {
+		return "", false
+	}
+	return "https://github.com/" + segments[1] + "/" + segments[2], true
+}
+
+// vanityImportTimeout bounds the go-import meta-tag HTTP lookup so a
+// slow or unresponsive vanity-import host can't stall a sync.
+const vanityImportTimeout = 5 * time.Second
+
+// goImportMetaTag matches Go's documented go-import meta tag:
+// https://go.dev/ref/mod#vcs-branch
+var goImportMetaTag = regexp.MustCompile(`<meta\s+name=["']go-import["']\s+content=["']([^"']+)["']\s*/?>`)
+
+// vanityImportHTTPClient issues resolveVanityImport's lookup — a var so
+// tests can redirect it to a local httptest.Server instead of making a
+// real network call against an actual vanity-import host.
+var vanityImportHTTPClient = http.DefaultClient
+
+// resolveVanityImport performs the same lookup `go get` uses for a
+// module path with no known VCS host: GET .../<path>?go-get=1 and parse
+// the go-import meta tag out of the response. Only a git-VCS result is
+// usable — nothing else in ragctl can acquire from a source.
+func resolveVanityImport(ctx context.Context, modulePath string) (string, bool) {
+	ctx, cancel := context.WithTimeout(ctx, vanityImportTimeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://"+modulePath+"?go-get=1", nil)
+	if err != nil {
+		return "", false
+	}
+	resp, err := vanityImportHTTPClient.Do(req)
+	if err != nil {
+		return "", false
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", false
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return "", false
+	}
+
+	for _, m := range goImportMetaTag.FindAllStringSubmatch(string(body), -1) {
+		fields := strings.Fields(m[1])
+		if len(fields) != 3 {
+			continue
+		}
+		root, vcs, repoURL := fields[0], fields[1], fields[2]
+		if vcs != "git" {
+			continue
+		}
+		if modulePath == root || strings.HasPrefix(modulePath, root+"/") {
+			return repoURL, true
+		}
+	}
+	return "", false
+}
+
 // syncVersion drives the full build->replicate->validate->promote
 // pipeline for one SYNC_VERSION action.
 func syncVersion(ctx context.Context, store *bboltstore.Store, badgerStore *badgerstore.Store, gitCache *git.Cache, embedder embedding.Embedder, vb backend.VectorBackend, ns backend.Namespace, reg *registry.Registry, action planner.Action, force bool) error {
 	dep := action.Dependency
 	manifest, ok := reg.Match(dep.Dependency.Ecosystem, dep.Dependency.Name)
 	if !ok {
-		manifest, ok = fallbackManifest(dep.Dependency)
+		manifest, ok = fallbackManifest(ctx, dep.Dependency)
 		if !ok {
 			return fmt.Errorf("no registry manifest for %s", dep.Dependency.Name)
 		}
