@@ -73,4 +73,14 @@ func TestDoctorUsesDaemonWhenReachable(t *testing.T) {
 	if strings.Contains(out.String(), "locked") {
 		t.Errorf("doctor's control DB check reported a lock error even though the daemon should have served this check, not a direct open:\n%s", out.String())
 	}
+	// WATCH-017: the daemon-mediated path must include the same
+	// embedding/vector backend checks the no-daemon fallback does —
+	// engine.Doctor's doctorEnv must actually carry the daemon's live
+	// embeddingReadiness/vectorReadiness, not leave them nil.
+	if !strings.Contains(out.String(), "embedding backend") {
+		t.Errorf("doctor output missing the embedding backend check:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "vector backend") {
+		t.Errorf("doctor output missing the vector backend check:\n%s", out.String())
+	}
 }

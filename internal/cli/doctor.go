@@ -56,16 +56,18 @@ type CheckResult struct {
 // failures are kept, not returned: the check that owns a subsystem reports
 // its error, and checks that depend on it report that they couldn't run.
 type doctorEnv struct {
-	cfg         config.Config
-	cfgErr      error
-	store       *bboltstore.Store
-	storeErr    error
-	badger      *badgerstore.Store
-	badgerErr   error
-	registry    *registry.Registry
-	registryErr error
-	lookPath    func(file string) (string, error)
-	now         time.Time
+	cfg                config.Config
+	cfgErr             error
+	store              *bboltstore.Store
+	storeErr           error
+	badger             *badgerstore.Store
+	badgerErr          error
+	registry           *registry.Registry
+	registryErr        error
+	lookPath           func(file string) (string, error)
+	now                time.Time
+	embeddingReadiness *embeddingReadiness
+	vectorReadiness    *vectorReadiness
 }
 
 // doctorChecks is the fixed, ordered check list.
@@ -84,6 +86,8 @@ var doctorChecks = []struct {
 	{"vector backend reachable", checkBackendReachable},
 	{"embedding model compatibility", checkEmbeddingModel},
 	{"registry validity", checkRegistry},
+	{"embedding backend", checkEmbeddingBackend},
+	{"vector backend", checkVectorBackend},
 	{"git on PATH", checkGit},
 	{"package managers on PATH", checkPackageManagers},
 }
@@ -466,6 +470,66 @@ func checkEmbeddingModel(ctx context.Context, env *doctorEnv) (Severity, string)
 		return SeverityUnhealthy, fmt.Sprintf("%d active generation(s) were embedded with a different model than the configured %q: %s", len(mismatched), want, summarize(mismatched))
 	}
 	return SeverityOK, fmt.Sprintf("all active generations use %q", want)
+}
+
+func checkEmbeddingBackend(ctx context.Context, env *doctorEnv) (Severity, string) {
+	if env.cfgErr != nil {
+		return notChecked("config")
+	}
+	readiness := env.embeddingReadiness
+	if readiness == nil {
+		// No daemon = do a direct, synchronous check instead of reading a cached state.
+		readiness = newEmbeddingReadiness()
+		checkEmbeddingReadiness(ctx, env.cfg, readiness, func(string, ...any) {})
+	}
+	state, detail := readiness.get()
+	return embeddingSeverityFor(state), embeddingStatusLabel(string(state), detail)
+}
+
+func embeddingSeverityFor(state embeddingState) Severity {
+	switch state {
+	case embeddingStateReady, embeddingStateUnknown, "":
+		return SeverityOK
+	case embeddingStateChecking, embeddingStatePulling:
+		return SeverityWarning
+	default:
+		return SeverityUnhealthy
+	}
+}
+
+func checkVectorBackend(ctx context.Context, env *doctorEnv) (Severity, string) {
+	if env.cfgErr != nil {
+		return notChecked("config")
+	}
+	readiness := env.vectorReadiness
+	if readiness == nil {
+		// No daemon = do a direct, synchronous check instead of reading a cached state.
+		readiness = newVectorReadiness()
+		checkVectorReadiness(ctx, env.cfg, readiness, func(string, ...any) {})
+	}
+	state, detail := readiness.get()
+	if state == vectorStateReady || state == vectorStateUnknown || state == "" {
+		detail = fmt.Sprintf("%s reachable at %s",
+			env.cfg.Vector.Backend, env.cfg.Vector.Endpoint)
+		if env.cfg.Vector.Managed {
+			detail = fmt.Sprintf("%s. managed: %s", detail, qdrantContainerName)
+			return SeverityOK, detail
+		}
+		return vectorSeverityFor(state), detail
+
+	}
+	return vectorSeverityFor(state), vectorStatusLabel(string(state), detail)
+}
+
+func vectorSeverityFor(state vectorState) Severity {
+	switch state {
+	case vectorStateReady, vectorStateUnknown, "":
+		return SeverityOK
+	case vectorStateChecking, vectorStateStarting:
+		return SeverityWarning
+	default:
+		return SeverityUnhealthy
+	}
 }
 
 func checkRegistry(ctx context.Context, env *doctorEnv) (Severity, string) {

@@ -694,7 +694,16 @@ var doctorChecksInDaemon = doctorChecks[:len(doctorChecks)-2]
 // carries no error states the way the no-daemon fallback path's does.
 func (e *engine) Doctor(ctx context.Context) (api.DoctorResponse, error) {
 	reg, regErr := loadRegistryForCLI(ctx)
-	env := &doctorEnv{cfg: e.cfg, store: e.store, badger: e.badgerStore, registry: reg, registryErr: regErr, now: time.Now()}
+	env := &doctorEnv{
+		cfg:                e.cfg,
+		store:              e.store,
+		badger:             e.badgerStore,
+		registry:           reg,
+		registryErr:        regErr,
+		now:                time.Now(),
+		embeddingReadiness: e.embeddingReadiness,
+		vectorReadiness:    e.vectorReadiness,
+	}
 
 	checks := make([]api.CheckResultWire, len(doctorChecksInDaemon))
 	for i, c := range doctorChecksInDaemon {

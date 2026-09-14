@@ -3,7 +3,10 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -19,10 +22,27 @@ import (
 
 const testEmbeddingModel = "nomic-embed-text"
 
+// healthyOllamaURL returns a fake Ollama server that always reports
+// testEmbeddingModel already pulled, so tests never depend on a real
+// Ollama actually running on the machine they execute on.
+func healthyOllamaURL(t *testing.T) string {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{
+			"models": []map[string]string{{"name": testEmbeddingModel + ":latest"}},
+		})
+	}))
+	t.Cleanup(srv.Close)
+	return srv.URL
+}
+
 // healthyDoctorEnv builds an env where every check passes: one active
 // generation with its manifest and a complete replica embedded with the
-// configured model, a reachable backend, a clean registry, one scanned Go
-// project, and git/go on a fake PATH.
+// configured model, a reachable vector backend, a reachable embedding
+// backend with the configured model already pulled, a clean registry, one
+// scanned Go project, and git/go on a fake PATH. embeddingReadiness/
+// vectorReadiness are left nil, so checkEmbeddingBackend/checkVectorBackend
+// take the no-daemon synchronous-probe path, same as runDoctorDirect.
 func healthyDoctorEnv(t *testing.T) *doctorEnv {
 	t.Helper()
 	ctx := context.Background()
@@ -44,6 +64,7 @@ func healthyDoctorEnv(t *testing.T) *doctorEnv {
 	cfg := config.Default(t.TempDir())
 	cfg.Vector.Endpoint = healthyBackendURL(t)
 	cfg.Embedding.Model = testEmbeddingModel
+	cfg.Embedding.Endpoint = healthyOllamaURL(t)
 
 	return &doctorEnv{
 		cfg:      cfg,
@@ -226,6 +247,77 @@ func TestDoctorNoActiveGenerationsWarns(t *testing.T) {
 	r := resultNamed(t, runChecks(context.Background(), env), "active generations")
 	if r.Severity != SeverityWarning {
 		t.Errorf("active generations on an empty store = %s (%s), want WARN", r.Severity, r.Detail)
+	}
+}
+
+// TestDoctorEmbeddingBackendNoDaemonProbesDirectly covers runDoctorDirect's
+// path: with no daemon (env.embeddingReadiness nil), checkEmbeddingBackend
+// falls back to a synchronous probe against the configured Ollama endpoint,
+// bounded by the same timeout checkEmbeddingReadiness itself uses.
+func TestDoctorEmbeddingBackendNoDaemonProbesDirectly(t *testing.T) {
+	env := healthyDoctorEnv(t)
+	env.cfg.Embedding.Endpoint = deadBackendURL(t)
+
+	r := resultNamed(t, runChecks(context.Background(), env), "embedding backend")
+	if r.Severity != SeverityUnhealthy || !strings.Contains(r.Detail, "unreachable") {
+		t.Errorf("embedding backend check = %s (%s), want UNHEALTHY mentioning unreachable", r.Severity, r.Detail)
+	}
+}
+
+func TestDoctorVectorBackendNoDaemonProbesDirectly(t *testing.T) {
+	env := healthyDoctorEnv(t)
+	env.cfg.Vector.Endpoint = deadBackendURL(t)
+	env.cfg.Vector.Managed = false // exercise the plain report-only path, not WATCH-016's bootstrap
+
+	r := resultNamed(t, runChecks(context.Background(), env), "vector backend")
+	if r.Severity != SeverityUnhealthy || !strings.Contains(r.Detail, "unreachable") {
+		t.Errorf("vector backend check = %s (%s), want UNHEALTHY mentioning unreachable", r.Severity, r.Detail)
+	}
+}
+
+// TestDoctorEmbeddingBackendReflectsLiveDaemonState covers the daemon
+// path: when env.embeddingReadiness is set (as engine.Doctor sets it),
+// checkEmbeddingBackend must read that live state rather than probing
+// itself — the whole point of WATCH-014's background check.
+func TestDoctorEmbeddingBackendReflectsLiveDaemonState(t *testing.T) {
+	env := healthyDoctorEnv(t)
+	env.embeddingReadiness = newEmbeddingReadiness()
+	env.embeddingReadiness.set(embeddingStateUnreachable, "Ollama not reachable at http://127.0.0.1:1")
+
+	r := resultNamed(t, runChecks(context.Background(), env), "embedding backend")
+	if r.Severity != SeverityUnhealthy || !strings.Contains(r.Detail, "unreachable") {
+		t.Errorf("embedding backend check = %s (%s), want UNHEALTHY reflecting the daemon's own state", r.Severity, r.Detail)
+	}
+}
+
+func TestDoctorVectorBackendReflectsLiveDaemonState(t *testing.T) {
+	env := healthyDoctorEnv(t)
+	env.vectorReadiness = newVectorReadiness()
+	env.vectorReadiness.set(vectorStateStarting, "ragctl-qdrant")
+
+	r := resultNamed(t, runChecks(context.Background(), env), "vector backend")
+	if r.Severity != SeverityWarning || !strings.Contains(r.Detail, "ragctl-qdrant") {
+		t.Errorf("vector backend check = %s (%s), want WARN naming the starting container", r.Severity, r.Detail)
+	}
+}
+
+// TestDoctorVectorBackendReadyDetailDistinguishesManaged is WATCH-017's
+// last acceptance criterion: once a backend is ready, the detail line
+// must say whether it's ragctl's own managed container or a
+// user-supplied one, not just "ready".
+func TestDoctorVectorBackendReadyDetailDistinguishesManaged(t *testing.T) {
+	env := healthyDoctorEnv(t)
+	env.cfg.Vector.Managed = true
+
+	r := resultNamed(t, runChecks(context.Background(), env), "vector backend")
+	if r.Severity != SeverityOK || !strings.Contains(r.Detail, "reachable at") || !strings.Contains(r.Detail, "managed: "+qdrantContainerName) {
+		t.Errorf("vector backend check = %s (%s), want OK naming the endpoint and the managed container", r.Severity, r.Detail)
+	}
+
+	env.cfg.Vector.Managed = false
+	r = resultNamed(t, runChecks(context.Background(), env), "vector backend")
+	if r.Severity != SeverityOK || !strings.Contains(r.Detail, "reachable at") || strings.Contains(r.Detail, "managed") {
+		t.Errorf("vector backend check = %s (%s), want OK naming just the endpoint, no managed mention", r.Severity, r.Detail)
 	}
 }
 

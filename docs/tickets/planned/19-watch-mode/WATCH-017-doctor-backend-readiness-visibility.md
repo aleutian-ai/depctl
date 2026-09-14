@@ -1,7 +1,7 @@
 # WATCH-017: `doctor` visibility for backend readiness
 
 **Epic:** Watch Mode
-**Status:** planned
+**Status:** done
 **Depends on:** WATCH-014 (embedding readiness), WATCH-015 (vector readiness), WATCH-016 (managed Qdrant) — this ticket only surfaces state those already maintain, it computes nothing new.
 **Estimated size:** small
 
@@ -43,7 +43,10 @@ Two new checks appended to `doctorChecks` (`internal/cli/doctor.go:72`):
 - `doctorChecksInDaemon`'s slice-boundary invariant (`internal/cli/daemon.go:674`, "every entry except the last two") still holds — the two new checks land before the PATH-lookup checks, not after, so they run in the daemon path too. A regression here is exactly the kind of AST-adjacent, easy-to-get-wrong-silently issue `TestOnlyAllowedFunctionsOpenStoresDirectly` (WATCH-011) exists to catch for a different invariant — this one just needs an explicit test, not a new AST check.
 
 ## Acceptance criteria
-- [ ] `ragctl doctor` reports embedding-backend and vector-backend readiness as two new, granular checks — not collapsed into existing ones.
-- [ ] Both the daemon-backed and no-daemon-fallback doctor paths answer correctly.
-- [ ] Wording matches what `sync`/search themselves report for the same underlying state (WATCH-014/015), so there's one consistent vocabulary across the whole tool, not doctor-specific phrasing.
-- [ ] Once WATCH-016 lands, the vector-backend check's detail line distinguishes managed from unmanaged Qdrant.
+- [x] `ragctl doctor` reports embedding-backend and vector-backend readiness as two new, granular checks — not collapsed into existing ones.
+- [x] Both the daemon-backed and no-daemon-fallback doctor paths answer correctly.
+- [x] Wording matches what `sync`/search themselves report for the same underlying state (WATCH-014/015), so there's one consistent vocabulary across the whole tool, not doctor-specific phrasing.
+- [x] Once WATCH-016 lands, the vector-backend check's detail line distinguishes managed from unmanaged Qdrant.
+
+## Post-implementation note
+Shipped per spec: `doctorEnv` gained `embeddingReadiness`/`vectorReadiness` fields (nil in the no-daemon fallback, wired from `engine.embeddingReadiness`/`vectorReadiness` in `engine.Doctor`). `checkEmbeddingBackend`/`checkVectorBackend` read that live state when present, or fall back to a synchronous one-shot probe via `checkEmbeddingReadiness`/`checkVectorReadiness` (WATCH-014/015's own functions, no new probing logic) when it's nil. Both were added to `doctorChecks` right before the two PATH-only checks, preserving `doctorChecksInDaemon`'s slice-boundary invariant. Non-ready states delegate to the existing `embeddingStatusLabel`/`vectorStatusLabel` formatters so wording never drifts from `daemon status`; the `ready` state is special-cased in `checkVectorBackend` to build its own richer label (`"qdrant reachable at <endpoint>"`, `" (managed: ragctl-qdrant)"` appended only when `cfg.Vector.Managed`), since `vectorStatusLabel`'s terse `"ready"` (correct for `daemon status`) doesn't carry the endpoint/managed detail this ticket's acceptance criteria specifically asked for. Verified live against a real config and daemon, both with and without `vector.managed` set. Tests: `healthyDoctorEnv` was fixed to point `Embedding.Endpoint` at a fake Ollama server (it was silently depending on a real local Ollama actually running, an environment-dependent test bug this ticket's work surfaced) plus dedicated coverage for the no-daemon probe path, the daemon-fed live-state path (including a real-daemon integration assertion in `TestDoctorUsesDaemonWhenReachable`), and the managed-vs-unmanaged wording. Full suite green.
