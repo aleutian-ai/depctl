@@ -17,6 +17,7 @@ type vectorState string
 const (
 	vectorStateUnknown     vectorState = "unknown"
 	vectorStateChecking    vectorState = "checking"
+	vectorStateStarting    vectorState = "starting"
 	vectorStateReady       vectorState = "ready"
 	vectorStateUnreachable vectorState = "unreachable"
 	vectorStateError       vectorState = "error"
@@ -71,6 +72,8 @@ func (r *vectorReadiness) checkReady() error {
 		return nil
 	case vectorStateChecking:
 		return fmt.Errorf("ragctl is checking its vector backend — retry shortly, or run `ragctl daemon status` for progress")
+	case vectorStateStarting:
+		return fmt.Errorf("ragctl is starting its managed Qdrant container (%s) — retry shortly, or run `ragctl daemon status` for progress", detail)
 	case vectorStateUnreachable:
 		return fmt.Errorf("vector backend unreachable: %s", detail)
 	case vectorStateError:
@@ -83,15 +86,37 @@ func (r *vectorReadiness) checkReady() error {
 // checkVectorReadiness probes the configured vector backend once in the
 // background (called as its own goroutine from runDaemonRun) — entirely
 // off any client's request path, so no MCP tool call or CLI command
-// ever blocks on this. Unlike checkEmbeddingReadiness there is no pull
-// step: an unreachable Qdrant just gets reported (WATCH-016 adds an
-// auto-start branch on top of this).
+// ever blocks on this. If it's unreachable and cfg.Vector.Managed is
+// true (WATCH-016), it attempts to start ragctl's own Qdrant container
+// via podman/docker before giving up; otherwise it just reports the
+// failure, same as before WATCH-016.
 func checkVectorReadiness(ctx context.Context, cfg config.Config, readiness *vectorReadiness, logf func(format string, args ...any)) {
 	readiness.set(vectorStateChecking, "")
 	if err := probeBackend(ctx, cfg); err != nil {
-		detail := fmt.Sprintf("%s not reachable at %s: %v", cfg.Vector.Backend, cfg.Vector.Endpoint, err)
-		readiness.set(vectorStateUnreachable, detail)
-		logf("vector readiness: %s", detail)
+		if !cfg.Vector.Managed {
+			detail := fmt.Sprintf("%s not reachable at %s: %v", cfg.Vector.Backend, cfg.Vector.Endpoint, err)
+			readiness.set(vectorStateUnreachable, detail)
+			logf("vector readiness: %s", detail)
+			return
+		}
+
+		runtime := containerRuntime()
+		if runtime == "" {
+			detail := "vector.managed is true but no container runtime (podman or docker) was found on PATH — install one, or start Qdrant manually and set vector.managed: false"
+			readiness.set(vectorStateUnreachable, detail)
+			logf("vector readiness: %s", detail)
+			return
+		}
+
+		readiness.set(vectorStateStarting, qdrantContainerName)
+		logf("vector readiness: %s unreachable, starting managed container %s via %s", cfg.Vector.Backend, qdrantContainerName, runtime)
+		if err := ensureManagedQdrant(ctx, cfg, runtime, logf); err != nil {
+			readiness.set(vectorStateError, err.Error())
+			logf("vector readiness: %v", err)
+			return
+		}
+		readiness.set(vectorStateReady, "")
+		logf("vector readiness: managed container %s ready", qdrantContainerName)
 		return
 	}
 	readiness.set(vectorStateReady, "")

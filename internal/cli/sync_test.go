@@ -3,10 +3,14 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
+	"aleutian-ai/ragctl/internal/config"
 	"aleutian-ai/ragctl/internal/domain"
 )
 
@@ -255,6 +259,57 @@ func TestSyncReportsStructuredErrorForUnreachableEmbeddingBackend(t *testing.T) 
 	}
 	if !strings.Contains(out.String(), "embedding backend unreachable") {
 		t.Errorf("sync output = %q, want it to report the structured embedding-unreachable message instead of a raw connection error", out.String())
+	}
+}
+
+// TestSyncReportsStructuredErrorForUnreachableVectorBackend is
+// WATCH-015's regression test, mirroring WATCH-014's own: a sync that
+// hits a SYNC_VERSION action against a dead vector endpoint (with a
+// *reachable* embedding endpoint, to isolate which readiness check is
+// actually firing) must report the daemon's own actionable "vector
+// backend unreachable" message, not a raw dial error bubbled up from
+// deep inside generation.Replicate.
+func TestSyncReportsStructuredErrorForUnreachableVectorBackend(t *testing.T) {
+	isolateEnv(t)
+	requireGo(t)
+	runInitForTest(t)
+	useRealRagctlBinary(t)
+
+	ollama := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{
+			"models": []map[string]string{{"name": config.Default("/data").Embedding.Model + ":latest"}},
+		})
+	}))
+	t.Cleanup(ollama.Close)
+	deadVector := deadBackendURL(t)
+	writeTestConfig(t, func(c *config.Config) {
+		c.Embedding.Endpoint = ollama.URL
+		c.Vector.Endpoint = deadVector
+	})
+	scanDepFixture(t)
+
+	c, err := ensureDaemon(context.Background())
+	if err != nil {
+		t.Fatalf("ensureDaemon: %v", err)
+	}
+	waitFor(t, "vector readiness to report unreachable", func() bool {
+		h, err := c.Health(context.Background())
+		return err == nil && h.VectorState == "unreachable"
+	})
+	waitFor(t, "embedding readiness to report ready", func() bool {
+		h, err := c.Health(context.Background())
+		return err == nil && h.EmbeddingState == "ready"
+	})
+
+	cmd := NewRootCmd()
+	cmd.SetArgs([]string{"sync"})
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("sync succeeded despite an unreachable vector backend, want a failed action")
+	}
+	if !strings.Contains(out.String(), "vector backend unreachable") {
+		t.Errorf("sync output = %q, want it to report the structured vector-unreachable message instead of a raw connection error", out.String())
 	}
 }
 

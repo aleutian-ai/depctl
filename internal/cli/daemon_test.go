@@ -189,6 +189,12 @@ func TestDaemonStartsWithUnreachableServices(t *testing.T) {
 		health, err := client.New(h.socket).Health(context.Background())
 		return err == nil && health.EmbeddingState == "unreachable"
 	})
+
+	// WATCH-015: same treatment for the vector backend.
+	waitFor(t, "vector readiness to report unreachable", func() bool {
+		health, err := client.New(h.socket).Health(context.Background())
+		return err == nil && health.VectorState == "unreachable"
+	})
 }
 
 func TestDaemonStatusAndStop(t *testing.T) {

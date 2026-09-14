@@ -56,6 +56,14 @@ type VectorConfig struct {
 	Endpoint   string `yaml:"endpoint"`
 	Collection string `yaml:"collection"`
 	APIKeyEnv  string `yaml:"api_key_env,omitempty"`
+	// Managed controls whether the daemon starts its own Qdrant
+	// container (WATCH-016) when the configured endpoint is
+	// unreachable. Defaults to true for fresh installs (see Default);
+	// a config file written before this field existed has no
+	// "managed" key, which unmarshals to false — so nobody who already
+	// points Endpoint at their own real Qdrant gets a surprise second
+	// instance competing for the same port.
+	Managed bool `yaml:"managed,omitempty"`
 }
 
 type RetentionConfig struct {
@@ -127,6 +135,7 @@ func Default(dataDir string) Config {
 			Backend:    "qdrant",
 			Endpoint:   "http://127.0.0.1:6333",
 			Collection: "ragctl",
+			Managed:    true,
 		},
 		Retention: RetentionConfig{
 			GracePeriod: 336 * time.Hour, // 14 days

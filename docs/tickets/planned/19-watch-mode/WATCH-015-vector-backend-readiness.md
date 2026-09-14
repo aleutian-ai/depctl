@@ -1,7 +1,7 @@
 # WATCH-015: Vector backend (Qdrant) readiness
 
 **Epic:** Watch Mode
-**Status:** planned
+**Status:** done
 **Depends on:** WATCH-014 (embedding readiness — this ticket mirrors its pattern exactly, for the other half of the pipeline)
 **Estimated size:** medium
 
@@ -74,7 +74,10 @@ Every call site that calls `buildVectorBackend` for real work — not a diagnost
 - Real-daemon integration test mirroring `TestSyncReportsStructuredErrorForUnreachableEmbeddingBackend` (`internal/cli/sync_test.go`): a `sync` against a dead vector endpoint (with a *reachable* embedding endpoint, to isolate which readiness check is actually firing) reports the structured vector-unreachable message.
 
 ## Acceptance criteria
-- [ ] The daemon checks vector-backend reachability in the background at startup, never on a client's request path.
-- [ ] `sync`, GC, and search fail fast with an actionable message while Qdrant is unreachable, instead of a raw dial error (repeated per dependency, in sync's case).
-- [ ] `ragctl daemon status` and `/v1/health` surface the live state, next to the existing embedding readiness line.
-- [ ] `checkBackendReachable`/`probeBackend` (doctor/status's existing live probes) are unchanged — this ticket adds a second, separate mechanism, not a replacement.
+- [x] The daemon checks vector-backend reachability in the background at startup, never on a client's request path.
+- [x] `sync`, GC, and search fail fast with an actionable message while Qdrant is unreachable, instead of a raw dial error (repeated per dependency, in sync's case).
+- [x] `ragctl daemon status` and `/v1/health` surface the live state, next to the existing embedding readiness line.
+- [x] `checkBackendReachable`/`probeBackend` (doctor/status's existing live probes) are unchanged — this ticket adds a second, separate mechanism, not a replacement.
+
+## Post-implementation note
+Shipped exactly as specced: `internal/cli/vector_readiness.go` mirrors `embedding_readiness.go`'s shape (no `pulling` state, as planned — no download step). `RunSync`/`RunGC` both gained a trailing `*vectorReadiness` parameter; `fullQueryService` checks it outside `fullQueryOnce.Do`, same memoization-safety pattern as WATCH-014. `api.Health` gained `VectorState`/`VectorDetail`; `daemon status` gained a `vector:` line via `vectorStatusLabel`. New tests: `vector_readiness_test.go` (mirrors `embedding_readiness_test.go`), an extension to `TestDaemonStartsWithUnreachableServices`, and `TestSyncReportsStructuredErrorForUnreachableVectorBackend` (mirrors the embedding version, using a fake Ollama server to isolate which readiness check fires). Full suite green.

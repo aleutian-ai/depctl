@@ -912,6 +912,8 @@ func vectorStatusLabel(state, detail string) string {
 		return "ready"
 	case vectorStateChecking:
 		return "checking"
+	case vectorStateStarting:
+		return fmt.Sprintf("starting managed container %s", detail)
 	case vectorStateUnreachable:
 		return fmt.Sprintf("unreachable (%s)", detail)
 	case vectorStateError:
