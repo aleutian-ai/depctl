@@ -120,7 +120,7 @@ func Default(dataDir string) Config {
 		},
 		Embedding: EmbeddingConfig{
 			Provider: "ollama",
-			Model:    "nomic-embed-text",
+			Model:    "nomic-embed-text-v2-moe",
 			Endpoint: "http://127.0.0.1:11434",
 		},
 		Vector: VectorConfig{

@@ -70,6 +70,12 @@ type Engine interface {
 	// dials without spawning, since diagnosing a stopped or broken
 	// daemon is its job — see internal/cli/doctor.go's runDoctor.
 	Doctor(ctx context.Context) (api.DoctorResponse, error)
+
+	// EmbeddingReadiness reports the background embedding-provider
+	// check's current state/detail — see api.Health.EmbeddingState.
+	// Never touches the network itself; it only reads state a separate
+	// background goroutine maintains.
+	EmbeddingReadiness(ctx context.Context) (state, detail string)
 }
 
 // Options configures a Server. Socket and Engine are required.
@@ -208,7 +214,8 @@ func (s *Server) routes() http.Handler {
 	return mux
 }
 
-func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+	embeddingState, embeddingDetail := s.opts.Engine.EmbeddingReadiness(r.Context())
 	writeJSON(w, http.StatusOK, api.Health{
 		PID:               os.Getpid(),
 		StartedAt:         s.started,
@@ -219,6 +226,8 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 		MCPEnabled:        s.opts.MCPEnabled,
 		EnableSyncTool:    s.opts.EnableSyncTool,
 		ConfigFingerprint: s.opts.ConfigFingerprint,
+		EmbeddingState:    embeddingState,
+		EmbeddingDetail:   embeddingDetail,
 	})
 }
 

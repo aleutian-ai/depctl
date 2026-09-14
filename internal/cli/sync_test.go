@@ -221,6 +221,43 @@ func TestSyncDependencyFilter(t *testing.T) {
 	}
 }
 
+// TestSyncReportsStructuredErrorForUnreachableEmbeddingBackend is
+// WATCH-014's regression test: a sync that hits a SYNC_VERSION action
+// against a dead embedding endpoint must report the daemon's own
+// actionable "embedding backend unreachable" message, not a raw
+// connection-refused error bubbled up from inside buildEmbedder.
+func TestSyncReportsStructuredErrorForUnreachableEmbeddingBackend(t *testing.T) {
+	isolateEnv(t)
+	requireGo(t)
+	runInitForTest(t)
+	useRealRagctlBinary(t)
+	deadEndpointsConfig(t, nil)
+	scanDepFixture(t)
+
+	c, err := ensureDaemon(context.Background())
+	if err != nil {
+		t.Fatalf("ensureDaemon: %v", err)
+	}
+	waitFor(t, "embedding readiness to report unreachable", func() bool {
+		h, err := c.Health(context.Background())
+		return err == nil && h.EmbeddingState == "unreachable"
+	})
+
+	cmd := NewRootCmd()
+	cmd.SetArgs([]string{"sync"})
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	// A failed sync action makes `sync` exit non-zero (see runSync) —
+	// expected here, since the embedding backend is unreachable. The
+	// assertion that matters is what got streamed to out, not the exit.
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("sync succeeded despite an unreachable embedding backend, want a failed action")
+	}
+	if !strings.Contains(out.String(), "embedding backend unreachable") {
+		t.Errorf("sync output = %q, want it to report the structured embedding-unreachable message instead of a raw connection error", out.String())
+	}
+}
+
 // TestFallbackManifestDerivesGithubURL covers REG-005: a Go dependency
 // shaped like a direct github.com/<org>/<repo> import derives a
 // single-source manifest instead of hitting the "no registry manifest"

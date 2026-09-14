@@ -55,6 +55,15 @@ type Health struct {
 	// lifetime, so callers compare this against a fresh load's
 	// fingerprint to detect an on-disk change that hasn't taken effect.
 	ConfigFingerprint string `json:"config_fingerprint"`
+	// EmbeddingState/EmbeddingDetail report the daemon's background
+	// embedding-provider readiness check (WATCH-014): "unknown"/"ready"
+	// (nothing to report), "checking", "pulling" (EmbeddingDetail names
+	// the model), "unreachable", or "error" (EmbeddingDetail explains
+	// either). Unlike ConfigFingerprint this can change over the
+	// daemon's lifetime, so it's read live from the Engine on every
+	// call, not cached from startup.
+	EmbeddingState  string `json:"embedding_state"`
+	EmbeddingDetail string `json:"embedding_detail,omitempty"`
 }
 
 // Status is the `ragctl status` snapshot; text and --json both render

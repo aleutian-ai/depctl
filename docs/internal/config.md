@@ -57,7 +57,7 @@ Concrete scenario: on macOS, a user has already hand-edited a config file at a n
        path: /Users/jin/ragctl-configs/data/badger
    embedding:
      provider: ollama
-     model: nomic-embed-text
+     model: nomic-embed-text-v2-moe
      endpoint: http://127.0.0.1:11434
    vector:
      backend: qdrant

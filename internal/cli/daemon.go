@@ -344,6 +344,11 @@ type engine struct {
 	controlPath string
 	badgerPath  string
 
+	// embeddingReadiness tracks the background check started in
+	// runDaemonRun (see embedding_readiness.go) — never built or probed
+	// here, only read.
+	embeddingReadiness *embeddingReadiness
+
 	// baseQueryOnce/baseQuery memoize a query.Service backed only by the
 	// stores — no embedder or vector backend — for the four methods that
 	// never touch those (Status, GetProjectDependencies,
@@ -379,7 +384,16 @@ func (e *engine) baseQueryService() *query.Service {
 // fullQueryService returns e's memoized, fully-wired query.Service,
 // building the embedder and vector backend (and probing embedder
 // dimensions) on first use. Only SearchKnowledge needs this.
+//
+// The readiness check runs every call, outside fullQueryOnce: a
+// "still pulling"/"unreachable" result must never be memoized as if it
+// were the real build outcome, or every later call would keep
+// replaying that stale answer even once the model finishes
+// downloading.
 func (e *engine) fullQueryService(ctx context.Context) (*query.Service, error) {
+	if err := e.embeddingReadiness.checkReady(); err != nil {
+		return nil, err
+	}
 	e.fullQueryOnce.Do(func() {
 		vb, err := buildVectorBackend(e.cfg)
 		if err != nil {
@@ -428,8 +442,15 @@ func (e *engine) Sync(ctx context.Context, projectID string, opts daemon.SyncOpt
 			return api.SyncResult{}, err
 		}
 	}
-	synced, failed, skipped, err := RunSync(ctx, e.store, e.badgerStore, e.cfg, projectID, opts.Dependency, opts.Offline, opts.Force, out)
+	synced, failed, skipped, err := RunSync(ctx, e.store, e.badgerStore, e.cfg, projectID, opts.Dependency, opts.Offline, opts.Force, out, e.embeddingReadiness)
 	return api.SyncResult{ProjectID: projectID, Synced: synced, Failed: failed, Skipped: skipped}, err
+}
+
+// EmbeddingReadiness reports the background embedding-provider check's
+// current state/detail — see api.Health.EmbeddingState.
+func (e *engine) EmbeddingReadiness(ctx context.Context) (state, detail string) {
+	s, d := e.embeddingReadiness.get()
+	return string(s), d
 }
 
 // ProjectIDs returns every registered project, resolved or not — what a
@@ -764,8 +785,15 @@ func runDaemonRun(cmd *cobra.Command) error {
 		stop() // restore default handling, so a second Ctrl-C exits immediately
 	}()
 
+	// Checked off the request path entirely (WATCH-014): a client that
+	// needs an embedder (sync, search) gets an immediate, actionable
+	// "still pulling"/"unreachable" answer from embeddingReadiness
+	// instead of triggering — and blocking on — a live pull itself.
+	readiness := newEmbeddingReadiness()
+	go checkEmbeddingReadiness(ctx, cfg, readiness, logf)
+
 	srv := daemon.New(daemon.Options{
-		Engine:            &engine{store: store, badgerStore: badgerStore, cfg: cfg, controlPath: controlPath, badgerPath: badgerPath},
+		Engine:            &engine{store: store, badgerStore: badgerStore, cfg: cfg, controlPath: controlPath, badgerPath: badgerPath, embeddingReadiness: readiness},
 		Socket:            socket,
 		ControlPath:       controlPath,
 		Version:           ragctlVersion,
@@ -829,7 +857,27 @@ func runDaemonStatus(cmd *cobra.Command) error {
 	fmt.Fprintf(out, "%-14s %s\n", "uptime:", time.Since(h.StartedAt).Truncate(time.Second))
 	fmt.Fprintf(out, "%-14s %t\n", "watching:", h.Watching)
 	fmt.Fprintf(out, "%-14s %s\n", "config:", configFreshnessLabel(h.ConfigFingerprint))
+	fmt.Fprintf(out, "%-14s %s\n", "embedding:", embeddingStatusLabel(h.EmbeddingState, h.EmbeddingDetail))
 	return nil
+}
+
+// embeddingStatusLabel formats a daemon's reported embedding-readiness
+// state for `ragctl daemon status`'s one-line summary.
+func embeddingStatusLabel(state, detail string) string {
+	switch embeddingState(state) {
+	case embeddingStateReady, embeddingStateUnknown, "":
+		return "ready"
+	case embeddingStateChecking:
+		return "checking"
+	case embeddingStatePulling:
+		return fmt.Sprintf("pulling %s", detail)
+	case embeddingStateUnreachable:
+		return fmt.Sprintf("unreachable (%s)", detail)
+	case embeddingStateError:
+		return fmt.Sprintf("error: %s", detail)
+	default:
+		return state
+	}
 }
 
 func runDaemonStop(cmd *cobra.Command) error {

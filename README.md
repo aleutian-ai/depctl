@@ -9,6 +9,8 @@ Dependency-aware knowledge synchronization for AI coding agents.
 ## Requirements
 
 - Go 1.25.6+
+- [Ollama](https://ollama.com/) running locally — ragctl ships with Ollama + [`nomic-embed-text-v2-moe`](https://ollama.com/library/nomic-embed-text-v2-moe) (~957MB, Apache-2.0) as its default local embedding path, and auto-pulls that model itself, in the background, the first time it's needed — no manual `ollama pull` required as long as Ollama itself is installed and running. Only `sync`/search actually need it, and only once there's real work to embed — `scan`/`project`/`deps`/`plan`/`doctor` and MCP's other tools work without it. If Ollama isn't reachable, `ragctl daemon status` says so plainly.
+- A vector backend (Qdrant by default) — needed by `sync`, `gc`, and `status`. See [docs/offline-quickstart.md](docs/offline-quickstart.md) for a local Podman-run Qdrant.
 - (optional) [Podman](https://podman.io/) — for running the reference container and cross-platform tests, see below.
 
 ## Building and running natively

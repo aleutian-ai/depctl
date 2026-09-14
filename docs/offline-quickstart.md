@@ -35,7 +35,7 @@ config away from each other:
 
 ```bash
 # embedding model ragctl uses to vectorize chunks — already pulled here as:
-ollama pull nomic-embed-text:v1.5
+ollama pull nomic-embed-text-v2-moe
 
 # whichever chat model your MCP client will use to answer questions —
 # these are already pulled locally:
@@ -63,14 +63,15 @@ This creates `~/Library/Application Support/ragctl/` (macOS) with
 `config.yaml`, `control.db` (bbolt), `badger/` (chunk store), `git/`
 (mirror cache), and `registry/` (your manifest overrides).
 
-Edit `config.yaml`'s embedding model to match what you actually pulled —
-the default `nomic-embed-text` (no tag) won't match a locally-tagged
-`nomic-embed-text:v1.5`:
+If you pulled a specific tagged variant (e.g.
+`ollama pull nomic-embed-text-v2-moe:fp16`), edit `config.yaml`'s
+embedding model to match it exactly — the plain default model name
+won't match a locally-tagged variant:
 
 ```yaml
 embedding:
   provider: ollama
-  model: nomic-embed-text:v1.5    # match `ollama list` exactly
+  model: nomic-embed-text-v2-moe    # match `ollama list` exactly
   endpoint: http://127.0.0.1:11434
 vector:
   backend: qdrant

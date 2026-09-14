@@ -181,6 +181,14 @@ func TestDaemonStartsWithUnreachableServices(t *testing.T) {
 	if st.Backend.Healthy {
 		t.Error("status reported a healthy backend, but its endpoint is dead")
 	}
+
+	// WATCH-014: the background embedding-readiness check should reach
+	// "unreachable" on its own, off the request path — no client action
+	// triggers it.
+	waitFor(t, "embedding readiness to report unreachable", func() bool {
+		health, err := client.New(h.socket).Health(context.Background())
+		return err == nil && health.EmbeddingState == "unreachable"
+	})
 }
 
 func TestDaemonStatusAndStop(t *testing.T) {
