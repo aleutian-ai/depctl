@@ -76,6 +76,12 @@ type Engine interface {
 	// Never touches the network itself; it only reads state a separate
 	// background goroutine maintains.
 	EmbeddingReadiness(ctx context.Context) (state, detail string)
+
+	// VectorReadiness reports the background vector-backend check's
+	// current state/detail — see api.Health.VectorState. Never touches
+	// the network itself; it only reads state a separate background
+	// goroutine maintains.
+	VectorReadiness(ctx context.Context) (state, detail string)
 }
 
 // Options configures a Server. Socket and Engine are required.
@@ -216,6 +222,7 @@ func (s *Server) routes() http.Handler {
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	embeddingState, embeddingDetail := s.opts.Engine.EmbeddingReadiness(r.Context())
+	vectorState, vectorDetail := s.opts.Engine.VectorReadiness(r.Context())
 	writeJSON(w, http.StatusOK, api.Health{
 		PID:               os.Getpid(),
 		StartedAt:         s.started,
@@ -228,6 +235,8 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		ConfigFingerprint: s.opts.ConfigFingerprint,
 		EmbeddingState:    embeddingState,
 		EmbeddingDetail:   embeddingDetail,
+		VectorState:       vectorState,
+		VectorDetail:      vectorDetail,
 	})
 }
 

@@ -85,7 +85,7 @@ func runSync(cmd *cobra.Command, projectID, dependency string, dryRun, offline, 
 // own Badger store, since Badger only allows one open handle per
 // directory per process and the MCP server already holds one open for
 // query.Service's whole lifetime.
-func RunSync(ctx context.Context, store *bboltstore.Store, badgerStore *badgerstore.Store, cfg config.Config, projectID, dependency string, offline, force bool, out io.Writer, readiness *embeddingReadiness) (synced, failed, skipped int, err error) {
+func RunSync(ctx context.Context, store *bboltstore.Store, badgerStore *badgerstore.Store, cfg config.Config, projectID, dependency string, offline, force bool, out io.Writer, readiness *embeddingReadiness, vecReadiness *vectorReadiness) (synced, failed, skipped int, err error) {
 	plans, err := computePlans(ctx, store, cfg.Vector.Backend, projectID)
 	if err != nil {
 		return 0, 0, 0, err
@@ -107,6 +107,9 @@ func RunSync(ctx context.Context, store *bboltstore.Store, badgerStore *badgerst
 			return pipeline, nil
 		}
 		if err := readiness.checkReady(); err != nil {
+			return nil, err
+		}
+		if err := vecReadiness.checkReady(); err != nil {
 			return nil, err
 		}
 		embedder, err := buildEmbedder(cfg, badgerStore)

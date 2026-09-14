@@ -349,6 +349,11 @@ type engine struct {
 	// here, only read.
 	embeddingReadiness *embeddingReadiness
 
+	// vectorReadiness tracks the background check started in
+	// runDaemonRun (see vector_readiness.go) — never built or probed
+	// here, only read.
+	vectorReadiness *vectorReadiness
+
 	// baseQueryOnce/baseQuery memoize a query.Service backed only by the
 	// stores — no embedder or vector backend — for the four methods that
 	// never touch those (Status, GetProjectDependencies,
@@ -392,6 +397,9 @@ func (e *engine) baseQueryService() *query.Service {
 // downloading.
 func (e *engine) fullQueryService(ctx context.Context) (*query.Service, error) {
 	if err := e.embeddingReadiness.checkReady(); err != nil {
+		return nil, err
+	}
+	if err := e.vectorReadiness.checkReady(); err != nil {
 		return nil, err
 	}
 	e.fullQueryOnce.Do(func() {
@@ -442,7 +450,7 @@ func (e *engine) Sync(ctx context.Context, projectID string, opts daemon.SyncOpt
 			return api.SyncResult{}, err
 		}
 	}
-	synced, failed, skipped, err := RunSync(ctx, e.store, e.badgerStore, e.cfg, projectID, opts.Dependency, opts.Offline, opts.Force, out, e.embeddingReadiness)
+	synced, failed, skipped, err := RunSync(ctx, e.store, e.badgerStore, e.cfg, projectID, opts.Dependency, opts.Offline, opts.Force, out, e.embeddingReadiness, e.vectorReadiness)
 	return api.SyncResult{ProjectID: projectID, Synced: synced, Failed: failed, Skipped: skipped}, err
 }
 
@@ -450,6 +458,13 @@ func (e *engine) Sync(ctx context.Context, projectID string, opts daemon.SyncOpt
 // current state/detail — see api.Health.EmbeddingState.
 func (e *engine) EmbeddingReadiness(ctx context.Context) (state, detail string) {
 	s, d := e.embeddingReadiness.get()
+	return string(s), d
+}
+
+// VectorReadiness reports the background vector-backend check's current
+// state/detail — see api.Health.VectorState.
+func (e *engine) VectorReadiness(ctx context.Context) (state, detail string) {
+	s, d := e.vectorReadiness.get()
 	return string(s), d
 }
 
@@ -481,7 +496,7 @@ func (e *engine) Plan(ctx context.Context, projectID string) (any, error) {
 
 // GC plans and runs garbage collection.
 func (e *engine) GC(ctx context.Context, dryRun bool, out io.Writer) (api.GCResult, error) {
-	return RunGC(ctx, e.store, e.badgerStore, e.cfg, dryRun, out)
+	return RunGC(ctx, e.store, e.badgerStore, e.cfg, dryRun, out, e.vectorReadiness)
 }
 
 // Search runs a knowledge search, the work behind the search_dependency_docs
@@ -792,8 +807,16 @@ func runDaemonRun(cmd *cobra.Command) error {
 	readiness := newEmbeddingReadiness()
 	go checkEmbeddingReadiness(ctx, cfg, readiness, logf)
 
+	// Same off-request-path treatment for the vector backend (WATCH-015):
+	// a client that needs Qdrant (sync, GC, search) gets an immediate,
+	// actionable "unreachable" answer from vectorReadiness instead of a
+	// raw dial error, once per dependency, from deep inside
+	// generation.Replicate.
+	vecReadiness := newVectorReadiness()
+	go checkVectorReadiness(ctx, cfg, vecReadiness, logf)
+
 	srv := daemon.New(daemon.Options{
-		Engine:            &engine{store: store, badgerStore: badgerStore, cfg: cfg, controlPath: controlPath, badgerPath: badgerPath, embeddingReadiness: readiness},
+		Engine:            &engine{store: store, badgerStore: badgerStore, cfg: cfg, controlPath: controlPath, badgerPath: badgerPath, embeddingReadiness: readiness, vectorReadiness: vecReadiness},
 		Socket:            socket,
 		ControlPath:       controlPath,
 		Version:           ragctlVersion,
@@ -858,6 +881,7 @@ func runDaemonStatus(cmd *cobra.Command) error {
 	fmt.Fprintf(out, "%-14s %t\n", "watching:", h.Watching)
 	fmt.Fprintf(out, "%-14s %s\n", "config:", configFreshnessLabel(h.ConfigFingerprint))
 	fmt.Fprintf(out, "%-14s %s\n", "embedding:", embeddingStatusLabel(h.EmbeddingState, h.EmbeddingDetail))
+	fmt.Fprintf(out, "%-14s %s\n", "vector:", vectorStatusLabel(h.VectorState, h.VectorDetail))
 	return nil
 }
 
@@ -874,6 +898,23 @@ func embeddingStatusLabel(state, detail string) string {
 	case embeddingStateUnreachable:
 		return fmt.Sprintf("unreachable (%s)", detail)
 	case embeddingStateError:
+		return fmt.Sprintf("error: %s", detail)
+	default:
+		return state
+	}
+}
+
+// vectorStatusLabel formats a daemon's reported vector-readiness state
+// for `ragctl daemon status`'s one-line summary.
+func vectorStatusLabel(state, detail string) string {
+	switch vectorState(state) {
+	case vectorStateReady, vectorStateUnknown, "":
+		return "ready"
+	case vectorStateChecking:
+		return "checking"
+	case vectorStateUnreachable:
+		return fmt.Sprintf("unreachable (%s)", detail)
+	case vectorStateError:
 		return fmt.Sprintf("error: %s", detail)
 	default:
 		return state

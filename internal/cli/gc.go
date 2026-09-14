@@ -47,7 +47,7 @@ func runGC(cmd *cobra.Command, dryRun bool) error {
 
 // RunGC plans and executes garbage collection, writing its report to
 // out. It runs inside the daemon, against the stores it holds open.
-func RunGC(ctx context.Context, store *bboltstore.Store, badgerStore *badgerstore.Store, cfg config.Config, dryRun bool, out io.Writer) (api.GCResult, error) {
+func RunGC(ctx context.Context, store *bboltstore.Store, badgerStore *badgerstore.Store, cfg config.Config, dryRun bool, out io.Writer, vecReadiness *vectorReadiness) (api.GCResult, error) {
 	candidates, err := retention.PlanGC(ctx, store, cfg.Vector.Backend, cfg.Retention.GracePeriod, time.Now())
 	if err != nil {
 		return api.GCResult{}, fmt.Errorf("plan GC: %w", err)
@@ -66,6 +66,9 @@ func RunGC(ctx context.Context, store *bboltstore.Store, badgerStore *badgerstor
 		return result, nil
 	}
 
+	if err := vecReadiness.checkReady(); err != nil {
+		return result, err
+	}
 	vb, err := buildVectorBackend(cfg)
 	if err != nil {
 		return result, err

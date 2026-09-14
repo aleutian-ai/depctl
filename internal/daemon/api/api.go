@@ -64,6 +64,13 @@ type Health struct {
 	// call, not cached from startup.
 	EmbeddingState  string `json:"embedding_state"`
 	EmbeddingDetail string `json:"embedding_detail,omitempty"`
+	// VectorState/VectorDetail report the daemon's background
+	// vector-backend readiness check (WATCH-015): "unknown"/"ready"
+	// (nothing to report), "checking", "unreachable", or "error"
+	// (VectorDetail explains either). Read live from the Engine on
+	// every call, same as EmbeddingState.
+	VectorState  string `json:"vector_state"`
+	VectorDetail string `json:"vector_detail,omitempty"`
 }
 
 // Status is the `ragctl status` snapshot; text and --json both render
