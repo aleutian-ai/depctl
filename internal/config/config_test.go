@@ -151,6 +151,34 @@ func TestDefaultsAreApplied(t *testing.T) {
 	}
 }
 
+func TestDefaultVectorManagedIsTrueForFreshInstalls(t *testing.T) {
+	c := Default("/data")
+	if !c.Vector.Managed {
+		t.Error("vector.managed should default to true for a fresh install (WATCH-016)")
+	}
+}
+
+func TestConfigWithNoManagedKeyLoadsAsFalse(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	// A config file written before WATCH-016 existed — no "managed" key
+	// under vector at all.
+	body := "version: 1\n" +
+		"storage:\n  control:\n    type: bbolt\n    path: " + dir + "/control.db\n  data:\n    type: badger\n    path: " + dir + "/badger\n" +
+		"embedding:\n  provider: ollama\n  model: nomic-embed-text-v2-moe\n  endpoint: http://127.0.0.1:11434\n" +
+		"vector:\n  backend: qdrant\n  endpoint: http://127.0.0.1:6333\n  collection: ragctl\n"
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	c, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if c.Vector.Managed {
+		t.Error("a config predating vector.managed must load as false — no surprise second Qdrant instance for existing users")
+	}
+}
+
 func TestSecretsNeverSerialized(t *testing.T) {
 	c := Default("/data")
 	c.Vector.APIKeyEnv = "QDRANT_API_KEY"

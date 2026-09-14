@@ -1,7 +1,7 @@
 # WATCH-016: Managed local Qdrant bootstrap
 
 **Epic:** Watch Mode
-**Status:** planned
+**Status:** done
 **Depends on:** WATCH-015 (vector backend readiness — this ticket extends its background check with an auto-fix branch instead of just reporting)
 **Estimated size:** medium
 
@@ -101,8 +101,11 @@ Open question for implementation: WATCH-015 didn't define a "pulling"-equivalent
 - Config default test: `config.Default(dir).Vector.Managed == true`; a config loaded from YAML with no `managed` key round-trips to `false`.
 
 ## Acceptance criteria
-- [ ] `vector.managed: true` (the new-install default) auto-starts a pinned, loopback-only, persistently-stored Qdrant container when none is reachable and a container runtime is available.
-- [ ] `vector.managed: false` (the default for any config predating this ticket) never attempts this — zero behavior change for existing users with their own Qdrant.
-- [ ] No container runtime available: one clean, actionable structured error, never a raw `exec` lookup failure.
-- [ ] A daemon restart reuses an already-running or stopped managed container instead of erroring or duplicating it.
-- [ ] The daemon never blocks a client request on container startup — this lives entirely in the same background-goroutine mechanism WATCH-014/015 already established.
+- [x] `vector.managed: true` (the new-install default) auto-starts a pinned, loopback-only, persistently-stored Qdrant container when none is reachable and a container runtime is available.
+- [x] `vector.managed: false` (the default for any config predating this ticket) never attempts this — zero behavior change for existing users with their own Qdrant.
+- [x] No container runtime available: one clean, actionable structured error, never a raw `exec` lookup failure.
+- [x] A daemon restart reuses an already-running or stopped managed container instead of erroring or duplicating it.
+- [x] The daemon never blocks a client request on container startup — this lives entirely in the same background-goroutine mechanism WATCH-014/015 already established.
+
+## Post-implementation note
+Shipped per spec, with the one open question resolved: added a new `vectorStateStarting` readiness state (rather than overloading an existing one's detail string), so `daemon status`/`checkReady()` can give it its own clear wording ("starting managed container ragctl-qdrant"). `internal/cli/vector_bootstrap.go` holds `containerRuntime()` (indirected through a package-level `execLookPath` var so tests can fake PATH lookups) and `ensureManagedQdrant`, which shells out via `internal/executil.Run` — never `os/exec` directly, matching every other resolver in the codebase. The one narrow use of runtime-specific inspection (`ps -a --filter name=^ragctl-qdrant$ --format '{{.Names}}\t{{.State}}'`) is isolated in `containerState`; actual health always goes through `probeBackend`/`backend.VectorBackend.Health`, never container-status parsing. Tests use small shell-script fakes standing in for podman/docker (`fakeRuntimeScript`), following the same technique `daemon_autostart_test.go` already established for a scriptable fake executable — covers runtime preference/fallback, run-vs-start idempotency, already-running no-op, and a health-timeout that surfaces `vectorStateError` instead of hanging. `qdrantStartupTimeout` was made a `var` (not `const`) specifically so the timeout test doesn't have to wait out the real 20s value. Full suite (`go build`, `go vet`, `gofmt -l .`, `go test ./...`) green; `hack/test-linux.sh` could not run due to a pre-existing, unrelated broken `gcloud` docker-credential-helper on this machine (noted earlier in WATCH-015/016 design discussion) — native macOS coverage is complete.

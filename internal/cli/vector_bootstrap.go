@@ -21,8 +21,10 @@ const qdrantImage = "docker.io/qdrant/qdrant:v1.13.1"
 const qdrantContainerName = "ragctl-qdrant"
 
 // qdrantStartupTimeout bounds how long ensureManagedQdrant waits for a
-// freshly started (or restarted) container to answer healthy.
-const qdrantStartupTimeout = 20 * time.Second
+// freshly started (or restarted) container to answer healthy. A var,
+// not a const, so tests can shorten it rather than waiting out the real
+// value on a health probe that's deliberately never going to succeed.
+var qdrantStartupTimeout = 20 * time.Second
 
 // execLookPath is exec.LookPath, indirected so tests can point it at a
 // fake podman/docker without touching the real PATH.

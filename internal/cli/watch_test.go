@@ -45,12 +45,17 @@ func waitFor(t *testing.T, what string, cond func() bool) {
 
 // deadEndpointsConfig points embedding and vector at nothing, so any
 // sync work fails fast instead of reaching a real local service.
+// Vector.Managed is forced off: WATCH-016's managed-bootstrap attempt
+// would otherwise mask the plain "unreachable" outcome these tests
+// expect whenever a container runtime happens to be on the test
+// machine's PATH.
 func deadEndpointsConfig(t *testing.T, mutate func(*config.Config)) {
 	t.Helper()
 	dead := deadBackendURL(t)
 	writeTestConfig(t, func(c *config.Config) {
 		c.Embedding.Endpoint = dead
 		c.Vector.Endpoint = dead
+		c.Vector.Managed = false
 		if mutate != nil {
 			mutate(c)
 		}

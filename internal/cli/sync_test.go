@@ -285,6 +285,7 @@ func TestSyncReportsStructuredErrorForUnreachableVectorBackend(t *testing.T) {
 	writeTestConfig(t, func(c *config.Config) {
 		c.Embedding.Endpoint = ollama.URL
 		c.Vector.Endpoint = deadVector
+		c.Vector.Managed = false // exercise the plain report-only path, not WATCH-016's bootstrap
 	})
 	scanDepFixture(t)
 
