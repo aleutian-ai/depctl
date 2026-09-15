@@ -97,6 +97,9 @@ func TestEnsureManagedQdrantRunsExpectedArgsWhenAbsent(t *testing.T) {
 	if !strings.Contains(log, "-p 127.0.0.1:6333:6333") {
 		t.Errorf("call log = %q, want the port bound to loopback only", log)
 	}
+	if !strings.Contains(log, "-v ragctl-qdrant-data:/qdrant/storage") {
+		t.Errorf("call log = %q, want storage in a named volume, not a host bind-mount (live-found: a Podman machine with no configured host mounts fails every bind-mount)", log)
+	}
 	if strings.Contains(log, "\nstart ") {
 		t.Errorf("call log = %q, should not call start for an absent container", log)
 	}
@@ -160,6 +163,45 @@ func TestEnsureManagedQdrantHealthTimeoutSurfacesError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "did not become healthy") {
 		t.Errorf("error = %v, want it to explain the health-probe timeout, not hang forever", err)
+	}
+}
+
+// TestEnsureManagedQdrantPullUsesLongerTimeout is the other live-found
+// regression: a genuinely first-time `run --pull=missing` (image not
+// yet local) needs its own, longer timeout than qdrantStartupTimeout —
+// sharing one 20s budget between "pull a ~100-200MB image" and "wait
+// for an already-local container to report healthy" failed a real
+// first bootstrap with "context deadline exceeded" mid-pull. Simulated
+// here via a fake runtime whose `run` takes longer than
+// qdrantStartupTimeout but less than qdrantPullTimeout.
+func TestEnsureManagedQdrantPullUsesLongerTimeout(t *testing.T) {
+	defer func(prev time.Duration) { qdrantStartupTimeout = prev }(qdrantStartupTimeout)
+	qdrantStartupTimeout = 50 * time.Millisecond
+
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer backend.Close()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "fake-runtime")
+	script := "#!/bin/sh\n" +
+		"case \"$1\" in\n" +
+		"  ps) exit 0 ;;\n" +
+		// Longer than qdrantStartupTimeout, shorter than qdrantPullTimeout —
+		// proves `run` isn't bounded by the short one.
+		"  run) sleep 0.3 ;;\n" +
+		"  *) exit 0 ;;\n" +
+		"esac\n"
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake runtime script: %v", err)
+	}
+
+	cfg := config.Default(t.TempDir())
+	cfg.Vector.Endpoint = backend.URL
+
+	if err := ensureManagedQdrant(context.Background(), cfg, path, func(string, ...any) {}); err != nil {
+		t.Fatalf("ensureManagedQdrant: %v, want run's slow pull to survive the short qdrantStartupTimeout", err)
 	}
 }
 

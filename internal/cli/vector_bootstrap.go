@@ -20,11 +20,34 @@ const qdrantImage = "docker.io/qdrant/qdrant:v1.13.1"
 // for `run --name` and for the idempotency check in ensureManagedQdrant.
 const qdrantContainerName = "ragctl-qdrant"
 
+// qdrantVolumeName identifies the named Podman/Docker volume ragctl's
+// managed Qdrant stores its data in. Live-found reason this isn't a
+// host bind-mount: a Podman machine on macOS only shares specific host
+// directories into its VM (via `podman machine inspect`'s "Mounts"),
+// and a real machine with an empty Mounts list made every bind-mount
+// fail with "statfs: no such file or directory" — even after ragctl
+// created the host directory itself, since the VM never saw it in the
+// first place. A named volume lives entirely inside the runtime's own
+// storage, so it works regardless of the VM's host-mount configuration
+// — the trade-off (documented in the README) is that this data doesn't
+// survive `podman machine rm`/`docker system prune -a --volumes`, only
+// a container being removed and recreated.
+const qdrantVolumeName = "ragctl-qdrant-data"
+
 // qdrantStartupTimeout bounds how long ensureManagedQdrant waits for a
 // freshly started (or restarted) container to answer healthy. A var,
 // not a const, so tests can shorten it rather than waiting out the real
 // value on a health probe that's deliberately never going to succeed.
 var qdrantStartupTimeout = 20 * time.Second
+
+// qdrantPullTimeout separately bounds `run --pull=missing`, which — on
+// the very first bootstrap, when the image genuinely isn't local yet —
+// has to pull it over the network first. Live-found gap: sharing
+// qdrantStartupTimeout's 20s with the pull step failed a real first
+// bootstrap with "context deadline exceeded" before the (~100-200MB)
+// image finished pulling. A var for the same test-shortening reason as
+// qdrantStartupTimeout.
+var qdrantPullTimeout = 3 * time.Minute
 
 // execLookPath is exec.LookPath, indirected so tests can point it at a
 // fake podman/docker without touching the real PATH.
@@ -45,15 +68,11 @@ func containerRuntime() string {
 
 // ensureManagedQdrant starts (or reuses, if already running or stopped
 // from a prior daemon lifetime) a ragctl-owned Qdrant container bound to
-// loopback only, with storage persisted under the ragctl data directory,
-// and polls it healthy via the configured backend's own Health check —
-// never by parsing runtime-specific container-status output.
+// loopback only, with storage in a named Podman/Docker volume (see
+// qdrantVolumeName — deliberately not a host bind-mount), and polls it
+// healthy via the configured backend's own Health check — never by
+// parsing runtime-specific container-status output.
 func ensureManagedQdrant(ctx context.Context, cfg config.Config, runtime string, logf func(format string, args ...any)) error {
-	dataDir, err := config.DefaultDataDir()
-	if err != nil {
-		return fmt.Errorf("resolve data dir: %w", err)
-	}
-
 	state, err := containerState(ctx, runtime, qdrantContainerName)
 	if err != nil {
 		return fmt.Errorf("check existing container: %w", err)
@@ -76,10 +95,10 @@ func ensureManagedQdrant(ctx context.Context, cfg config.Config, runtime string,
 			"--name", qdrantContainerName,
 			"--pull=missing",
 			"-p", "127.0.0.1:6333:6333",
-			"-v", dataDir + "/qdrant:/qdrant/storage",
+			"-v", qdrantVolumeName + ":/qdrant/storage",
 			qdrantImage,
 		}
-		if res, err := executil.Run(ctx, executil.RunOptions{Args: args, Timeout: qdrantStartupTimeout}); err != nil {
+		if res, err := executil.Run(ctx, executil.RunOptions{Args: args, Timeout: qdrantPullTimeout}); err != nil {
 			return fmt.Errorf("%s run %s: %w", runtime, qdrantContainerName, err)
 		} else if res.ExitCode != 0 {
 			return fmt.Errorf("%s run %s: exit %d: %s", runtime, qdrantContainerName, res.ExitCode, strings.TrimSpace(string(res.Stderr)))
