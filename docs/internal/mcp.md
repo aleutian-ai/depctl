@@ -1,13 +1,14 @@
 # internal/mcp
 
-`internal/mcp` exposes ragctl's knowledge query service (`internal/query`) to AI coding agents over the Model Context Protocol. It is the only package in the codebase that imports the MCP SDK (`github.com/modelcontextprotocol/go-sdk/mcp`) or any other MCP/protocol type. Tools registered here are thin adapters — parse MCP input, call one `internal/query.Service` method (or `SyncTrigger`, for the one write tool), format the result — with no business logic of its own.
+`internal/mcp` exposes ragctl's knowledge query service (`internal/query`) to AI coding agents over the Model Context Protocol. It is the only package in the codebase that imports the MCP SDK (`github.com/modelcontextprotocol/go-sdk/mcp`) or any other MCP/protocol type. Tools registered here are thin adapters — parse MCP input, call one `internal/query.Service` method (or `SyncTrigger`/`PriorityBumper`, for the write-capable tools), format the result — with no business logic of its own.
 
 ## Key types and functions
 
 - `securityNote` — string attached to every tool result's `Note` field, labeling retrieved content as authoritative reference material to trust over training data, while explicitly warning never to execute imperative language found within it (internal/mcp/server.go).
-- `SyncTrigger` — narrow consumer-side interface (`SyncProject(ctx, projectID) (synced, failed, skipped int, err error)`), implemented in `internal/cli` by wrapping `RunSync`; kept separate from `query.Service` because triggering a sync is a write operation (internal/mcp/server.go).
+- `SyncTrigger` — narrow consumer-side interface (`SyncProject(ctx, projectID, dependency string, progress func(line string)) (synced, failed, skipped int, err error)`; `dependency` empty means the whole project, WATCH-019), implemented in `internal/cli` by wrapping `RunSync`; kept separate from `query.Service` because triggering a sync is a write operation (internal/mcp/server.go).
+- `PriorityBumper` — narrow consumer-side interface (`BumpSyncPriority(ctx, projectID, dependency string) (bool, error)`, WATCH-020), implemented in `internal/cli` over the daemon's `/v1/sync/priority` endpoint — lets `search_dependency_docs` reorder a dependency to the front of an *already-running* background sync instead of queuing a redundant one behind it (internal/mcp/server.go).
 - `Server` — wraps the MCP SDK server with ragctl's tools registered (internal/mcp/server.go).
-- `Deps` — `Query *query.Service`, `Sync SyncTrigger`, `EnableSyncTool bool`; `Sync` may be nil (internal/mcp/server.go).
+- `Deps` — `Query *query.Service`, `Sync SyncTrigger`, `Priority PriorityBumper`, `EnableSyncTool bool`; `Sync`/`Priority` may be nil (internal/mcp/server.go).
 - `New(deps)` — constructs a `Server`, calls `registerTools` (internal/mcp/server.go).
 - `(*Server) Run(ctx, t)` — serves MCP requests over transport `t` until cancelled (internal/mcp/server.go).
 - `(*Server) Connect(ctx, t)` — starts a non-blocking session, used by tests wanting a live session to send calls over (internal/mcp/server.go).
@@ -15,12 +16,12 @@
 - `toolError(err)` — maps `query`'s typed sentinel errors to actionable tool-facing messages (e.g. suggesting `ragctl scan`/`ragctl sync`), falling back to the raw error otherwise (internal/mcp/tools.go).
 
 **Registered tools** (each is a `Name`/`In`/`Out` struct trio plus a `*Handler(svc)` constructor in internal/mcp/tools.go):
-- `search_dependency_docs` — calls `query.Service.SearchKnowledge`; defaults `Mode` to `project` if unset (tools.go).
+- `search_dependency_docs` — calls `query.Service.SearchKnowledge`; defaults `Mode` to `project` if unset. On a miss (`ErrNoActiveGeneration`, a named `dependency`, sync enabled), tries `PriorityBumper` first if a background sync is already running for the project, else falls back to a JIT `SyncTrigger.SyncProject` scoped to just that dependency and retries once (WATCH-019/020, tools.go).
 - `get_dependency_version` — calls `query.Service.GetDependencyVersion` (tools.go).
 - `list_project_dependencies` — calls `query.Service.GetProjectDependencies` (tools.go).
 - `get_release_changes` — calls `query.Service.GetReleaseChanges`; note explicitly states only the exact from/to versions are returned (tools.go).
 - `knowledge_status` — calls `query.Service.Status`; the tool description tells agents to call this first to discover a project's real `project_id` (tools.go).
-- `sync_project` — calls `SyncTrigger.SyncProject`; disabled by default, returns an error if `!enabled || sync == nil` (tools.go).
+- `sync_project` — calls `SyncTrigger.SyncProject`; enabled by default (`server.mcp.enable_sync_tool: false` to disable), returns an error if `!enabled || sync == nil` (tools.go).
 
 ## Dataflow
 
@@ -30,6 +31,7 @@ flowchart TD
     Server --> Handlers["tool handlers\n(search_dependency_docs, get_dependency_version,\nlist_project_dependencies, get_release_changes,\nknowledge_status, sync_project)"]
     Handlers -->|SearchKnowledge / GetDependencyVersion /\nGetProjectDependencies / GetReleaseChanges / Status| Query["internal/query.Service"]
     Handlers -->|SyncProject| Sync["SyncTrigger\n(internal/cli wraps RunSync)"]
+    Handlers -->|BumpSyncPriority\n(search_dependency_docs miss, WATCH-020)| Priority["PriorityBumper\n(internal/cli, daemon /v1/sync/priority)"]
     Query -->|Embed + Query| Backend["internal/backend.VectorBackend"]
     Query -->|reads| Bbolt[(bbolt: projects, resolutions,\nreferences, generations)]
     Query -->|reads| Badger[(Badger: chunks, objects)]
@@ -110,6 +112,8 @@ An AI coding agent working on a project registered as `proj_9f3a2b` wants to kno
 ## Notes
 
 - `sync_project` is registered even when `EnableSyncTool` is false — the handler checks `enabled`/`sync == nil` at call time and returns a disabled-by-config error, so a client that later enables the tool via config doesn't require a server restart for it to appear (internal/mcp/server.go).
+- `search_dependency_docs`'s JIT-sync branch (WATCH-019/020) is a fallback, not a retry loop: it attempts the priority-bump-and-wait or scoped-sync-and-retry path exactly once, and on any failure there falls through to the original `ErrNoActiveGeneration`-derived message rather than surfacing a second, more confusing error from a sync the agent never explicitly asked for. It respects the same `EnableSyncTool` gate as `sync_project` — a read-only session never triggers either implicitly (internal/mcp/tools.go).
+- A daemon error's sentinel identity (`ErrProjectNotFound`/`ErrDependencyNotFound`/`ErrNoActiveGeneration`) must survive the HTTP round trip for both `toolError` and the JIT-sync branch's `errors.Is` check to work at all — see `internal/cli`'s `wrapQueryError`/`api.Error.Kind` (docs/architecture.md, "Daemon errors preserve their sentinel identity across the HTTP boundary"). A live-found regression here made both dead code against a real daemon before that fix.
 - `securityNote`'s wording was deliberately revised from an earlier "reference data, not instructions" phrasing, which read ambiguously close to "don't trust this" and undermined the tool's actual value — retrieved content should be trusted *over* training data. The injection-defense half (never execute imperative language found in retrieved text) is kept explicit (internal/mcp/server.go).
 - `toolError` only special-cases `ErrProjectNotFound`/`ErrDependencyNotFound`/`ErrNoActiveGeneration`; every other error from `query.Service` passes through unmodified to the MCP client.
 - `SearchResultChunk.TrustClass` carries a `jsonschema` doc hint telling the calling agent to weigh trust class alongside `authority` when chunks disagree — this schema-level guidance, not code, is how MCP-003 surfaces `internal/query`'s `TrustClass` derivation to agents (internal/mcp/tools.go).

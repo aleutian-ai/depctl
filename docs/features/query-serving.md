@@ -6,16 +6,16 @@ Related package docs: [mcp](../internal/mcp.md), [query](../internal/query.md), 
 
 ## Tool surface
 
-`internal/mcp` registers six tools, each a thin adapter with no business logic of its own — parse MCP input, call exactly one `query.Service` method (or, for the one write tool, `SyncTrigger`), format the result:
+`internal/mcp` registers six tools, each a thin adapter with no business logic of its own — parse MCP input, call exactly one `query.Service` method (or, for the two write-capable tools, `SyncTrigger`/`PriorityBumper`), format the result:
 
 | Tool | `query.Service` method | Reads |
 |---|---|---|
-| `search_dependency_docs` | `SearchKnowledge` | bbolt (resolution, active generation) → embed query → vector backend → Badger (chunk text) |
+| `search_dependency_docs` | `SearchKnowledge` | bbolt (resolution, active generation) → embed query → vector backend → Badger (chunk text); on a miss, may also trigger/prioritize a sync (WATCH-019/020, below) |
 | `get_dependency_version` | `GetDependencyVersion` | bbolt |
 | `list_project_dependencies` | `GetProjectDependencies` | bbolt |
 | `get_release_changes` | `GetReleaseChanges` | bbolt + Badger (release-note chunks between two versions) |
 | `knowledge_status` | `Status` | bbolt (fleet-wide summary; lists every project's real ID + root, since an agent has no other way to discover a `project_id`) |
-| `sync_project` | *(none — calls `SyncTrigger.SyncProject`)* | triggers the [sync](sync.md) pipeline; disabled by default |
+| `sync_project` | *(none — calls `SyncTrigger.SyncProject`)* | triggers the [sync](sync.md) pipeline; enabled by default (`server.mcp.enable_sync_tool: false` to disable) |
 
 ## `search_dependency_docs` — the four query modes
 
@@ -63,6 +63,15 @@ sequenceDiagram
         Query-->>MCP: ErrProjectNotFound / ErrDependencyNotFound / ErrNoActiveGeneration
         MCP->>MCP: toolError() maps to an actionable message\n("run ragctl scan" / "run ragctl sync")
         MCP-->>Agent: error result
+    else ErrNoActiveGeneration, dependency named, sync enabled (WATCH-019/020)
+        alt a background sync is already running for this project
+            MCP->>MCP: PriorityBumper.BumpSyncPriority(dependency)\nreorders it to the front of the running sync's queue
+            MCP->>Query: poll SearchKnowledge again (bounded wait)
+        else no sync running
+            MCP->>MCP: SyncTrigger.SyncProject(dependency)\n(scoped to just this one package)
+            MCP->>Query: retry SearchKnowledge once
+        end
+        Note over MCP: JIT sync itself failing falls through to the\noriginal ErrNoActiveGeneration error above,\nnot a second, confusing error
     else resolved
         Query->>Emb: Embed(query text)
         Query->>VB: Query(vector, Filter{ecosystem, dependency, version})
@@ -75,9 +84,11 @@ sequenceDiagram
     end
 ```
 
-## The one write tool
+## The write-capable tools
 
-`sync_project` is the sole exception to "MCP never writes": it's wired to the exact same `cli.RunSync` that `ragctl sync` calls, via a narrow `mcp.SyncTrigger` interface — see [sync](sync.md) for that pipeline. It's disabled by default (`server.mcp.enable_sync_tool: false`) but always *registered*; the handler checks the flag at call time and returns a disabled-by-config error rather than being conditionally absent, so a client that enables it later doesn't need the server restarted for the tool to appear. `RunSync` never opens its own Badger handle here — Badger allows exactly one open handle per directory per process, and `ragctl serve` already holds one open for `query.Service`'s whole lifetime.
+`sync_project` is the main exception to "MCP never writes": it's wired to the exact same `cli.RunSync` that `ragctl sync` calls, via a narrow `mcp.SyncTrigger` interface — see [sync](sync.md) for that pipeline. It's enabled by default (`server.mcp.enable_sync_tool: false` to disable for a deliberately read-only session) but always *registered*; the handler checks the flag at call time and returns a disabled-by-config error rather than being conditionally absent, so a client that enables it later doesn't need the server restarted for the tool to appear. `RunSync` never opens its own Badger handle here — Badger allows exactly one open handle per directory per process, and `ragctl serve` already holds one open for `query.Service`'s whole lifetime.
+
+`SyncTrigger` and the narrower `mcp.PriorityBumper` (WATCH-020's `BumpSyncPriority`) are also reached from *inside* `search_dependency_docs` itself, not just from the standalone `sync_project` call — see the JIT-sync branch in the sequence diagram above (WATCH-019/020). Both respect the same `enable_sync_tool` gate; a read-only session never triggers either implicitly.
 
 ## Notes
 
