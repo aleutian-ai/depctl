@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"aleutian-ai/ragctl/internal/query"
@@ -56,18 +57,27 @@ func TestDaemonQueryServiceRoundTripsThroughRealDaemon(t *testing.T) {
 		t.Errorf("GetDependencyVersion = %+v, want example.com/foo", dv)
 	}
 
-	if _, err := svc.GetDependencyVersion(ctx, projectID, "example.com/does-not-exist"); err == nil {
-		t.Error("GetDependencyVersion for an unknown package succeeded, want an error")
+	// Live-found regression (surfaced running WATCH-019/020 against a
+	// real daemon, not just in-process unit tests): a daemon error
+	// round-tripped through JSON as a plain message used to lose its
+	// sentinel identity entirely, silently breaking every errors.Is
+	// check a caller (this test, toolError in internal/mcp,
+	// searchDependencyDocsHandler's JIT-sync branch) makes against
+	// query.ErrDependencyNotFound/ErrNoActiveGeneration. wrapQueryError
+	// (query_client.go) now reconstructs them from api.Error.Kind.
+	if _, err := svc.GetDependencyVersion(ctx, projectID, "example.com/does-not-exist"); !errors.Is(err, query.ErrDependencyNotFound) {
+		t.Errorf("GetDependencyVersion for an unknown package = %v, want an error wrapping query.ErrDependencyNotFound", err)
 	}
 
-	// None of the above needed a live embedder or vector backend —
-	// confirms baseQueryService's split from fullQueryService actually
-	// works: Status/GetProjectDependencies/GetDependencyVersion never
-	// forced a dimension probe. SearchKnowledge is the one method that
-	// does, and isn't exercised here since it needs a live embedder;
-	// internal/query's own tests already cover its behavior against a
-	// fake backend.
-	_ = query.Query{} // documents that daemonQueryService.SearchKnowledge exists but isn't exercised by this test
+	// example.com/foo is resolved but never synced — SearchKnowledge
+	// checks GetActiveGeneration before ever touching a live embedder,
+	// so this exercises the ErrNoActiveGeneration path without needing
+	// one (internal/query's own tests already cover SearchKnowledge's
+	// behavior once a backend is involved).
+	_, err = svc.SearchKnowledge(ctx, query.Query{ProjectID: projectID, Text: "anything", Dependency: "example.com/foo", Mode: query.ModeProject})
+	if !errors.Is(err, query.ErrNoActiveGeneration) {
+		t.Errorf("SearchKnowledge for an unsynced dependency = %v, want an error wrapping query.ErrNoActiveGeneration", err)
+	}
 }
 
 // TestDaemonSyncTriggerRoundTripsThroughRealDaemon proves the

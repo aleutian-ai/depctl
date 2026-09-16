@@ -360,13 +360,27 @@ func notRunning(err error) bool {
 		errors.Is(err, syscall.ECONNRESET)
 }
 
+// RemoteError is a daemon error carrying enough structure (Kind) for a
+// caller — internal/cli/query_client.go, which already sits at the
+// boundary between this neutral transport client and internal/query's
+// typed sentinel errors — to reconstruct one of them via errors.Is.
+// This package stays domain-agnostic itself (Kind is just an opaque
+// wire string here, one of the api.ErrKind* constants or "" for
+// anything unrecognized); only the caller knows what each Kind means.
+type RemoteError struct {
+	Message string
+	Kind    string
+}
+
+func (e *RemoteError) Error() string { return e.Message }
+
 // responseError turns a non-2xx response into the daemon's own error
 // message where it sent one.
 func responseError(resp *http.Response) error {
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 	var e api.Error
 	if json.Unmarshal(body, &e) == nil && e.Error != "" {
-		return errors.New(e.Error)
+		return &RemoteError{Message: e.Error, Kind: e.Kind}
 	}
 	if len(bytes.TrimSpace(body)) > 0 {
 		return fmt.Errorf("daemon returned %s: %s", resp.Status, bytes.TrimSpace(body))

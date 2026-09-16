@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -21,6 +22,45 @@ import (
 type daemonQueryService struct {
 	c *client.Client
 }
+
+// wrapQueryError reconstructs one of internal/query's sentinel errors
+// from a *client.RemoteError's Kind, so a caller's errors.Is check
+// against query.ErrProjectNotFound/ErrDependencyNotFound/
+// ErrNoActiveGeneration works the same whether query.Service is running
+// in-process or reached over the daemon's HTTP API — a plain error
+// message round-trip otherwise silently loses that identity (live-found:
+// this made WATCH-019/020's JIT-sync-on-search branch, and toolError's
+// own classification in internal/mcp, dead code against a real daemon).
+// err is returned unchanged for anything not one of these three kinds.
+func wrapQueryError(err error) error {
+	var re *client.RemoteError
+	if !errors.As(err, &re) {
+		return err
+	}
+	switch re.Kind {
+	case api.ErrKindProjectNotFound:
+		return &wrappedRemoteError{message: re.Message, sentinel: query.ErrProjectNotFound}
+	case api.ErrKindDependencyNotFound:
+		return &wrappedRemoteError{message: re.Message, sentinel: query.ErrDependencyNotFound}
+	case api.ErrKindNoActiveGeneration:
+		return &wrappedRemoteError{message: re.Message, sentinel: query.ErrNoActiveGeneration}
+	default:
+		return err
+	}
+}
+
+// wrappedRemoteError preserves the daemon's own error text verbatim
+// (re.Message already includes the sentinel's own wording as a prefix,
+// e.g. "query: project not found: <id>" — re-adding the sentinel's text
+// via fmt.Errorf("%w", ...) would duplicate it) while still letting
+// errors.Is find the sentinel via Unwrap.
+type wrappedRemoteError struct {
+	message  string
+	sentinel error
+}
+
+func (e *wrappedRemoteError) Error() string { return e.message }
+func (e *wrappedRemoteError) Unwrap() error { return e.sentinel }
 
 // Status summarizes fleet-wide sync coverage, the work behind the
 // knowledge_status MCP tool.
@@ -47,7 +87,7 @@ func (q *daemonQueryService) Status(ctx context.Context) (query.Status, error) {
 func (q *daemonQueryService) GetProjectDependencies(ctx context.Context, projectID string) ([]query.ProjectDependency, error) {
 	resp, err := q.c.ProjectDependencies(ctx, projectID)
 	if err != nil {
-		return nil, err
+		return nil, wrapQueryError(err)
 	}
 	out := make([]query.ProjectDependency, len(resp.Dependencies))
 	for i, d := range resp.Dependencies {
@@ -68,7 +108,7 @@ func (q *daemonQueryService) GetProjectDependencies(ctx context.Context, project
 func (q *daemonQueryService) GetDependencyVersion(ctx context.Context, projectID, pkg string) (domain.DependencyVersion, error) {
 	resp, err := q.c.DependencyVersion(ctx, projectID, pkg)
 	if err != nil {
-		return domain.DependencyVersion{}, err
+		return domain.DependencyVersion{}, wrapQueryError(err)
 	}
 	return domain.DependencyVersion{
 		Dependency: domain.Dependency{Ecosystem: domain.Ecosystem(resp.Ecosystem), Name: resp.Name, Direct: resp.Direct},
@@ -83,7 +123,7 @@ func (q *daemonQueryService) GetDependencyVersion(ctx context.Context, projectID
 func (q *daemonQueryService) GetReleaseChanges(ctx context.Context, dependency, from, to string) ([]query.ReleaseChange, error) {
 	resp, err := q.c.ReleaseChanges(ctx, dependency, from, to)
 	if err != nil {
-		return nil, err
+		return nil, wrapQueryError(err)
 	}
 	out := make([]query.ReleaseChange, len(resp.Changes))
 	for i, c := range resp.Changes {
@@ -103,7 +143,7 @@ func (q *daemonQueryService) SearchKnowledge(ctx context.Context, req query.Quer
 		TopK:       req.TopK,
 	})
 	if err != nil {
-		return query.SearchResult{}, err
+		return query.SearchResult{}, wrapQueryError(err)
 	}
 	chunks := make([]query.ResultChunk, len(resp.Chunks))
 	for i, c := range resp.Chunks {

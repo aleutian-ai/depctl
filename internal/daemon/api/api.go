@@ -364,4 +364,25 @@ type StreamLine struct {
 // Error is the body of every non-2xx response.
 type Error struct {
 	Error string `json:"error"`
+	// Kind, when set, is a stable identifier for a well-known error
+	// category a client needs to recognize via errors.Is after
+	// reconstructing it — a plain error message round-trip through
+	// JSON otherwise silently loses the sentinel identity every
+	// internal/query error (ErrProjectNotFound, ErrDependencyNotFound,
+	// ErrNoActiveGeneration) depends on, breaking any client-side
+	// errors.Is check against them (live-found: this made WATCH-019/020's
+	// JIT-sync-on-search branch dead code against a real daemon, since it
+	// only ever worked in unit tests that bypassed the HTTP boundary).
+	// Empty for anything not specifically recognized.
+	Kind string `json:"kind,omitempty"`
 }
+
+// Recognized Error.Kind values — see Error's own doc for why these
+// exist. Intentionally a small, hand-picked set: only the sentinel
+// errors an MCP tool handler actually needs to distinguish via
+// errors.Is, not a general-purpose error-code system.
+const (
+	ErrKindProjectNotFound    = "project_not_found"
+	ErrKindDependencyNotFound = "dependency_not_found"
+	ErrKindNoActiveGeneration = "no_active_generation"
+)

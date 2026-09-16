@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"aleutian-ai/ragctl/internal/daemon/api"
+	"aleutian-ai/ragctl/internal/query"
 	"aleutian-ai/ragctl/internal/watch"
 )
 
@@ -266,6 +267,27 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
+// writeError serializes err as an api.Error, preserving enough
+// information (Kind, see api.Error's own doc) for the client to
+// reconstruct a matching sentinel error via errors.Is — this package
+// otherwise has no reason to know about internal/query's specific
+// sentinel errors (they're domain logic, which is deliberately kept
+// out of this package), but recognizing them here is what lets the
+// wire round-trip preserve their identity at all, so the exception is
+// scoped to exactly this one classification function.
 func writeError(w http.ResponseWriter, code int, err error) {
-	writeJSON(w, code, api.Error{Error: err.Error()})
+	writeJSON(w, code, api.Error{Error: err.Error(), Kind: errorKind(err)})
+}
+
+func errorKind(err error) string {
+	switch {
+	case errors.Is(err, query.ErrProjectNotFound):
+		return api.ErrKindProjectNotFound
+	case errors.Is(err, query.ErrDependencyNotFound):
+		return api.ErrKindDependencyNotFound
+	case errors.Is(err, query.ErrNoActiveGeneration):
+		return api.ErrKindNoActiveGeneration
+	default:
+		return ""
+	}
 }
