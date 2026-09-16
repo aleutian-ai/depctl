@@ -132,8 +132,8 @@ type daemonSyncTrigger struct {
 	c *client.Client
 }
 
-func (t *daemonSyncTrigger) SyncProject(ctx context.Context, projectID string, progress func(line string)) (synced, failed, skipped int, err error) {
-	resp, err := t.c.Sync(ctx, api.SyncRequest{ProjectID: projectID}, lineWriter(progress))
+func (t *daemonSyncTrigger) SyncProject(ctx context.Context, projectID, dependency string, progress func(line string)) (synced, failed, skipped int, err error) {
+	resp, err := t.c.Sync(ctx, api.SyncRequest{ProjectID: projectID, Dependency: dependency}, lineWriter(progress))
 	if err != nil {
 		return 0, 0, 0, err
 	}
@@ -143,6 +143,17 @@ func (t *daemonSyncTrigger) SyncProject(ctx context.Context, projectID string, p
 		skipped += r.Skipped
 	}
 	return synced, failed, skipped, nil
+}
+
+// daemonPriorityBumper implements mcp.PriorityBumper over the daemon's
+// HTTP API (WATCH-020) — a thin wrapper, same shape as daemonSyncTrigger
+// above.
+type daemonPriorityBumper struct {
+	c *client.Client
+}
+
+func (b *daemonPriorityBumper) BumpSyncPriority(ctx context.Context, projectID, dependency string) (bool, error) {
+	return b.c.BumpSyncPriority(ctx, projectID, dependency)
 }
 
 // daemonScanTrigger implements mcp.ScanTrigger over the daemon's HTTP

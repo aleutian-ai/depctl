@@ -32,6 +32,50 @@ type SyncOptions struct {
 	Offline    bool
 	Force      bool
 	Resolve    bool
+	// Priority is set by Scheduler.start for every run it launches
+	// (never by a caller of Request) — RunSync consults it between
+	// actions to let a concurrent BumpPriority call reorder this run's
+	// remaining queue (WATCH-020). Always non-nil for a
+	// Scheduler-launched run; nil for anything constructed directly
+	// (tests, and any future caller that bypasses the Scheduler) — a
+	// nil *SyncPriority is a valid, always-empty no-op.
+	Priority *SyncPriority
+}
+
+// SyncPriority is a small FIFO of dependency names a concurrent caller
+// wants prioritized within an already-running sync (WATCH-020) — see
+// Scheduler.BumpPriority. Nil-receiver-safe throughout, so a caller that
+// never sets one (SyncOptions.Priority left nil) pays nothing extra.
+type SyncPriority struct {
+	mu      sync.Mutex
+	pending []string
+}
+
+// Bump adds dependency to the queue of names RunSync should move to the
+// front of its remaining work the next time it checks.
+func (p *SyncPriority) Bump(dependency string) {
+	if p == nil {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.pending = append(p.pending, dependency)
+}
+
+// Drain returns every pending bump and clears it — a cheap, non-blocking
+// poll RunSync's action loop calls between actions, not a channel read
+// (that loop runs synchronously; there's no natural place to block on a
+// channel between one dependency's sync finishing and the next one
+// starting).
+func (p *SyncPriority) Drain() []string {
+	if p == nil {
+		return nil
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	pending := p.pending
+	p.pending = nil
+	return pending
 }
 
 // SyncFunc runs one sync to completion, writing progress to out.
@@ -114,6 +158,10 @@ type projectState struct {
 	dirty   bool
 	pending SyncOptions
 	waiters []*waiter
+	// priority is the currently-running sync's live SyncPriority, set by
+	// start and cleared by finish — nil whenever no sync is running for
+	// this project, which is exactly what BumpPriority checks.
+	priority *SyncPriority
 }
 
 // waiter is one caller's interest in the next run for a project: where
@@ -292,7 +340,15 @@ func (s *Scheduler) Wait() { s.inFlight.Wait() }
 
 // start launches one run. The caller holds s.mu and has already marked
 // the project as syncing.
+// start launches one run. Callers hold s.mu already (Request, finish),
+// so setting st.priority here is safe without a separate lock.
 func (s *Scheduler) start(projectID string, opts SyncOptions, waiters []*waiter) {
+	priority := &SyncPriority{}
+	if st := s.projects[projectID]; st != nil {
+		st.priority = priority
+	}
+	opts.Priority = priority
+
 	s.inFlight.Add(1)
 	go func() {
 		defer s.inFlight.Done()
@@ -300,6 +356,22 @@ func (s *Scheduler) start(projectID string, opts SyncOptions, waiters []*waiter)
 		deliver(waiters, result)
 		s.finish(projectID)
 	}()
+}
+
+// BumpPriority asks the currently-running sync for projectID, if any,
+// to move dependency to the front of its remaining work the next time
+// it checks (WATCH-020). Returns false when no sync is currently
+// running for projectID — the caller (a JIT single-dependency sync
+// request, WATCH-019) falls back to its own plain Request in that case.
+func (s *Scheduler) BumpPriority(projectID, dependency string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	st := s.projects[projectID]
+	if st == nil || !st.syncing || st.priority == nil {
+		return false
+	}
+	st.priority.Bump(dependency)
+	return true
 }
 
 // execute runs one sync, turning a panic into an error so one project
@@ -353,6 +425,7 @@ func (s *Scheduler) finish(projectID string) {
 		return
 	}
 	st.syncing = false
+	st.priority = nil
 	if s.stopped && len(st.waiters) > 0 {
 		deliver(st.waiters, Result{Err: ErrShuttingDown})
 		st.waiters = nil

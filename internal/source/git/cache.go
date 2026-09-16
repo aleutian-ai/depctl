@@ -1,9 +1,13 @@
 // Package git implements ragctl's local Git acquisition layer: one shared
-// bare mirror per repository, on-demand tag fetches, ref-to-commit
-// resolution, disposable worktree materialization, and file-level delta
-// computation between two commits. Every operation shells out to the
-// system git binary via internal/executil — no Git wire protocol or object
-// parsing is implemented directly.
+// bare mirror per repository (cloned blobless via --filter=blob:none,
+// GIT-005 — full history/tags transfer, file content is fetched lazily
+// on checkout), on-demand tag fetches, ref-to-commit resolution,
+// sparse-checkout-scoped disposable worktree materialization (only the
+// doc-shaped files a normalizer would actually read, with a transparent
+// fallback to a full checkout if the pattern set matches nothing), and
+// file-level delta computation between two commits. Every operation
+// shells out to the system git binary via internal/executil — no Git
+// wire protocol or object parsing is implemented directly.
 package git
 
 import (
@@ -68,6 +72,17 @@ func (c *Cache) lockMirror(repoPath string) func() {
 // EnsureMirror clones rawURL as a bare mirror under the cache root if one
 // doesn't already exist locally; an existing mirror is left untouched —
 // call FetchTags to update it.
+//
+// The clone uses --filter=blob:none (a blobless partial clone, GIT-005):
+// full commit/tag history and tree metadata are still transferred in
+// full — cross-version diffing needs that — but file content (blobs)
+// is fetched lazily, only when something actually checks it out.
+// Real hosts that don't support the filter (or a local git old enough
+// not to know the flag at all) don't need special-casing here: a
+// server lacking filter support just warns and clones unfiltered
+// automatically (verified directly against a real git invocation while
+// building this ticket) — only a local git literally too old to parse
+// the flag fails outright, handled below with one plain retry.
 func (c *Cache) EnsureMirror(ctx context.Context, rawURL string) (string, error) {
 	repoPath, err := mirrorPath(c.root, rawURL)
 	if err != nil {
@@ -84,9 +99,19 @@ func (c *Cache) EnsureMirror(ctx context.Context, rawURL string) (string, error)
 	}
 
 	result, err := executil.Run(ctx, executil.RunOptions{
-		Args:    []string{"git", "clone", "--mirror", rawURL, repoPath},
+		Args:    []string{"git", "clone", "--mirror", "--filter=blob:none", rawURL, repoPath},
 		Timeout: defaultCloneTimeout,
 	})
+	if err != nil || result.ExitCode != 0 {
+		// A local git too old to know --filter at all is the only
+		// realistic case that reaches here rather than degrading
+		// gracefully on its own — retry once without it.
+		os.RemoveAll(repoPath)
+		result, err = executil.Run(ctx, executil.RunOptions{
+			Args:    []string{"git", "clone", "--mirror", rawURL, repoPath},
+			Timeout: defaultCloneTimeout,
+		})
+	}
 	if err != nil {
 		return "", &CacheError{Op: "EnsureMirror", Kind: ErrKindTransient, Cause: err}
 	}

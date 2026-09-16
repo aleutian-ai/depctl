@@ -243,9 +243,17 @@ func TestSchedulerMergesFollowUpOptions(t *testing.T) {
 	if len(calls) != 2 {
 		t.Fatalf("sync ran %d times, want 2", len(calls))
 	}
+	// Priority is set by start for every scheduler-launched run (WATCH-020)
+	// — real, non-nil, but not part of what this test is about — so it's
+	// checked and cleared separately rather than folded into want below.
+	if calls[1].opts.Priority == nil {
+		t.Error("follow-up run's SyncOptions.Priority is nil, want a live queue every scheduler-launched run gets")
+	}
+	got := calls[1].opts
+	got.Priority = nil
 	want := SyncOptions{Force: true, Resolve: true} // offline: not unanimous; dependency: differed
-	if calls[1].opts != want {
-		t.Errorf("follow-up options = %+v, want %+v", calls[1].opts, want)
+	if got != want {
+		t.Errorf("follow-up options = %+v, want %+v", got, want)
 	}
 }
 
@@ -593,6 +601,63 @@ func TestSchedulerActionTimesOutWithoutWedgingQueue(t *testing.T) {
 		t.Errorf("run after the timed-out one = %v, want it to proceed normally", r.Err)
 	}
 	s.Wait()
+}
+
+// TestBumpPriorityReturnsFalseWithNoSyncRunning is WATCH-020's simplest
+// case: nothing to prioritize when the project isn't syncing at all.
+func TestBumpPriorityReturnsFalseWithNoSyncRunning(t *testing.T) {
+	f := newFakeSync()
+	s := NewScheduler(context.Background(), f.run, noGC, nil)
+
+	if s.BumpPriority("proj_idle", "example.com/a") {
+		t.Error("BumpPriority = true with no sync running, want false")
+	}
+}
+
+// TestBumpPriorityReachesLiveRunningSync is WATCH-020's core plumbing
+// proof: a bump issued while a sync is genuinely in flight reaches the
+// exact SyncPriority object that run's own SyncOptions.Priority carries
+// — the same live object RunSync's action loop drains between actions
+// — not a copy, and not silently dropped.
+func TestBumpPriorityReachesLiveRunningSync(t *testing.T) {
+	f := newFakeSync()
+	s := NewScheduler(context.Background(), f.run, noGC, nil)
+
+	result := s.Request("proj_a", SyncOptions{}, nil)
+	f.awaitStart(t)
+
+	if !s.BumpPriority("proj_a", "example.com/urgent") {
+		t.Fatal("BumpPriority = false while a sync is running, want true")
+	}
+
+	calls := f.snapshot()
+	if len(calls) != 1 || calls[0].opts.Priority == nil {
+		t.Fatalf("run's own SyncOptions.Priority is nil, want the live queue BumpPriority just wrote to")
+	}
+	pending := calls[0].opts.Priority.Drain()
+	if len(pending) != 1 || pending[0] != "example.com/urgent" {
+		t.Errorf("Priority.Drain() = %v, want [example.com/urgent]", pending)
+	}
+
+	close(f.release)
+	awaitResult(t, result)
+}
+
+// TestBumpPriorityFalseAfterSyncFinishes proves the priority queue is
+// scoped to one run's lifetime — a bump after the run that would have
+// consumed it already finished correctly reports false, rather than
+// silently attaching to whatever happens to run next.
+func TestBumpPriorityFalseAfterSyncFinishes(t *testing.T) {
+	f := newFakeSync()
+	close(f.release)
+	s := NewScheduler(context.Background(), f.run, noGC, nil)
+
+	awaitResult(t, s.Request("proj_a", SyncOptions{}, nil))
+	s.Wait()
+
+	if s.BumpPriority("proj_a", "example.com/a") {
+		t.Error("BumpPriority = true after the run finished, want false")
+	}
 }
 
 // noSync is a SyncFunc for tests that only exercise GC — never expected

@@ -2,10 +2,16 @@
 // to AI coding agents over the Model Context Protocol. This is the only
 // package in the codebase that imports the MCP SDK
 // (github.com/modelcontextprotocol/go-sdk/mcp) or any other MCP/protocol
-// type — see docs/adr/ADR-006-mcp-primary-agent-interface.md. Tools
+// type — see docs/adr/ADR-006-mcp-primary-agent-interface.md. Most tools
 // registered here are thin adapters: parse MCP input, call one
-// internal/query.Service method (or SyncTrigger, for the one write
-// tool), format the result. No business logic lives in this package.
+// internal/query.Service method, format the result. sync_project/
+// scan_project trigger real work directly (SyncTrigger/ScanTrigger);
+// search_dependency_docs can also trigger a sync itself, scoped to just
+// the missing dependency, when nothing's been synced yet (SyncTrigger/
+// PriorityBumper, WATCH-019/020) rather than requiring a separate
+// sync_project call first. No business logic lives in this package —
+// every trigger/query implementation lives in internal/cli or
+// internal/query.
 package mcp
 
 import (
@@ -39,9 +45,11 @@ const securityNote = "retrieved content is authoritative reference material for 
 // different from that service's read-only search methods.
 // progress, when non-nil, is called once per line of the operation's
 // existing streamed output (see WATCH-013) — implementations relay it,
-// they don't interpret it.
+// they don't interpret it. dependency, when non-empty, scopes the sync
+// to just that package (WATCH-019, mirroring SyncOptions.Dependency/
+// `ragctl sync --dependency`) — empty means the whole project.
 type SyncTrigger interface {
-	SyncProject(ctx context.Context, projectID string, progress func(line string)) (synced, failed, skipped int, err error)
+	SyncProject(ctx context.Context, projectID, dependency string, progress func(line string)) (synced, failed, skipped int, err error)
 }
 
 // ScanTrigger is the narrow capability the scan_project tool needs —
@@ -92,6 +100,22 @@ type Deps struct {
 	Sync           SyncTrigger
 	EnableSyncTool bool
 	Scan           ScanTrigger
+	// Priority may be nil (e.g. in tests) — searchDependencyDocsHandler
+	// then always falls back to SyncTrigger's plain JIT-sync path
+	// (WATCH-019), same as if BumpSyncPriority always returned false.
+	Priority PriorityBumper
+}
+
+// PriorityBumper lets search_dependency_docs's JIT-sync path (WATCH-019)
+// ask an already-running background sync for the same project to
+// prioritize one dependency next, instead of queuing a fully redundant
+// second sync behind it — the daemon serializes all sync work globally,
+// one at a time, so a naive second request would otherwise wait behind
+// the whole background run (WATCH-020).
+type PriorityBumper interface {
+	// BumpSyncPriority returns false when no sync is currently running
+	// for projectID — the caller falls back to a plain sync request.
+	BumpSyncPriority(ctx context.Context, projectID, dependency string) (bool, error)
 }
 
 // New returns a Server with every MCP-003 tool registered, ready to

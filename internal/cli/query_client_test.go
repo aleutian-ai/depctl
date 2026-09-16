@@ -102,7 +102,7 @@ func TestDaemonSyncTriggerRoundTripsThroughRealDaemon(t *testing.T) {
 	// would surface as err != nil here, not a per-item failed count).
 	trigger := &daemonSyncTrigger{c: c}
 	var lines []string
-	synced, failed, skipped, err := trigger.SyncProject(ctx, st.Projects[0].ID, func(line string) {
+	synced, failed, skipped, err := trigger.SyncProject(ctx, st.Projects[0].ID, "", func(line string) {
 		lines = append(lines, line)
 	})
 	if err != nil {
@@ -113,6 +113,43 @@ func TestDaemonSyncTriggerRoundTripsThroughRealDaemon(t *testing.T) {
 	}
 	if len(lines) == 0 {
 		t.Error("SyncProject's progress callback got no lines, want at least the FAIL line RunSync streams")
+	}
+}
+
+// TestDaemonSyncTriggerDependencyFilterReachesRealSyncOptions is
+// WATCH-019's wiring proof: dependency threads all the way from
+// daemonSyncTrigger.SyncProject through a real api.SyncRequest into
+// RunSync's own --dependency filter (internal/cli/sync.go), not just
+// passed to a mock. A dependency name that matches nothing produces a
+// genuine no-op (0/0/0) even though the project has one real,
+// resolvable dependency that would otherwise fail at the backend step —
+// proof the filter is actually being applied server-side, not ignored.
+func TestDaemonSyncTriggerDependencyFilterReachesRealSyncOptions(t *testing.T) {
+	isolateEnv(t)
+	requireGo(t)
+	runInitForTest(t)
+	useRealRagctlBinary(t)
+
+	scanDepFixture(t)
+	ctx := context.Background()
+
+	c, err := ensureDaemon(ctx)
+	if err != nil {
+		t.Fatalf("ensureDaemon: %v", err)
+	}
+	svc := &daemonQueryService{c: c}
+	st, err := svc.Status(ctx)
+	if err != nil || len(st.Projects) != 1 {
+		t.Fatalf("Status: %v, %+v", err, st)
+	}
+
+	trigger := &daemonSyncTrigger{c: c}
+	synced, failed, skipped, err := trigger.SyncProject(ctx, st.Projects[0].ID, "does-not-exist", func(string) {})
+	if err != nil {
+		t.Fatalf("SyncProject: %v", err)
+	}
+	if synced != 0 || failed != 0 || skipped != 0 {
+		t.Errorf("SyncProject with a non-matching dependency filter = synced=%d failed=%d skipped=%d, want 0/0/0 (the filter should have excluded the project's one real dependency)", synced, failed, skipped)
 	}
 }
 
@@ -145,5 +182,41 @@ func TestLineWriterNilCallbackDiscardsSilently(t *testing.T) {
 	w := lineWriter(nil)
 	if _, err := w.Write([]byte("anything\n")); err != nil {
 		t.Fatalf("Write: %v", err)
+	}
+}
+
+// TestDaemonPriorityBumperRoundTripsThroughRealDaemon is WATCH-020's
+// wiring proof: daemonPriorityBumper reaches a real daemon's
+// Scheduler.BumpPriority over the real /v1/sync/priority HTTP endpoint,
+// not a mock. No sync is running for this project, so the real,
+// correct answer is false — proving the round trip itself works
+// without needing to orchestrate a genuinely slow background sync just
+// to observe true.
+func TestDaemonPriorityBumperRoundTripsThroughRealDaemon(t *testing.T) {
+	isolateEnv(t)
+	requireGo(t)
+	runInitForTest(t)
+	useRealRagctlBinary(t)
+
+	scanDepFixture(t)
+	ctx := context.Background()
+
+	c, err := ensureDaemon(ctx)
+	if err != nil {
+		t.Fatalf("ensureDaemon: %v", err)
+	}
+	svc := &daemonQueryService{c: c}
+	st, err := svc.Status(ctx)
+	if err != nil || len(st.Projects) != 1 {
+		t.Fatalf("Status: %v, %+v", err, st)
+	}
+
+	bumper := &daemonPriorityBumper{c: c}
+	bumped, err := bumper.BumpSyncPriority(ctx, st.Projects[0].ID, "example.com/foo")
+	if err != nil {
+		t.Fatalf("BumpSyncPriority: %v", err)
+	}
+	if bumped {
+		t.Error("BumpSyncPriority = true with no sync running, want false")
 	}
 }

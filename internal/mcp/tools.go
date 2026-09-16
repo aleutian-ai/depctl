@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync/atomic"
+	"time"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -15,8 +17,8 @@ import (
 func registerTools(sdk *sdkmcp.Server, deps Deps) {
 	sdkmcp.AddTool(sdk, &sdkmcp.Tool{
 		Name:        "search_dependency_docs",
-		Description: "Search version-correct documentation/source for a project's dependency. Returns matched chunks with provenance.",
-	}, searchDependencyDocsHandler(deps.Query))
+		Description: "Search version-correct documentation/source for a project's dependency. Returns matched chunks with provenance. If the dependency hasn't been synced yet, this triggers a sync scoped to just that one dependency and retries automatically (when server.mcp.enable_sync_tool is true) — no need to call sync_project first for a single missing dependency.",
+	}, searchDependencyDocsHandler(deps.Query, deps.Sync, deps.EnableSyncTool, deps.Priority))
 
 	sdkmcp.AddTool(sdk, &sdkmcp.Tool{
 		Name:        "get_dependency_version",
@@ -40,7 +42,7 @@ func registerTools(sdk *sdkmcp.Server, deps Deps) {
 
 	sdkmcp.AddTool(sdk, &sdkmcp.Tool{
 		Name:        "sync_project",
-		Description: "Trigger a knowledge sync for a project: builds/updates its searchable dependency documentation. Enabled by default (server.mcp.enable_sync_tool: false to disable for a read-only session). A first sync of a project with many dependencies clones and indexes each one, which can take a while — attach a progress token to the call to receive one notification per dependency as it completes.",
+		Description: "Trigger a knowledge sync for a project: builds/updates its searchable dependency documentation. Enabled by default (server.mcp.enable_sync_tool: false to disable for a read-only session). A first sync of a project with many dependencies clones and indexes each one, which can take a while — attach a progress token to the call to receive one notification per dependency as it completes. This call itself returns within a bounded time regardless: if the response has still_running: true, the sync did not fail and is continuing on the server — check list_project_dependencies/knowledge_status or call sync_project again rather than treating it as an error.",
 	}, syncProjectHandler(deps.Query, deps.Sync, deps.EnableSyncTool))
 
 	sdkmcp.AddTool(sdk, &sdkmcp.Tool{
@@ -104,15 +106,51 @@ type SearchDependencyDocsOut struct {
 	Note   string              `json:"note"`
 }
 
-func searchDependencyDocsHandler(svc QueryService) sdkmcp.ToolHandlerFor[SearchDependencyDocsIn, SearchDependencyDocsOut] {
+// jitSyncPriorityWaitBound bounds how long searchDependencyDocsHandler
+// waits for a priority-bumped dependency (WATCH-020) to become active
+// within an already-running background sync — mirrors
+// mcpSyncWaitBound's own calibration (WATCH-018) against real observed
+// MCP client timeouts. A var, not a const, so tests can shorten it.
+var jitSyncPriorityWaitBound = 90 * time.Second
+
+// searchDependencyDocsHandler's sync/enableSync/priority params exist
+// purely for WATCH-019/WATCH-020's JIT-sync-on-miss branch below — nil
+// sync (or enableSync false) leaves search behavior identical to before
+// those tickets; nil priority just means BumpSyncPriority is never
+// tried, falling straight to WATCH-019's plain path.
+func searchDependencyDocsHandler(svc QueryService, sync SyncTrigger, enableSync bool, priority PriorityBumper) sdkmcp.ToolHandlerFor[SearchDependencyDocsIn, SearchDependencyDocsOut] {
 	return func(ctx context.Context, req *sdkmcp.CallToolRequest, in SearchDependencyDocsIn) (*sdkmcp.CallToolResult, SearchDependencyDocsOut, error) {
 		mode := query.QueryMode(in.Mode)
 		if mode == "" {
 			mode = query.ModeProject
 		}
-		result, err := svc.SearchKnowledge(ctx, query.Query{
-			ProjectID: in.ProjectID, Text: in.Query, Dependency: in.Dependency, Mode: mode,
-		})
+		q := query.Query{ProjectID: in.ProjectID, Text: in.Query, Dependency: in.Dependency, Mode: mode}
+		result, err := svc.SearchKnowledge(ctx, q)
+		if err != nil && errors.Is(err, query.ErrNoActiveGeneration) && in.Dependency != "" && enableSync && sync != nil {
+			// WATCH-020: try prioritizing within an already-running
+			// background sync for this project first — a naive second
+			// sync request would otherwise queue behind the whole
+			// background run (the daemon serializes all sync work
+			// globally, one at a time).
+			bumped := false
+			if priority != nil {
+				bumped, _ = priority.BumpSyncPriority(ctx, in.ProjectID, in.Dependency)
+			}
+			if bumped {
+				result, err = waitForDependencyGeneration(ctx, svc, q)
+			} else {
+				// WATCH-019: no background sync running — a resolvable
+				// dependency simply hasn't been synced yet, so trigger
+				// one scoped to just this package and retry once. If
+				// the JIT sync itself fails, fall through and report the
+				// original, well-understood error below rather than a
+				// confusing second one from a call the agent didn't know
+				// was happening.
+				if _, failed, _, syncErr := sync.SyncProject(ctx, in.ProjectID, in.Dependency, nil); syncErr == nil && failed == 0 {
+					result, err = svc.SearchKnowledge(ctx, q)
+				}
+			}
+		}
 		if err != nil {
 			return nil, SearchDependencyDocsOut{}, toolError(err)
 		}
@@ -268,15 +306,36 @@ func knowledgeStatusHandler(svc QueryService) sdkmcp.ToolHandlerFor[KnowledgeSta
 // --- sync_project ---
 
 type SyncProjectIn struct {
-	ProjectID string `json:"project_id"`
+	ProjectID  string `json:"project_id"`
+	Dependency string `json:"dependency,omitempty" jsonschema:"optional — limit the sync to one package instead of the whole project"`
 }
 
 type SyncProjectOut struct {
-	Synced  int    `json:"synced"`
-	Failed  int    `json:"failed"`
-	Skipped int    `json:"skipped"`
-	Note    string `json:"note"`
+	Synced        int    `json:"synced,omitempty"`
+	Failed        int    `json:"failed,omitempty"`
+	Skipped       int    `json:"skipped,omitempty"`
+	StillRunning  bool   `json:"still_running,omitempty"`
+	ReportedSoFar int    `json:"reported_so_far,omitempty"`
+	Total         int    `json:"total,omitempty"`
+	Note          string `json:"note"`
 }
+
+// mcpSyncWaitBound bounds how long syncProjectHandler waits for
+// SyncTrigger.SyncProject before returning a partial, still-running
+// response instead — so an MCP tool call never blocks a calling client
+// past this, no matter how long the underlying sync legitimately takes
+// (up to maxActionDuration, internal/daemon/scheduler.go).
+//
+// Live-found calibration: opencode's own tool-call timeout (unrelated
+// to anything ragctl controls — the MCP spec doesn't standardize one)
+// was observed at roughly 5 minutes in the session that found this gap.
+// 90s sits well under that with real margin, while still being long
+// enough that a typical sync of a handful of small-to-medium
+// dependencies finishes within it and never hits the still-running path
+// at all. A var, not a const, so tests can shorten it.
+var mcpSyncWaitBound = 90 * time.Second
+
+const syncStillRunningNote = "the sync is still running in the background and was not cancelled by this call returning — wait a bit and call list_project_dependencies or knowledge_status to check current state, or call sync_project again (concurrent requests for the same project collapse into one, so this is never wasted work)"
 
 func syncProjectHandler(query QueryService, sync SyncTrigger, enabled bool) sdkmcp.ToolHandlerFor[SyncProjectIn, SyncProjectOut] {
 	return func(ctx context.Context, req *sdkmcp.CallToolRequest, in SyncProjectIn) (*sdkmcp.CallToolResult, SyncProjectOut, error) {
@@ -289,11 +348,46 @@ func syncProjectHandler(query QueryService, sync SyncTrigger, enabled bool) sdkm
 				total = len(deps)
 			}
 		}
-		synced, failed, skipped, err := sync.SyncProject(ctx, in.ProjectID, progressReporter(ctx, req, total))
-		if err != nil {
-			return nil, SyncProjectOut{}, fmt.Errorf("sync_project: %w", err)
+
+		var reported atomic.Int64
+		notify := progressReporter(ctx, req, total)
+		progress := func(line string) {
+			reported.Add(1)
+			if notify != nil {
+				notify(line)
+			}
 		}
-		return nil, SyncProjectOut{Synced: synced, Failed: failed, Skipped: skipped, Note: securityNote}, nil
+
+		type result struct {
+			synced, failed, skipped int
+			err                     error
+		}
+		done := make(chan result, 1)
+		// Detached deliberately: if the select below times out and this
+		// handler returns, the sync must keep running exactly as it
+		// already does when a client disconnects mid-sync — see
+		// scheduler.go's identical context.WithoutCancel(s.base) for the
+		// same reasoning, one layer down.
+		bgCtx := context.WithoutCancel(ctx)
+		go func() {
+			synced, failed, skipped, err := sync.SyncProject(bgCtx, in.ProjectID, in.Dependency, progress)
+			done <- result{synced, failed, skipped, err}
+		}()
+
+		select {
+		case r := <-done:
+			if r.err != nil {
+				return nil, SyncProjectOut{}, fmt.Errorf("sync_project: %w", r.err)
+			}
+			return nil, SyncProjectOut{Synced: r.synced, Failed: r.failed, Skipped: r.skipped, Note: securityNote}, nil
+		case <-time.After(mcpSyncWaitBound):
+			return nil, SyncProjectOut{
+				StillRunning:  true,
+				ReportedSoFar: int(reported.Load()),
+				Total:         total,
+				Note:          syncStillRunningNote,
+			}, nil
+		}
 	}
 }
 
@@ -323,6 +417,26 @@ func scanProjectHandler(scan ScanTrigger) sdkmcp.ToolHandlerFor[ScanProjectIn, S
 			return nil, ScanProjectOut{}, fmt.Errorf("scan_project: %w", err)
 		}
 		return nil, ScanProjectOut{ProjectIDs: ids, Summary: summary, Note: securityNote}, nil
+	}
+}
+
+// waitForDependencyGeneration polls SearchKnowledge until it stops
+// reporting ErrNoActiveGeneration (the bumped dependency became active)
+// or jitSyncPriorityWaitBound elapses — WATCH-020's counterpart to
+// WATCH-018's bounded wait, for the case a background sync is already
+// running rather than one this call started itself.
+func waitForDependencyGeneration(ctx context.Context, svc QueryService, q query.Query) (query.SearchResult, error) {
+	deadline := time.Now().Add(jitSyncPriorityWaitBound)
+	for {
+		result, err := svc.SearchKnowledge(ctx, q)
+		if err == nil || !errors.Is(err, query.ErrNoActiveGeneration) || time.Now().After(deadline) {
+			return result, err
+		}
+		select {
+		case <-ctx.Done():
+			return result, ctx.Err()
+		case <-time.After(500 * time.Millisecond):
+		}
 	}
 }
 

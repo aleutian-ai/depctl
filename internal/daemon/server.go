@@ -207,6 +207,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST "+api.PathResolve, s.handleResolve)
 	mux.HandleFunc("POST "+api.PathPlan, s.handlePlan)
 	mux.HandleFunc("POST "+api.PathSync, s.handleSync)
+	mux.HandleFunc("POST "+api.PathSyncPriority, s.handleSyncPriority)
 	mux.HandleFunc("POST "+api.PathGC, s.handleGC)
 	mux.HandleFunc("POST "+api.PathSearch, s.handleSearch)
 	mux.HandleFunc("POST "+api.PathProjectDependencies, s.handleProjectDependencies)

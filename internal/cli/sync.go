@@ -15,6 +15,7 @@ import (
 	"aleutian-ai/ragctl/internal/backend"
 	"aleutian-ai/ragctl/internal/config"
 	bboltstore "aleutian-ai/ragctl/internal/control/bbolt"
+	"aleutian-ai/ragctl/internal/daemon"
 	"aleutian-ai/ragctl/internal/daemon/api"
 	badgerstore "aleutian-ai/ragctl/internal/data/badger"
 	"aleutian-ai/ragctl/internal/data/generation"
@@ -87,7 +88,7 @@ func runSync(cmd *cobra.Command, projectID, dependency string, dryRun, offline, 
 // own Badger store, since Badger only allows one open handle per
 // directory per process and the MCP server already holds one open for
 // query.Service's whole lifetime.
-func RunSync(ctx context.Context, store *bboltstore.Store, badgerStore *badgerstore.Store, cfg config.Config, projectID, dependency string, offline, force bool, out io.Writer, readiness *embeddingReadiness, vecReadiness *vectorReadiness) (synced, failed, skipped int, err error) {
+func RunSync(ctx context.Context, store *bboltstore.Store, badgerStore *badgerstore.Store, cfg config.Config, projectID, dependency string, offline, force bool, out io.Writer, readiness *embeddingReadiness, vecReadiness *vectorReadiness, priority *daemon.SyncPriority) (synced, failed, skipped int, err error) {
 	plans, err := computePlans(ctx, store, cfg.Vector.Backend, projectID)
 	if err != nil {
 		return 0, 0, 0, err
@@ -144,6 +145,15 @@ func RunSync(ctx context.Context, store *bboltstore.Store, badgerStore *badgerst
 		return 0, 0, 0, fmt.Errorf("load registry: %w", err)
 	}
 
+	// Flattened into one ordered queue up front, matching exactly the
+	// traversal order a simple nested range over plans/pp.Actions would
+	// produce (project-by-project, action-by-action) — with no priority
+	// bumps ever arriving, popping from the front reproduces that order
+	// byte-for-byte (WATCH-020's regression guard). A bump moves its
+	// named dependency's SYNC_VERSION action to the very front of
+	// whatever's left, ahead of any other action kind too — "prioritize"
+	// means it runs next, not just next among other syncs.
+	var queue []planner.Action
 	for _, pp := range plans {
 		if pp.Warning != "" {
 			fmt.Fprintf(out, "%s: %s\n", pp.Project.Root, pp.Warning)
@@ -153,46 +163,77 @@ func RunSync(ctx context.Context, store *bboltstore.Store, badgerStore *badgerst
 			if dependency != "" && action.Dependency.Dependency.Name != dependency {
 				continue
 			}
+			queue = append(queue, action)
+		}
+	}
 
-			switch action.Kind {
-			case planner.ActionSyncVersion:
-				if offline {
-					fmt.Fprintf(out, "SKIP (offline)  %s %s\n", action.Dependency.Dependency.Name, action.Dependency.Version)
-					skipped++
-					continue
-				}
-				p, perr := getPipeline()
-				if perr != nil {
-					fmt.Fprintf(out, "FAIL  %s %s: %v\n", action.Dependency.Dependency.Name, action.Dependency.Version, perr)
-					failed++
-					continue
-				}
-				if err := syncVersion(ctx, store, badgerStore, p.gitCache, p.embedder, p.vb, p.ns, reg, action, force); err != nil {
-					fmt.Fprintf(out, "FAIL  %s %s: %v\n", action.Dependency.Dependency.Name, action.Dependency.Version, err)
-					failed++
-					continue
-				}
-				fmt.Fprintf(out, "OK    %s %s\n", action.Dependency.Dependency.Name, action.Dependency.Version)
-				synced++
+	for len(queue) > 0 {
+		for _, dep := range priority.Drain() {
+			queue = bumpActionToFront(queue, dep)
+		}
+		action := queue[0]
+		queue = queue[1:]
 
-			case planner.ActionAddReference:
-				if err := addReference(ctx, store, action); err != nil {
-					fmt.Fprintf(out, "FAIL  reference %s %s: %v\n", action.Dependency.Dependency.Name, action.Dependency.Version, err)
-					failed++
-				}
+		switch action.Kind {
+		case planner.ActionSyncVersion:
+			if offline {
+				fmt.Fprintf(out, "SKIP (offline)  %s %s\n", action.Dependency.Dependency.Name, action.Dependency.Version)
+				skipped++
+				continue
+			}
+			p, perr := getPipeline()
+			if perr != nil {
+				fmt.Fprintf(out, "FAIL  %s %s: %v\n", action.Dependency.Dependency.Name, action.Dependency.Version, perr)
+				failed++
+				continue
+			}
+			if err := syncVersion(ctx, store, badgerStore, p.gitCache, p.embedder, p.vb, p.ns, reg, action, force); err != nil {
+				fmt.Fprintf(out, "FAIL  %s %s: %v\n", action.Dependency.Dependency.Name, action.Dependency.Version, err)
+				failed++
+				continue
+			}
+			fmt.Fprintf(out, "OK    %s %s\n", action.Dependency.Dependency.Name, action.Dependency.Version)
+			synced++
 
-			case planner.ActionDropReference:
-				dep := action.Dependency.Dependency
-				if err := retention.DropReference(ctx, store, dep.Ecosystem, dep.Name, action.Dependency.Version, action.ProjectID); err != nil {
-					fmt.Fprintf(out, "FAIL  drop reference %s: %v\n", action.Dependency.Dependency.Name, err)
-					failed++
-				}
+		case planner.ActionAddReference:
+			if err := addReference(ctx, store, action); err != nil {
+				fmt.Fprintf(out, "FAIL  reference %s %s: %v\n", action.Dependency.Dependency.Name, action.Dependency.Version, err)
+				failed++
+			}
+
+		case planner.ActionDropReference:
+			dep := action.Dependency.Dependency
+			if err := retention.DropReference(ctx, store, dep.Ecosystem, dep.Name, action.Dependency.Version, action.ProjectID); err != nil {
+				fmt.Fprintf(out, "FAIL  drop reference %s: %v\n", action.Dependency.Dependency.Name, err)
+				failed++
 			}
 		}
 	}
 
 	fmt.Fprintf(out, "\n%d synced, %d failed, %d skipped\n", synced, failed, skipped)
 	return synced, failed, skipped, nil
+}
+
+// bumpActionToFront moves the first SYNC_VERSION action for dependency
+// to the front of queue, if one is still there — a no-op if it's
+// already been processed, or was never part of this run at all
+// (WATCH-020's bump-after-the-fact case; the caller times out cleanly
+// rather than hanging, per that ticket's failure behavior).
+func bumpActionToFront(queue []planner.Action, dependency string) []planner.Action {
+	for i, a := range queue {
+		if a.Kind != planner.ActionSyncVersion || a.Dependency.Dependency.Name != dependency {
+			continue
+		}
+		if i == 0 {
+			return queue
+		}
+		reordered := make([]planner.Action, 0, len(queue))
+		reordered = append(reordered, a)
+		reordered = append(reordered, queue[:i]...)
+		reordered = append(reordered, queue[i+1:]...)
+		return reordered
+	}
+	return queue
 }
 
 // addReference upserts the "project"-reason VersionReference a

@@ -70,7 +70,7 @@ func Build(ctx context.Context, gen domain.Generation, sources []registry.Source
 		return err
 	}
 
-	acquired, err := acquireGitSources(ctx, gitCache, gen.Dependency.Version, sources)
+	acquired, err := acquireGitSources(ctx, gitCache, gen.Dependency.Version, gen.Dependency.Dependency.Ecosystem, sources)
 	defer cleanupAll(acquired)
 	if err != nil {
 		fail(ctx, store, &gen, err.Error())
@@ -102,7 +102,16 @@ func Build(ctx context.Context, gen domain.Generation, sources []registry.Source
 // progress is left to the caller's deferred cleanupAll — a failure here
 // doesn't need to unwind what's already been acquired since Build cleans
 // up everything unconditionally.
-func acquireGitSources(ctx context.Context, gitCache *git.Cache, version string, sources []registry.Source) ([]acquiredSource, error) {
+//
+// Worktrees are materialized sparse (GIT-005), scoped to
+// normalize.SparsePatterns(ecosystem) — the doc-shaped file patterns
+// the normalizers in this package's own registry actually read — paired
+// with EnsureMirror's blobless clone so a dependency's non-doc content
+// (source trees in other languages, binary assets, vendored
+// dependencies) is never fetched at all, not just skipped during
+// normalization.
+func acquireGitSources(ctx context.Context, gitCache *git.Cache, version string, ecosystem domain.Ecosystem, sources []registry.Source) ([]acquiredSource, error) {
+	patterns := normalize.SparsePatterns(ecosystem)
 	var acquired []acquiredSource
 	for _, s := range sources {
 		if s.Type != "git" {
@@ -124,7 +133,7 @@ func acquireGitSources(ctx context.Context, gitCache *git.Cache, version string,
 			return acquired, fmt.Errorf("%w: source %s: resolve ref %q: %v", ErrAcquisition, s.ID, ref, err)
 		}
 
-		worktreeDir, cleanup, err := gitCache.MaterializeWorktree(ctx, repoPath, commit)
+		worktreeDir, cleanup, err := gitCache.MaterializeWorktree(ctx, repoPath, commit, patterns)
 		if err != nil {
 			return acquired, fmt.Errorf("%w: source %s: worktree: %v", ErrAcquisition, s.ID, err)
 		}

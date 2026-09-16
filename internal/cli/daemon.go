@@ -450,7 +450,7 @@ func (e *engine) Sync(ctx context.Context, projectID string, opts daemon.SyncOpt
 			return api.SyncResult{}, err
 		}
 	}
-	synced, failed, skipped, err := RunSync(ctx, e.store, e.badgerStore, e.cfg, projectID, opts.Dependency, opts.Offline, opts.Force, out, e.embeddingReadiness, e.vectorReadiness)
+	synced, failed, skipped, err := RunSync(ctx, e.store, e.badgerStore, e.cfg, projectID, opts.Dependency, opts.Offline, opts.Force, out, e.embeddingReadiness, e.vectorReadiness, opts.Priority)
 	return api.SyncResult{ProjectID: projectID, Synced: synced, Failed: failed, Skipped: skipped}, err
 }
 

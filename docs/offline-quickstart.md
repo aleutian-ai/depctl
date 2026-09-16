@@ -228,6 +228,24 @@ it only talks to your already-open bbolt/Badger stores, local Qdrant, and
 (only if you enable `sync_project`, off by default) local Ollama for
 embeddings during a triggered sync.
 
+**[opencode](https://opencode.ai) uses a different config shape** —
+not `mcpServers`, and `command` is a single array (binary + args
+combined), not split into `command`/`args`. In `~/.config/opencode/opencode.json`:
+
+```json
+{
+  "mcp": {
+    "ragctl": {
+      "type": "local",
+      "command": ["/absolute/path/to/build/ragctl", "serve"],
+      "enabled": true
+    }
+  }
+}
+```
+
+See [docs/opencode-usage.md](opencode-usage.md) for the full opencode setup, including auto-managed prerequisites and troubleshooting.
+
 Once connected, ask your model something that should hit
 `search_dependency_docs` with `project_id` (from `ragctl project list`)
 and `dependency: "offline-knowledge"` — every tool result carries a

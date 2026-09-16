@@ -41,6 +41,19 @@ func (s *Server) handleResolve(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleSyncPriority asks the currently-running sync for the requested
+// project, if any, to prioritize the requested dependency next
+// (WATCH-020) — read-only from the scheduler's perspective otherwise,
+// so it never blocks: a plain map lookup plus an append, not a stream.
+func (s *Server) handleSyncPriority(w http.ResponseWriter, r *http.Request) {
+	var req api.SyncPriorityRequest
+	if !decodeBody(w, r, &req) {
+		return
+	}
+	bumped := s.scheduler.BumpPriority(req.ProjectID, req.Dependency)
+	writeJSON(w, http.StatusOK, api.SyncPriorityResponse{Bumped: bumped})
+}
+
 // handleSync queues sync work through the scheduler and waits for the
 // run that covers it, so a CLI sync and a watch-triggered sync can never
 // run at the same time for one project.

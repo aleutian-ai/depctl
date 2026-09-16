@@ -134,6 +134,20 @@ func (c *Client) Sync(ctx context.Context, req api.SyncRequest, out io.Writer) (
 	return res, err
 }
 
+// BumpSyncPriority asks the currently-running sync for projectID, if
+// any, to prioritize dependency next (WATCH-020). The returned bool
+// reports whether a sync was actually running to bump — false means the
+// caller should fall back to a plain Sync request instead. Bounded by
+// the plain default timeout, not the long-running one: this is a
+// read-and-append against in-memory scheduler state, never a stream.
+func (c *Client) BumpSyncPriority(ctx context.Context, projectID, dependency string) (bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, defaultRequestTimeout)
+	defer cancel()
+	var res api.SyncPriorityResponse
+	err := c.do(ctx, http.MethodPost, api.PathSyncPriority, api.SyncPriorityRequest{ProjectID: projectID, Dependency: dependency}, &res)
+	return res.Bumped, err
+}
+
 // Plan decodes the desired-state plan into plans, which is the CLI's own
 // plan type: the wire format is whatever that marshals to.
 func (c *Client) Plan(ctx context.Context, projectID string, plans any) error {

@@ -37,6 +37,11 @@ const (
 	// calling user's shell PATH, not the daemon's) — see
 	// DoctorResponse.NeededExecutables.
 	PathDoctor = "/v1/doctor"
+	// PathSyncPriority asks the currently-running sync for a project (if
+	// any) to prioritize one dependency next (WATCH-020) — distinct from
+	// PathSync, which always either starts a new run or queues a
+	// follow-up; this one only ever affects a run already in flight.
+	PathSyncPriority = "/v1/sync/priority"
 )
 
 // Health is what GET /v1/health reports: enough to identify the running
@@ -135,6 +140,20 @@ type SyncRequest struct {
 // SyncResponse carries one result per project the request covered.
 type SyncResponse struct {
 	Results []SyncResult `json:"results"`
+}
+
+// SyncPriorityRequest asks the currently-running sync for ProjectID, if
+// any, to prioritize Dependency next (WATCH-020).
+type SyncPriorityRequest struct {
+	ProjectID  string `json:"project_id"`
+	Dependency string `json:"dependency"`
+}
+
+// SyncPriorityResponse reports whether a sync was actually running for
+// the requested project to bump — false means the caller should fall
+// back to a plain sync request instead (WATCH-019's JIT-sync path).
+type SyncPriorityResponse struct {
+	Bumped bool `json:"bumped"`
 }
 
 // PlanRequest asks for the desired-state plan without changing anything.

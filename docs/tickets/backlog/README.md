@@ -48,8 +48,9 @@ Not sourced from the original implementation plan doc — added from `docs/scrat
 40. [40-structured-artifact-normalizers](40-structured-artifact-normalizers/INDEX.md) — OpenAPI and protobuf normalizers, one `KnowledgeObject` per operation/RPC method.
 41. [41-retrieval-and-embedding-experiments](41-retrieval-and-embedding-experiments/INDEX.md) — evidence-gated: bounded embedding concurrency, token-aware chunk sizing, chunk-overlap experiment run via the separate `context-evals` repository.
 42. [42-repo-graph-symbol-join](42-repo-graph-symbol-join/INDEX.md) — a thin external-symbol-provider interface and the join from a resolved call-site symbol to ragctl's exact-version evidence.
-43. [43-local-cache-reuse](43-local-cache-reuse/INDEX.md) — cutting duplicate/oversized dependency acquisition cost: fast-path from a dependency's already-local package-manager cache ($GOMODCACHE, node_modules, site-packages) when available (GIT-004), and blobless partial clone + sparse checkout scoped to what ragctl's normalizers actually read (GIT-005), once real usage shows the cost is worth paying down.
 44. [44-containerized-embedding-backend](44-containerized-embedding-backend/INDEX.md) — an opt-in `ragctl backend up` for a self-contained, containerized Ollama + embedding model, as a second installation path alongside (never a replacement for) native Ollama — the daemon itself stays native regardless, per ADR-010.
+
+Epic 43 ([43-local-cache-reuse](../planned/43-local-cache-reuse/INDEX.md)) moved to `planned/` — GIT-005 shipped after real usage showed the cost this epic was waiting for (see that epic's `INDEX.md`); GIT-004 remains unbuilt there.
 
 ## Ticket ID prefixes in this directory
 

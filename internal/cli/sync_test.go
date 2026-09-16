@@ -13,6 +13,7 @@ import (
 
 	"aleutian-ai/ragctl/internal/config"
 	"aleutian-ai/ragctl/internal/domain"
+	"aleutian-ai/ragctl/internal/planner"
 )
 
 func TestSyncDryRunPerformsNoWrites(t *testing.T) {
@@ -436,4 +437,62 @@ func TestFallbackManifestRejectsNonGoEcosystems(t *testing.T) {
 	if _, ok := fallbackManifest(context.Background(), dep); ok {
 		t.Error("fallbackManifest = true for a non-Go ecosystem, want false")
 	}
+}
+
+// syncVersionAction is a small fixture helper for bumpActionToFront's
+// tests — a bare-minimum SYNC_VERSION action naming dep, nothing else
+// about it matters for reordering logic.
+func syncVersionAction(dep string) planner.Action {
+	return planner.Action{
+		Kind:       planner.ActionSyncVersion,
+		Dependency: domain.DependencyVersion{Dependency: domain.Dependency{Name: dep}},
+	}
+}
+
+func TestBumpActionToFrontMovesNamedDependencyToFront(t *testing.T) {
+	queue := []planner.Action{syncVersionAction("a"), syncVersionAction("b"), syncVersionAction("c")}
+	got := bumpActionToFront(queue, "c")
+	want := []string{"c", "a", "b"}
+	for i, a := range got {
+		if a.Dependency.Dependency.Name != want[i] {
+			t.Errorf("bumpActionToFront order = %v, want %v", actionNames(got), want)
+			break
+		}
+	}
+}
+
+func TestBumpActionToFrontAlreadyAtFrontIsNoOp(t *testing.T) {
+	queue := []planner.Action{syncVersionAction("a"), syncVersionAction("b")}
+	got := bumpActionToFront(queue, "a")
+	if actionNames(got)[0] != "a" || actionNames(got)[1] != "b" {
+		t.Errorf("bumpActionToFront order = %v, want unchanged [a b]", actionNames(got))
+	}
+}
+
+func TestBumpActionToFrontMissingDependencyIsNoOp(t *testing.T) {
+	queue := []planner.Action{syncVersionAction("a"), syncVersionAction("b")}
+	got := bumpActionToFront(queue, "not-in-queue")
+	if len(got) != 2 || actionNames(got)[0] != "a" || actionNames(got)[1] != "b" {
+		t.Errorf("bumpActionToFront order = %v, want unchanged [a b] for a dependency not in the queue", actionNames(got))
+	}
+}
+
+func TestBumpActionToFrontSkipsNonSyncVersionActionsWithSameName(t *testing.T) {
+	// An ADD_REFERENCE action can share a dependency name with a later
+	// SYNC_VERSION one — bumping must target the SYNC_VERSION action
+	// specifically, not whatever action happens to match by name first.
+	ref := planner.Action{Kind: planner.ActionAddReference, Dependency: domain.DependencyVersion{Dependency: domain.Dependency{Name: "a"}}}
+	queue := []planner.Action{ref, syncVersionAction("b"), syncVersionAction("a")}
+	got := bumpActionToFront(queue, "a")
+	if got[0].Kind != planner.ActionSyncVersion || got[0].Dependency.Dependency.Name != "a" {
+		t.Errorf("bumpActionToFront = %+v, want the SYNC_VERSION action for %q moved to front, not the ADD_REFERENCE one", got, "a")
+	}
+}
+
+func actionNames(actions []planner.Action) []string {
+	names := make([]string, len(actions))
+	for i, a := range actions {
+		names[i] = a.Dependency.Dependency.Name
+	}
+	return names
 }

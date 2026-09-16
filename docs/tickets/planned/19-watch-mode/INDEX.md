@@ -32,9 +32,13 @@ ragctl CLI / MCP (serve) / watcher
 - [WATCH-015](WATCH-015-vector-backend-readiness.md) — the same background-readiness treatment for Qdrant: found live, right after WATCH-014 shipped, running the real MCP-first scenario end to end — a raw `dial tcp 127.0.0.1:6333: connect: connection refused` was still reaching the agent, once per dependency, because nothing checked Qdrant reachability before `sync`/GC/search tried to use it. *(done)*
 - [WATCH-016](WATCH-016-managed-qdrant-bootstrap.md) — extends WATCH-015: when Qdrant is unreachable and `vector.managed: true` (the new-install default), the daemon starts its own pinned, loopback-only, persistently-stored Qdrant container via podman or docker — Qdrant stays a hard requirement, this just makes satisfying it operationally invisible when possible. Never containerizes the daemon itself. *(done)*
 - [WATCH-017](WATCH-017-doctor-backend-readiness-visibility.md) — `ragctl doctor` gains granular embedding-backend/vector-backend checks surfacing WATCH-014/015/016's state, consistent in wording with what `sync`/search themselves report. *(done)*
+- [WATCH-018](WATCH-018-sync-project-bounded-wait.md) — `sync_project` never blocks an MCP client past a small bound, regardless of how long a first sync of a large dependency legitimately takes; a still-running response tells the agent to check back instead of assuming failure. Found live: opencode's own tool-call timeout gave up on a real sync (`cloudflare/circl`) that was in fact succeeding server-side the whole time — the agent had no way to know that on its own. *(done)*
+
+- [WATCH-019](WATCH-019-jit-sync-on-search.md) — `search_dependency_docs` against an unsynced-but-resolvable dependency triggers a sync scoped to just that dependency and retries, instead of requiring a separate, whole-project `sync_project` call first. The underlying mechanism (`SyncOptions.Dependency`) already existed end to end — just never exposed over MCP. *(done)*
+- [WATCH-020](WATCH-020-sync-priority-preemption.md) — WATCH-019's JIT sync, when a background whole-project sync is already running for the same project, jumps that dependency to the front of the in-progress run's remaining queue instead of queuing a fully redundant second run behind it (the daemon serializes all sync work globally, one at a time). *(done)*
 
 ## Build order
-004 → 005 → **012** → 006 → then 007, 008, 009 in any order (all need 005; 007/008 need 006) → 010 (needs 008's sync endpoint) → 011 → 013 → 014 → 015 → 016 → 017.
+004 → 005 → **012** → 006 → then 007, 008, 009 in any order (all need 005; 007/008 need 006) → 010 (needs 008's sync endpoint) → 011 → 013 → 014 → 015 → 016 → 017 → 018 → 019 → 020.
 
 012 is numbered last but built early, right after the daemon exists, so every client command uses `ensureDaemon` from the start.
 
