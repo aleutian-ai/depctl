@@ -13,6 +13,7 @@ import (
 func TestGCReportsNothingEligibleWhenStoreIsEmpty(t *testing.T) {
 	isolateEnv(t)
 	runInitForTest(t)
+	useRealRagctlBinary(t)
 
 	cmd := NewRootCmd()
 	cmd.SetArgs([]string{"gc", "--dry-run"})
@@ -29,6 +30,7 @@ func TestGCReportsNothingEligibleWhenStoreIsEmpty(t *testing.T) {
 func TestGCDryRunListsCandidateWithoutDeleting(t *testing.T) {
 	isolateEnv(t)
 	runInitForTest(t)
+	useRealRagctlBinary(t)
 
 	store, err := openControlStore()
 	if err != nil {
@@ -53,7 +55,9 @@ func TestGCDryRunListsCandidateWithoutDeleting(t *testing.T) {
 		t.Errorf("output missing expected candidate:\n%s", out.String())
 	}
 
-	// --dry-run must not touch state.
+	// --dry-run must not touch state. Stop the daemon `gc` auto-started
+	// first: it still holds the control store's exclusive lock.
+	stopRunningDaemon(t)
 	store2, err := openControlStore()
 	if err != nil {
 		t.Fatalf("openControlStore: %v", err)
@@ -71,6 +75,7 @@ func TestGCDryRunListsCandidateWithoutDeleting(t *testing.T) {
 func TestGCSkipsCandidatesStillProtectedByReferenceOrPin(t *testing.T) {
 	isolateEnv(t)
 	runInitForTest(t)
+	useRealRagctlBinary(t)
 
 	store, err := openControlStore()
 	if err != nil {

@@ -1,6 +1,6 @@
 # internal/project
 
-`internal/project` discovers local project roots by walking a directory tree for known ecosystem manifest files, and assigns each root a stable, content-derived ID. It's the entry point of the whole pipeline: `ragctl scan` calls `project.Scan` to find what to track before anything else (resolution, registry matching, generation) can happen. See `docs/tickets/planned/04-project-discovery`.
+`internal/project` discovers local project roots by walking a directory tree for known ecosystem manifest files, and assigns each root a stable, content-derived ID. It's the entry point of the whole pipeline: `ragctl scan` calls `project.Scan` to find what to track before anything else (resolution, registry matching, generation) can happen. See `docs/tickets/completed/04-project-discovery`.
 
 ## Key types and functions
 

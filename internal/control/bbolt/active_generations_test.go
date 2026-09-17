@@ -153,3 +153,38 @@ func TestActiveGenerationsScopedByBackend(t *testing.T) {
 		t.Errorf("GetActiveGeneration(other-backend) = %v, want ErrNotFound (promotion is backend-scoped)", err)
 	}
 }
+
+func TestListActivePointersScopesToBackend(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+
+	grpc := testGeneration("gen_grpc", "v1.67.0", domain.GenReady)
+	if err := store.PutGeneration(ctx, grpc); err != nil {
+		t.Fatalf("PutGeneration: %v", err)
+	}
+	if err := store.PromoteGeneration(ctx, grpc, "qdrant"); err != nil {
+		t.Fatalf("PromoteGeneration qdrant: %v", err)
+	}
+	if err := store.PromoteGeneration(ctx, grpc, "other"); err != nil {
+		t.Fatalf("PromoteGeneration other: %v", err)
+	}
+
+	got, err := store.ListActivePointers(ctx, "qdrant")
+	if err != nil {
+		t.Fatalf("ListActivePointers: %v", err)
+	}
+	want := ActivePointer{Ecosystem: domain.EcosystemGo, Dependency: "google.golang.org/grpc", GenerationID: "gen_grpc"}
+	if len(got) != 1 || got[0] != want {
+		t.Errorf("ListActivePointers = %+v, want [%+v]", got, want)
+	}
+}
+
+func TestListActivePointersEmpty(t *testing.T) {
+	got, err := openTestStore(t).ListActivePointers(context.Background(), "qdrant")
+	if err != nil {
+		t.Fatalf("ListActivePointers: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("ListActivePointers = %+v, want none", got)
+	}
+}

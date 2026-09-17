@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 
@@ -26,6 +27,21 @@ func newInitCmd() *cobra.Command {
 // present. It is safe to run repeatedly: existing files/dirs are left
 // untouched, and the summary distinguishes "created" from "already present".
 func runInit(cmd *cobra.Command) error {
+	// init is one of the only commands that opens the stores itself, so
+	// it has to refuse while the daemon owns them (ADR-011).
+	if err := requireNoDaemon(cmd.Context()); err != nil {
+		return err
+	}
+	return initStores(cmd.OutOrStdout())
+}
+
+// initStores is runInit's actual work, factored out so ensureInitialized
+// can run the identical logic silently (to os.Stderr) when a command or
+// MCP tool call needs the stores and they don't exist yet — auto-init on
+// first use rather than a hard "run `ragctl init` first" refusal, since
+// init asks no interactive questions and is safe to run repeatedly (even
+// racing itself: every step here is idempotent).
+func initStores(out io.Writer) error {
 	dataDir, err := config.DefaultDataDir()
 	if err != nil {
 		return fmt.Errorf("resolve data dir: %w", err)
@@ -35,7 +51,6 @@ func runInit(cmd *cobra.Command) error {
 		return fmt.Errorf("resolve config path: %w", err)
 	}
 
-	out := cmd.OutOrStdout()
 	gitDir := filepath.Join(dataDir, "git")
 	registryDir := filepath.Join(dataDir, "registry")
 	controlPath, err := controlDBPath()

@@ -41,6 +41,7 @@ func TestCorpusAddScansOneNewDependency(t *testing.T) {
 	requireGitForCorpus(t)
 	requireGo(t)
 	runInitForTest(t)
+	useRealRagctlBinary(t)
 	repo := newCorpusFixtureRepo(t)
 
 	cmd := NewRootCmd()
@@ -77,6 +78,7 @@ func TestCorpusAddWithoutResyncIsNoOp(t *testing.T) {
 	requireGitForCorpus(t)
 	requireGo(t)
 	runInitForTest(t)
+	useRealRagctlBinary(t)
 	repo := newCorpusFixtureRepo(t)
 
 	add := func() string {
@@ -107,6 +109,7 @@ func TestCorpusAddResyncBumpsVersion(t *testing.T) {
 	requireGitForCorpus(t)
 	requireGo(t)
 	runInitForTest(t)
+	useRealRagctlBinary(t)
 	repo := newCorpusFixtureRepo(t)
 
 	run := func(extraArgs ...string) {
@@ -132,6 +135,7 @@ func TestCorpusRemoveDropsEntry(t *testing.T) {
 	requireGitForCorpus(t)
 	requireGo(t)
 	runInitForTest(t)
+	useRealRagctlBinary(t)
 	repo := newCorpusFixtureRepo(t)
 
 	add := NewRootCmd()

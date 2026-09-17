@@ -12,6 +12,7 @@ import (
 func TestDepsUnknownProject(t *testing.T) {
 	isolateEnv(t)
 	runInitForTest(t)
+	useRealRagctlBinary(t)
 
 	cmd := NewRootCmd()
 	cmd.SetArgs([]string{"deps", "proj_missing"})
@@ -29,6 +30,7 @@ func TestDepsListsResolvedDependencies(t *testing.T) {
 	isolateEnv(t)
 	requireGo(t)
 	runInitForTest(t)
+	useRealRagctlBinary(t)
 
 	base := t.TempDir()
 	writeGoMod(t, filepath.Join(base, "foolocal"), "module example.com/foo\n\ngo 1.21\n")
@@ -41,6 +43,11 @@ func TestDepsListsResolvedDependencies(t *testing.T) {
 	if err := scanCmd.Execute(); err != nil {
 		t.Fatalf("scan: %v", err)
 	}
+
+	// `project list` and `deps` open the control store directly (they
+	// haven't moved to the daemon); release the lock the auto-started
+	// daemon still holds.
+	stopRunningDaemon(t)
 
 	listCmd := NewRootCmd()
 	listCmd.SetArgs([]string{"project", "list"})
@@ -70,6 +77,7 @@ func TestDepsListsResolvedDependencies(t *testing.T) {
 func TestDepsNoResolutionYet(t *testing.T) {
 	isolateEnv(t)
 	runInitForTest(t)
+	useRealRagctlBinary(t)
 
 	// A project can be registered without ever having been resolved
 	// (e.g. its ecosystem isn't supported yet) — deps must say so clearly

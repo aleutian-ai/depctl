@@ -2,7 +2,7 @@
 // this package/version?" — separate from internal/resolver, which answers
 // "what package/version does this project use?" The registry is data
 // (YAML manifests), not code, so packages can be added without touching Go
-// internals. See docs/tickets/planned/07-knowledge-registry.
+// internals. See docs/tickets/completed/07-knowledge-registry.
 package registry
 
 import (

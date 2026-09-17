@@ -2,6 +2,18 @@
 
 Proves that `ragctl` improves knowledge correctness with deterministic, LLM-free checks before anything else (LLM-judge based evaluation is explicitly out of scope for v1). This epic gives the project a way to measure "did version-correct retrieval actually work" and, optionally, to block promotion of a generation that regresses it.
 
+## Status note — conflicts with the `context-evals` proposal (needs a decision, not yet resolved)
+
+`docs/scratch/ragctl_architecture_eval_next_steps-2.md` (§4.3, §12, §15) proposes an *independently useful* eval system living in a **separate repo** (`context-evals`) that grades ragctl, model-only baselines, and other context systems side by side, calling ragctl only through its public CLI/MCP surface — explicitly **never importing ragctl's internal Go packages**, so the benchmark can't accidentally grade implementation details a real agent could never see. That directly conflicts with this epic's design: EVAL-001/003/004 build `internal/eval` as an in-repo package and a `ragctl eval` CLI.
+
+The scratch doc's own split (§12.1 vs §12.2) actually maps cleanly onto splitting this epic rather than deleting it:
+- **Stays in ragctl** (deterministic, ragctl-owned correctness gates — same spirit as the existing VAL-001/002/003 promotion checks): EVAL-002's version-correctness/stale-retrieval/provenance/authority metrics, and EVAL-005's promotion-gate wiring. These check *ragctl's own* invariants and are cheap, LLM-free, and already close to what `lifecycle/validate` does.
+- **Moves to a separate `context-evals` repo, not built here**: EVAL-001's general case model, EVAL-003's Precision@K/Recall@K/MRR/nDCG (comparative benchmarking across systems, not a ragctl invariant), and EVAL-004's CLI/reporting surface — these are exactly the "independently useful measurement boundary" the scratch doc argues for.
+
+Nobody has decided this yet — the tickets below are left as originally specced. Before picking any of them up, confirm with the user whether to (a) keep this epic in-repo as-is, (b) narrow it to just EVAL-002/005 and spin the rest into a new sibling repo, or (c) drop it entirely in favor of `context-evals` handling all of it externally via MCP/CLI.
+
+**2026-09 update:** a deep-dive comparison against Grounded Docs (`docs-mcp-server`) — a mature, MIT-licensed, locally-hosted documentation MCP server with its own MRR/Recall@K/nDCG benchmark — reaffirmed option (b)'s split rather than resolving the decision outright: see [epic 45 (Competitive Validation)](../45-competitive-validation/INDEX.md), which builds the deterministic, ragctl-owned fixtures and invariant tests (atomic promotion under failure, cross-project version isolation, a private-dependency version-break fixture) that stay in this repo either way, while explicitly keeping any cross-system benchmark adapter or head-to-head comparison runner out of ragctl and into a future `context-evals`.
+
 ## Tickets
 
 - [EVAL-001](EVAL-001-eval-case-model.md) — Define the `EvalCase` struct and a YAML fixture loader.

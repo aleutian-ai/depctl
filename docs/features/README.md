@@ -9,4 +9,4 @@ Four end-to-end flows that each span multiple `internal/*` packages and several 
 
 ## What's out of scope here
 
-`ragctl init`/`config validate`/`project`/`deps`/`describe` are single-package-ish flows already fully covered by `docs/architecture.md`'s own sequence diagrams — a feature doc for each would mostly restate that content. Add one here only when a flow grows enough cross-package complexity that architecture.md's command-level diagram stops being enough to reason about it.
+`ragctl init`/`config validate`/`project`/`deps`/`describe`/`status`/`doctor` are single-package-ish flows already fully covered by `docs/architecture.md`'s own sequence diagrams — a feature doc for each would mostly restate that content. `ragctl watch` has no feature doc of its own: it's a trigger for the sync flow (see [sync](sync.md)'s "Where the trigger comes from"), and its watcher is covered in [docs/internal/watch.md](../internal/watch.md). Add one here only when a flow grows enough cross-package complexity that architecture.md's command-level diagram stops being enough to reason about it.

@@ -1,13 +1,9 @@
 package cli
 
 import (
-	"context"
-	"errors"
 	"fmt"
 
 	"github.com/spf13/cobra"
-
-	bboltstore "aleutian-ai/ragctl/internal/control/bbolt"
 )
 
 func newDepsCmd() *cobra.Command {
@@ -22,39 +18,29 @@ func newDepsCmd() *cobra.Command {
 }
 
 func runDeps(cmd *cobra.Command, projectID string) error {
-	store, err := openControlStore()
+	c, err := ensureDaemon(cmd.Context())
 	if err != nil {
-		return fmt.Errorf("open control store: %w", err)
+		return err
 	}
-	defer store.Close()
-
-	ctx := context.Background()
-	if _, err := store.GetProject(ctx, projectID); err != nil {
-		if errors.Is(err, bboltstore.ErrNotFound) {
-			return fmt.Errorf("no registered project with ID %s (run `ragctl project list` to see registered projects)", projectID)
-		}
-		return fmt.Errorf("get project %s: %w", projectID, err)
-	}
-
-	res, err := store.GetResolution(ctx, projectID)
+	p, err := c.ProjectGet(cmd.Context(), projectID)
 	if err != nil {
-		if errors.Is(err, bboltstore.ErrNotFound) {
-			return fmt.Errorf("no resolution for project %s (run `ragctl scan` against its root)", projectID)
-		}
-		return fmt.Errorf("get resolution for %s: %w", projectID, err)
+		return err
+	}
+	if !p.HasResolution {
+		return fmt.Errorf("no resolution for project %s (run `ragctl scan` against its root)", projectID)
 	}
 
 	out := cmd.OutOrStdout()
-	if len(res.Dependencies) == 0 {
+	if len(p.Dependencies) == 0 {
 		fmt.Fprintln(out, "no dependencies")
 		return nil
 	}
-	for _, d := range res.Dependencies {
+	for _, d := range p.Dependencies {
 		directness := "direct"
-		if !d.Dependency.Direct {
+		if !d.Direct {
 			directness = "indirect"
 		}
-		fmt.Fprintf(out, "%-8s %-50s %-12s %s\n", d.Dependency.Ecosystem, d.Dependency.Name, d.Version, directness)
+		fmt.Fprintf(out, "%-8s %-50s %-12s %s\n", d.Ecosystem, d.Name, d.Version, directness)
 	}
 	return nil
 }

@@ -1,0 +1,974 @@
+package cli
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"io/fs"
+	"os"
+	"os/exec"
+	"os/signal"
+	"path/filepath"
+	"strings"
+	"sync"
+	"syscall"
+	"time"
+
+	"github.com/spf13/cobra"
+
+	"aleutian-ai/ragctl/internal/backend"
+	"aleutian-ai/ragctl/internal/config"
+	bboltstore "aleutian-ai/ragctl/internal/control/bbolt"
+	"aleutian-ai/ragctl/internal/daemon"
+	"aleutian-ai/ragctl/internal/daemon/api"
+	"aleutian-ai/ragctl/internal/daemon/client"
+	badgerstore "aleutian-ai/ragctl/internal/data/badger"
+	"aleutian-ai/ragctl/internal/domain"
+	"aleutian-ai/ragctl/internal/query"
+	"aleutian-ai/ragctl/internal/watch"
+)
+
+// ragctlVersion is reported by the daemon over /v1/health.
+const ragctlVersion = "v0.1.0"
+
+// stopWait bounds how long `ragctl daemon stop` waits for the socket to
+// go away after the daemon accepts the request.
+const stopWait = 30 * time.Second
+
+const (
+	// autostartTimeout bounds how long a client waits for a daemon it
+	// started itself to come up.
+	autostartTimeout = 5 * time.Second
+
+	// autostartPoll is how often the client retries the socket while
+	// waiting.
+	autostartPoll = 100 * time.Millisecond
+)
+
+// storeCloseTimeout bounds how long runDaemonRun's shutdown waits for a
+// store's Close to return, in closeWithTimeout.
+const storeCloseTimeout = 10 * time.Second
+
+// closeWithTimeout runs close and returns once it completes or timeout
+// elapses, whichever comes first. A deferred store.Close() blocking
+// forever (observed: badgerStore.Close() hanging specifically on the
+// auto-start daemon lifecycle, root cause not yet found) would otherwise
+// keep the whole daemon process alive indefinitely after Shutdown was
+// already requested and the socket already closed — every client-side
+// check that the daemon "stopped" only confirms the socket is gone, not
+// that the process exited. Writes directly to stderr rather than
+// through the daemon's own logf: this is the one path that must still
+// report something even if whatever's wrong extends to the daemon's
+// normal output machinery.
+func closeWithTimeout(name string, close func() error, timeout time.Duration) {
+	done := make(chan error, 1)
+	go func() { done <- close() }()
+	select {
+	case err := <-done:
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "close %s: %v\n", name, err)
+		}
+	case <-time.After(timeout):
+		fmt.Fprintf(os.Stderr, "close %s did not complete within %s; exiting anyway\n", name, timeout)
+		os.Exit(1)
+	}
+}
+
+// daemonExecutable is the binary auto-start spawns. It is empty in
+// normal use (meaning "this binary"); tests point it at a real ragctl
+// they built, since os.Executable under `go test` is the test binary.
+var daemonExecutable string
+
+// ensureDaemon returns a client for the running daemon, starting one if
+// none is running and config allows it. Every command that needs stored
+// state goes through here: there is deliberately no path that opens the
+// stores directly instead (ADR-011).
+func ensureDaemon(ctx context.Context) (*client.Client, error) {
+	socket, err := socketPath()
+	if err != nil {
+		return nil, err
+	}
+	c, err := client.Dial(ctx, socket)
+	if err == nil {
+		warnIfConfigStale(ctx, c)
+		return c, nil
+	}
+	if !errors.Is(err, client.ErrNotRunning) {
+		return nil, err
+	}
+
+	cfg, err := loadRagctlConfig()
+	if err != nil {
+		return nil, err
+	}
+	if !cfg.Daemon.AutostartEnabled() {
+		return nil, notRunningError(socket)
+	}
+	if err := ensureInitialized(ctx); err != nil {
+		return nil, err
+	}
+	if err := spawnDaemonOnce(socket); err != nil {
+		return nil, err
+	}
+	return waitForDaemon(ctx, socket)
+}
+
+// warnIfConfigStale prints a one-line warning to stderr if config.yaml
+// has changed since the running daemon loaded it — config is loaded
+// once for the daemon's whole lifetime (see docs/internal/daemon.md),
+// so an edit doesn't take effect until the daemon is restarted. Best
+// effort: any error here is swallowed rather than surfaced, since a
+// stale-config warning is a diagnostic nicety, never a reason to fail
+// the caller's actual command. Only called for a daemon ensureDaemon
+// reused via Dial — one just spawned obviously loaded current config.
+func warnIfConfigStale(ctx context.Context, c *client.Client) {
+	health, err := c.Health(ctx)
+	if err != nil {
+		return
+	}
+	stale, err := configIsStale(health.ConfigFingerprint)
+	if err != nil || !stale {
+		return
+	}
+	fmt.Fprintf(os.Stderr, "warning: config.yaml has changed since the running daemon (pid %d) started; the change won't take effect until it restarts — run `ragctl daemon stop` (the next command auto-starts a fresh one)\n", health.PID)
+}
+
+// configIsStale reports whether config.yaml's current fingerprint
+// differs from daemonFingerprint (a Health response's ConfigFingerprint).
+func configIsStale(daemonFingerprint string) (bool, error) {
+	cfg, err := loadRagctlConfig()
+	if err != nil {
+		return false, err
+	}
+	current, err := cfg.Fingerprint()
+	if err != nil {
+		return false, err
+	}
+	return current != daemonFingerprint, nil
+}
+
+// configFreshnessLabel is configIsStale rendered for `ragctl daemon
+// status`'s "config:" line.
+func configFreshnessLabel(daemonFingerprint string) string {
+	stale, err := configIsStale(daemonFingerprint)
+	if err != nil {
+		return "unknown (could not load config.yaml)"
+	}
+	if stale {
+		return "stale (edited since the daemon started; run `ragctl daemon stop`)"
+	}
+	return "current"
+}
+
+// spawnAttempt is one in-flight call to spawnDaemon for a socket: done
+// closes once err is safe to read (the write happens-before the close).
+type spawnAttempt struct {
+	done chan struct{}
+	err  error
+}
+
+var (
+	spawnMu       sync.Mutex
+	spawnAttempts = map[string]*spawnAttempt{}
+)
+
+// spawnDaemonOnce runs spawnDaemon at most once per socket at a time:
+// concurrent ensureDaemon callers in this process (e.g. several commands
+// racing to auto-start) share one attempt and its result instead of each
+// spawning their own subprocess to race bolt.Open's file lock. That
+// race is otherwise real: a losing subprocess can sit blocked in the
+// lock wait past the point the winner already answered, and later
+// inherit the lock — starting a brand new, unrequested daemon — if the
+// winner happens to be told to shut down while it's still waiting. This
+// only closes the window for callers sharing one process; a losing
+// daemon subprocess itself still relies on openControlStoreForDaemonRun's
+// fail-fast timeout to exit before that can happen.
+func spawnDaemonOnce(socket string) error {
+	spawnMu.Lock()
+	if a, ok := spawnAttempts[socket]; ok {
+		spawnMu.Unlock()
+		<-a.done
+		return a.err
+	}
+	a := &spawnAttempt{done: make(chan struct{})}
+	spawnAttempts[socket] = a
+	spawnMu.Unlock()
+
+	a.err = spawnDaemon()
+	close(a.done)
+
+	spawnMu.Lock()
+	delete(spawnAttempts, socket)
+	spawnMu.Unlock()
+	return a.err
+}
+
+// requireNoDaemon fails if a daemon is running, for the few commands
+// that open the stores directly and so can't share them.
+func requireNoDaemon(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	socket, err := socketPath()
+	if err != nil {
+		return err
+	}
+	c, err := client.Dial(ctx, socket)
+	if err != nil {
+		return nil // not running, or unreachable: nothing owns the stores
+	}
+	h, err := c.Health(ctx)
+	if err != nil {
+		return nil
+	}
+	return fmt.Errorf("the ragctl daemon is running (pid %d); stop it first with `ragctl daemon stop`", h.PID)
+}
+
+// notRunningError is what a command reports when there is no daemon and
+// it may not start one.
+func notRunningError(socket string) error {
+	return fmt.Errorf("%w (socket %s); start it with `ragctl daemon run`, or set daemon.autostart: true in config",
+		client.ErrNotRunning, socket)
+}
+
+// ensureInitialized runs the same work `ragctl init` does, silently
+// (status lines to stderr, not stdout — this runs ahead of an auto-start
+// a human never explicitly asked for), if the stores don't exist yet.
+// Auto-init on first use rather than a hard "run `ragctl init` first"
+// refusal: init has no interactive questions, so requiring a manual
+// step first serves no purpose except being a surprise blocker for an
+// MCP session that has no terminal to run it from — see
+// docs/scratch/mcp-bootstrapping.md.
+func ensureInitialized(ctx context.Context) error {
+	controlPath, err := controlDBPath()
+	if err != nil {
+		return err
+	}
+	if _, err := os.Stat(controlPath); err == nil {
+		return nil
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	if err := requireNoDaemon(ctx); err != nil {
+		return err
+	}
+	return initStores(os.Stderr)
+}
+
+// spawnDaemon starts `ragctl daemon run` detached. Its output goes to
+// ragctld.log, never to the caller's stdout: the caller may be `ragctl
+// serve`, whose stdout carries the MCP protocol stream.
+func spawnDaemon() error {
+	exe := daemonExecutable
+	if exe == "" {
+		var err error
+		if exe, err = os.Executable(); err != nil {
+			return fmt.Errorf("locate the ragctl binary: %w", err)
+		}
+		// Under `go test` this is the test binary, and spawning it would
+		// re-run tests instead of starting a daemon.
+		if strings.HasSuffix(filepath.Base(exe), ".test") {
+			return fmt.Errorf("refusing to auto-start %s: it is a test binary, not ragctl", exe)
+		}
+	}
+	logPath, err := daemonLogPath()
+	if err != nil {
+		return err
+	}
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		return fmt.Errorf("open daemon log %s: %w", logPath, err)
+	}
+	defer logFile.Close()
+
+	cmd := exec.Command(exe, "daemon", "run")
+	cmd.Stdin = nil
+	cmd.Stdout = logFile
+	cmd.Stderr = logFile
+	detach(cmd)
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("start ragctl daemon: %w", err)
+	}
+	return cmd.Process.Release()
+}
+
+// waitForDaemon polls the socket until the daemon answers, reporting
+// what the daemon logged if it never does.
+func waitForDaemon(ctx context.Context, socket string) (*client.Client, error) {
+	deadline := time.Now().Add(autostartTimeout)
+	for {
+		c, err := client.Dial(ctx, socket)
+		if err == nil {
+			return c, nil
+		}
+		if !errors.Is(err, client.ErrNotRunning) {
+			return nil, err
+		}
+		if time.Now().After(deadline) {
+			return nil, fmt.Errorf("ragctl daemon did not start within %s; last log lines:\n%s", autostartTimeout, tailDaemonLog())
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(autostartPoll):
+		}
+	}
+}
+
+// tailDaemonLog returns the last few lines of ragctld.log, for errors
+// that report why an auto-started daemon never came up.
+func tailDaemonLog() string {
+	path, err := daemonLogPath()
+	if err != nil {
+		return "(no log available)"
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Sprintf("(could not read %s: %v)", path, err)
+	}
+	lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
+	if len(lines) > 10 {
+		lines = lines[len(lines)-10:]
+	}
+	return strings.Join(lines, "\n")
+}
+
+// engine implements daemon.Engine over the stores the daemon holds open
+// for its lifetime. Every handler's work happens through here, against
+// the same functions the CLI used to call directly.
+type engine struct {
+	store       *bboltstore.Store
+	badgerStore *badgerstore.Store
+	cfg         config.Config
+	controlPath string
+	badgerPath  string
+
+	// embeddingReadiness tracks the background check started in
+	// runDaemonRun (see embedding_readiness.go) — never built or probed
+	// here, only read.
+	embeddingReadiness *embeddingReadiness
+
+	// vectorReadiness tracks the background check started in
+	// runDaemonRun (see vector_readiness.go) — never built or probed
+	// here, only read.
+	vectorReadiness *vectorReadiness
+
+	// baseQueryOnce/baseQuery memoize a query.Service backed only by the
+	// stores — no embedder or vector backend — for the four methods that
+	// never touch those (Status, GetProjectDependencies,
+	// GetDependencyVersion, GetReleaseChanges all read only s.control/
+	// s.data; see internal/query/search.go). Built on first use, but
+	// that's just to keep construction in one place; it makes no network
+	// call, so there'd be no real cost to building it at startup either.
+	baseQueryOnce sync.Once
+	baseQuery     *query.Service
+
+	// fullQueryOnce/fullQuery/fullQueryErr memoize the embedder- and
+	// vector-backend-backed query.Service that SearchKnowledge actually
+	// needs. Kept separate from baseQuery, and built lazily, specifically
+	// so calling Status/ProjectDependencies/DependencyVersion/
+	// ReleaseChanges never forces a live embedder dimension probe — only
+	// Search does, and only on its first call. Same "no network calls
+	// until actually needed" principle RunSync's own lazy pipeline
+	// already follows.
+	fullQueryOnce sync.Once
+	fullQuery     *query.Service
+	fullQueryErr  error
+}
+
+// baseQueryService returns e's memoized, stores-only query.Service —
+// safe for any method that never touches a vector backend or embedder.
+func (e *engine) baseQueryService() *query.Service {
+	e.baseQueryOnce.Do(func() {
+		e.baseQuery = query.New(e.store, e.badgerStore, nil, nil, backend.Namespace{}, e.cfg.Vector.Backend)
+	})
+	return e.baseQuery
+}
+
+// fullQueryService returns e's memoized, fully-wired query.Service,
+// building the embedder and vector backend (and probing embedder
+// dimensions) on first use. Only SearchKnowledge needs this.
+//
+// The readiness check runs every call, outside fullQueryOnce: a
+// "still pulling"/"unreachable" result must never be memoized as if it
+// were the real build outcome, or every later call would keep
+// replaying that stale answer even once the model finishes
+// downloading.
+func (e *engine) fullQueryService(ctx context.Context) (*query.Service, error) {
+	if err := e.embeddingReadiness.checkReady(); err != nil {
+		return nil, err
+	}
+	if err := e.vectorReadiness.checkReady(); err != nil {
+		return nil, err
+	}
+	e.fullQueryOnce.Do(func() {
+		vb, err := buildVectorBackend(e.cfg)
+		if err != nil {
+			e.fullQueryErr = err
+			return
+		}
+		embedder, err := buildEmbedder(e.cfg, e.badgerStore)
+		if err != nil {
+			e.fullQueryErr = err
+			return
+		}
+		dims, err := embedder.Dimensions(ctx)
+		if err != nil {
+			e.fullQueryErr = fmt.Errorf("probe embedder dimensions: %w", err)
+			return
+		}
+		ns := backend.Namespace{Name: e.cfg.Vector.Collection, Dimensions: dims, Distance: "cosine"}
+		e.fullQuery = query.New(e.store, e.badgerStore, vb, embedder, ns, e.cfg.Vector.Backend)
+	})
+	return e.fullQuery, e.fullQueryErr
+}
+
+// Status returns the `ragctl status` snapshot, including a live backend
+// health probe.
+func (e *engine) Status(ctx context.Context) (api.Status, error) {
+	st, err := buildStatus(ctx, e.store, e.cfg.Vector.Backend, e.controlPath, e.badgerPath)
+	if err != nil {
+		return api.Status{}, err
+	}
+	st.Backend = api.BackendStatus{Name: e.cfg.Vector.Backend, Healthy: probeBackend(ctx, e.cfg) == nil}
+	return st, nil
+}
+
+// Projects returns the projects the daemon watches: every registered
+// project with a stored resolution.
+func (e *engine) Projects(ctx context.Context) ([]watch.Project, error) {
+	return watchProjects(ctx, e.store)
+}
+
+// Sync runs one project's sync, re-resolving first when the request came
+// from a manifest change. It is the function the scheduler runs, and it
+// calls exactly the same RunSync as `ragctl sync`.
+func (e *engine) Sync(ctx context.Context, projectID string, opts daemon.SyncOptions, out io.Writer) (api.SyncResult, error) {
+	if opts.Resolve {
+		if err := resolveProject(ctx, e.store, projectID, out); err != nil {
+			return api.SyncResult{}, err
+		}
+	}
+	synced, failed, skipped, err := RunSync(ctx, e.store, e.badgerStore, e.cfg, projectID, opts.Dependency, opts.Offline, opts.Force, out, e.embeddingReadiness, e.vectorReadiness, opts.Priority)
+	return api.SyncResult{ProjectID: projectID, Synced: synced, Failed: failed, Skipped: skipped}, err
+}
+
+// EmbeddingReadiness reports the background embedding-provider check's
+// current state/detail — see api.Health.EmbeddingState.
+func (e *engine) EmbeddingReadiness(ctx context.Context) (state, detail string) {
+	s, d := e.embeddingReadiness.get()
+	return string(s), d
+}
+
+// VectorReadiness reports the background vector-backend check's current
+// state/detail — see api.Health.VectorState.
+func (e *engine) VectorReadiness(ctx context.Context) (state, detail string) {
+	s, d := e.vectorReadiness.get()
+	return string(s), d
+}
+
+// ProjectIDs returns every registered project, resolved or not — what a
+// `ragctl sync` with no --project covers.
+func (e *engine) ProjectIDs(ctx context.Context) ([]string, error) {
+	projects, err := e.store.ListProjects(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list projects: %w", err)
+	}
+	ids := make([]string, 0, len(projects))
+	for _, p := range projects {
+		ids = append(ids, p.ID)
+	}
+	return ids, nil
+}
+
+// Scan discovers and resolves projects under root, the work behind
+// `ragctl scan`.
+func (e *engine) Scan(ctx context.Context, root string, out io.Writer, lockProject func(string) func()) ([]string, error) {
+	return scanAndResolve(ctx, e.store, root, out, lockProject)
+}
+
+// Plan returns the desired-state plan. The result is the CLI's own plan
+// type, which the client decodes back into it.
+func (e *engine) Plan(ctx context.Context, projectID string) (any, error) {
+	return computePlans(ctx, e.store, e.cfg.Vector.Backend, projectID)
+}
+
+// GC plans and runs garbage collection.
+func (e *engine) GC(ctx context.Context, dryRun bool, out io.Writer) (api.GCResult, error) {
+	return RunGC(ctx, e.store, e.badgerStore, e.cfg, dryRun, out, e.vectorReadiness)
+}
+
+// Search runs a knowledge search, the work behind the search_dependency_docs
+// MCP tool.
+func (e *engine) Search(ctx context.Context, req api.SearchRequest) (api.SearchResponse, error) {
+	svc, err := e.fullQueryService(ctx)
+	if err != nil {
+		return api.SearchResponse{}, err
+	}
+	res, err := svc.SearchKnowledge(ctx, query.Query{
+		ProjectID:  req.ProjectID,
+		Text:       req.Text,
+		Dependency: req.Dependency,
+		Mode:       query.QueryMode(req.Mode),
+		TopK:       req.TopK,
+	})
+	if err != nil {
+		return api.SearchResponse{}, err
+	}
+	chunks := make([]api.SearchChunk, len(res.Chunks))
+	for i, c := range res.Chunks {
+		chunks[i] = api.SearchChunk{
+			ChunkID:    c.ChunkID,
+			Content:    c.Content,
+			Score:      c.Score,
+			Ecosystem:  c.Ecosystem,
+			Dependency: c.Dependency,
+			Version:    c.Version,
+			Generation: c.Generation,
+			SourceType: c.SourceType,
+			Authority:  c.Authority,
+			TrustClass: string(c.TrustClass),
+		}
+	}
+	return api.SearchResponse{Chunks: chunks}, nil
+}
+
+// ProjectDependencies lists a project's resolved dependencies, the work
+// behind the list_project_dependencies MCP tool.
+func (e *engine) ProjectDependencies(ctx context.Context, projectID string) (api.ProjectDependenciesResponse, error) {
+	deps, err := e.baseQueryService().GetProjectDependencies(ctx, projectID)
+	if err != nil {
+		return api.ProjectDependenciesResponse{}, err
+	}
+	out := make([]api.ProjectDependency, len(deps))
+	for i, d := range deps {
+		out[i] = api.ProjectDependency{
+			Ecosystem:           string(d.Dependency.Dependency.Ecosystem),
+			Name:                d.Dependency.Dependency.Name,
+			Direct:              d.Dependency.Dependency.Direct,
+			Version:             d.Dependency.Version,
+			ResolvedBy:          d.Dependency.ResolvedBy,
+			HasActiveGeneration: d.HasActiveGeneration,
+		}
+	}
+	return api.ProjectDependenciesResponse{Dependencies: out}, nil
+}
+
+// DependencyVersion resolves one package's version within a project, the
+// work behind the get_dependency_version MCP tool.
+func (e *engine) DependencyVersion(ctx context.Context, projectID, pkg string) (api.DependencyVersionResponse, error) {
+	dv, err := e.baseQueryService().GetDependencyVersion(ctx, projectID, pkg)
+	if err != nil {
+		return api.DependencyVersionResponse{}, err
+	}
+	return api.DependencyVersionResponse{
+		Ecosystem:  string(dv.Dependency.Ecosystem),
+		Name:       dv.Dependency.Name,
+		Direct:     dv.Dependency.Direct,
+		Version:    dv.Version,
+		ResolvedBy: dv.ResolvedBy,
+		Checksum:   dv.Checksum,
+	}, nil
+}
+
+// ReleaseChanges gets release-note excerpts between two versions of a
+// dependency, the work behind the get_release_changes MCP tool.
+func (e *engine) ReleaseChanges(ctx context.Context, dependency, from, to string) (api.ReleaseChangesResponse, error) {
+	changes, err := e.baseQueryService().GetReleaseChanges(ctx, dependency, from, to)
+	if err != nil {
+		return api.ReleaseChangesResponse{}, err
+	}
+	out := make([]api.ReleaseChange, len(changes))
+	for i, c := range changes {
+		out[i] = api.ReleaseChange{Ecosystem: c.Ecosystem, Version: c.Version, Excerpt: c.Excerpt}
+	}
+	return api.ReleaseChangesResponse{Changes: out}, nil
+}
+
+// KnowledgeStatus summarizes fleet-wide sync coverage, the work behind
+// the knowledge_status MCP tool.
+func (e *engine) KnowledgeStatus(ctx context.Context) (api.KnowledgeStatusResponse, error) {
+	st, err := e.baseQueryService().Status(ctx)
+	if err != nil {
+		return api.KnowledgeStatusResponse{}, err
+	}
+	projects := make([]api.ProjectRef, len(st.Projects))
+	for i, p := range st.Projects {
+		projects[i] = api.ProjectRef{ID: p.ID, Root: p.Root}
+	}
+	return api.KnowledgeStatusResponse{
+		TotalProjects:           st.TotalProjects,
+		TotalDependencies:       st.TotalDependencies,
+		WithActiveGeneration:    st.WithActiveGeneration,
+		WithoutActiveGeneration: st.WithoutActiveGeneration,
+		Projects:                projects,
+	}, nil
+}
+
+// ProjectList lists every registered project, the work behind
+// `ragctl project list`.
+func (e *engine) ProjectList(ctx context.Context) (api.ProjectListResponse, error) {
+	projects, err := e.store.ListProjects(ctx)
+	if err != nil {
+		return api.ProjectListResponse{}, fmt.Errorf("list projects: %w", err)
+	}
+	out := make([]api.ProjectSummary, len(projects))
+	for i, p := range projects {
+		out[i] = api.ProjectSummary{ID: p.ID, Root: p.Root}
+	}
+	return api.ProjectListResponse{Projects: out}, nil
+}
+
+// ProjectGet gets one project's full detail, the work behind
+// `ragctl project show` and `ragctl deps`.
+func (e *engine) ProjectGet(ctx context.Context, projectID string) (api.ProjectGetResponse, error) {
+	// The friendly message is built here, not left to the caller to
+	// construct from an error type: an HTTP error crossing the daemon
+	// socket is a plain string (api.Error), not a wrapped Go error a
+	// client could errors.Is against bboltstore.ErrNotFound.
+	p, err := e.store.GetProject(ctx, projectID)
+	if errors.Is(err, bboltstore.ErrNotFound) {
+		return api.ProjectGetResponse{}, fmt.Errorf("no registered project with ID %s (run `ragctl project list` to see registered projects)", projectID)
+	}
+	if err != nil {
+		return api.ProjectGetResponse{}, fmt.Errorf("get project %s: %w", projectID, err)
+	}
+	resp := api.ProjectGetResponse{ID: p.ID, Root: p.Root, CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt}
+
+	res, err := e.store.GetResolution(ctx, projectID)
+	if errors.Is(err, bboltstore.ErrNotFound) {
+		return resp, nil
+	}
+	if err != nil {
+		return api.ProjectGetResponse{}, fmt.Errorf("get resolution for %s: %w", projectID, err)
+	}
+	resp.HasResolution = true
+	resp.Ecosystem = string(res.Ecosystem)
+	resp.Fingerprint = res.Fingerprint
+	resp.Dependencies = make([]api.DependencyInfo, len(res.Dependencies))
+	for i, d := range res.Dependencies {
+		resp.Dependencies[i] = api.DependencyInfo{
+			Ecosystem: string(d.Dependency.Ecosystem),
+			Name:      d.Dependency.Name,
+			Version:   d.Version,
+			Direct:    d.Dependency.Direct,
+		}
+	}
+	return resp, nil
+}
+
+// Describe builds the fleet-wide (or filtered) knowledge report, the
+// work behind `ragctl describe`.
+func (e *engine) Describe(ctx context.Context, args []string, checkLiveness bool) (any, error) {
+	reg, err := loadRegistryForCLI(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("load registry: %w", err)
+	}
+
+	var filterPairs []depPair
+	switch len(args) {
+	case 1:
+		filterPairs, err = aliasPairs(reg, args[0])
+		if err != nil {
+			return nil, err
+		}
+	case 2:
+		filterPairs = []depPair{{ecosystem: domain.Ecosystem(args[0]), pkg: args[1]}}
+	}
+
+	return buildReport(ctx, e.store, e.badgerStore, reg, e.cfg.Vector.Backend, filterPairs, checkLiveness)
+}
+
+// doctorChecksInDaemon is every doctorChecks entry except the last two
+// (git on PATH, package managers on PATH) — the ones that must run
+// against the calling user's own shell PATH, never the daemon's. A
+// slice, not a name filter, since doctorChecks is a small, hand-authored
+// literal with those two already last; doctor_test.go's own ordering
+// tests would catch a reorder that broke this assumption.
+var doctorChecksInDaemon = doctorChecks[:len(doctorChecks)-2]
+
+// Doctor runs every doctor check that needs this daemon's stores, the
+// work behind `ragctl doctor` when a daemon is reachable. The stores are
+// already open and config/registry already loaded, so doctorEnv here
+// carries no error states the way the no-daemon fallback path's does.
+func (e *engine) Doctor(ctx context.Context) (api.DoctorResponse, error) {
+	reg, regErr := loadRegistryForCLI(ctx)
+	env := &doctorEnv{
+		cfg:                e.cfg,
+		store:              e.store,
+		badger:             e.badgerStore,
+		registry:           reg,
+		registryErr:        regErr,
+		now:                time.Now(),
+		embeddingReadiness: e.embeddingReadiness,
+		vectorReadiness:    e.vectorReadiness,
+	}
+
+	checks := make([]api.CheckResultWire, len(doctorChecksInDaemon))
+	for i, c := range doctorChecksInDaemon {
+		sev, detail := c.run(ctx, env)
+		checks[i] = api.CheckResultWire{Name: c.name, Severity: int(sev), Detail: detail}
+	}
+
+	needed, sev, detail, ok := packageManagersNeeded(ctx, env)
+	if !ok {
+		// The one check that determines what executables are needed
+		// failed outright (not just "found none") — report it as its own
+		// check entry rather than silently omitting NeededExecutables.
+		checks = append(checks, api.CheckResultWire{Name: "package managers on PATH", Severity: int(sev), Detail: detail})
+		return api.DoctorResponse{Checks: checks}, nil
+	}
+	neededWire := make([]api.NeededExecutable, 0, len(needed))
+	for exe, count := range needed {
+		neededWire = append(neededWire, api.NeededExecutable{Name: exe, Count: count})
+	}
+	return api.DoctorResponse{Checks: checks, NeededExecutables: neededWire}, nil
+}
+
+func newDaemonCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "daemon",
+		Short: "Manage the ragctl daemon",
+		Long: `The ragctl daemon owns ragctl's databases. Every command that needs
+stored state talks to it over a local socket, and starts one if none is
+running (unless daemon.autostart is false in config).`,
+	}
+	cmd.AddCommand(
+		&cobra.Command{
+			Use:   "run",
+			Short: "Run the ragctl daemon in the foreground",
+			Args:  cobra.NoArgs,
+			RunE:  func(cmd *cobra.Command, args []string) error { return runDaemonRun(cmd) },
+		},
+		&cobra.Command{
+			Use:   "status",
+			Short: "Report whether the ragctl daemon is running",
+			Args:  cobra.NoArgs,
+			RunE:  func(cmd *cobra.Command, args []string) error { return runDaemonStatus(cmd) },
+		},
+		&cobra.Command{
+			Use:   "stop",
+			Short: "Stop the running ragctl daemon",
+			Args:  cobra.NoArgs,
+			RunE:  func(cmd *cobra.Command, args []string) error { return runDaemonStop(cmd) },
+		},
+	)
+	return cmd
+}
+
+func runDaemonRun(cmd *cobra.Command) error {
+	cfg, err := loadRagctlConfig()
+	if err != nil {
+		return err
+	}
+	configFingerprint, err := cfg.Fingerprint()
+	if err != nil {
+		return fmt.Errorf("fingerprint config: %w", err)
+	}
+	socket, err := socketPath()
+	if err != nil {
+		return err
+	}
+	controlPath, err := controlDBPath()
+	if err != nil {
+		return err
+	}
+	badgerPath, err := badgerDirPath()
+	if err != nil {
+		return err
+	}
+
+	// Ownership of the control store, not the socket file, decides who is
+	// the daemon (ADR-011): a crash leaves a socket behind, but never the
+	// lock.
+	store, err := openControlStoreForDaemonRun()
+	if err != nil {
+		if errors.Is(err, bboltstore.ErrLocked) {
+			return ownershipError(cmd.Context(), socket, controlPath)
+		}
+		return fmt.Errorf("open control store: %w", err)
+	}
+	defer closeWithTimeout("control store", store.Close, storeCloseTimeout)
+
+	badgerStore, err := openDataStore()
+	if err != nil {
+		return fmt.Errorf("open data store: %w", err)
+	}
+	defer closeWithTimeout("data store", badgerStore.Close, storeCloseTimeout)
+
+	out := &lockedWriter{w: cmd.OutOrStdout()}
+	logf := func(format string, args ...any) {
+		fmt.Fprintf(out, "%s "+format+"\n", append([]any{time.Now().Format("15:04:05")}, args...)...)
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	go func() {
+		<-ctx.Done()
+		stop() // restore default handling, so a second Ctrl-C exits immediately
+	}()
+
+	// Checked off the request path entirely (WATCH-014): a client that
+	// needs an embedder (sync, search) gets an immediate, actionable
+	// "still pulling"/"unreachable" answer from embeddingReadiness
+	// instead of triggering — and blocking on — a live pull itself.
+	readiness := newEmbeddingReadiness()
+	go checkEmbeddingReadiness(ctx, cfg, readiness, logf)
+
+	// Same off-request-path treatment for the vector backend (WATCH-015):
+	// a client that needs Qdrant (sync, GC, search) gets an immediate,
+	// actionable "unreachable" answer from vectorReadiness instead of a
+	// raw dial error, once per dependency, from deep inside
+	// generation.Replicate.
+	vecReadiness := newVectorReadiness()
+	go checkVectorReadiness(ctx, cfg, vecReadiness, logf)
+
+	srv := daemon.New(daemon.Options{
+		Engine:            &engine{store: store, badgerStore: badgerStore, cfg: cfg, controlPath: controlPath, badgerPath: badgerPath, embeddingReadiness: readiness, vectorReadiness: vecReadiness},
+		Socket:            socket,
+		ControlPath:       controlPath,
+		Version:           ragctlVersion,
+		WatchEnabled:      cfg.Watch.Enabled,
+		Debounce:          cfg.Watch.Debounce,
+		MCPEnabled:        cfg.Server.MCP.Enabled,
+		EnableSyncTool:    cfg.Server.MCP.EnableSyncTool,
+		ConfigFingerprint: configFingerprint,
+		Logf:              logf,
+		Out:               out,
+	})
+	if err := srv.Serve(ctx); err != nil {
+		return err
+	}
+	logf("stopped")
+	return nil
+}
+
+// ownershipError explains a locked control store: either another daemon
+// is already running (the normal outcome of two commands auto-starting
+// at once), or something else holds the lock and nothing answers.
+func ownershipError(ctx context.Context, socket, controlPath string) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	probe, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+
+	if h, err := client.Dial(probe, socket); err == nil {
+		health, err := h.Health(probe)
+		if err == nil {
+			return fmt.Errorf("ragctl daemon already running (pid %d, socket %s)", health.PID, socket)
+		}
+	}
+	return fmt.Errorf("%s is locked but no daemon answers on %s; another ragctl process holds it", controlPath, socket)
+}
+
+func runDaemonStatus(cmd *cobra.Command) error {
+	socket, err := socketPath()
+	if err != nil {
+		return err
+	}
+	c, err := client.Dial(cmd.Context(), socket)
+	if err != nil {
+		if errors.Is(err, client.ErrNotRunning) {
+			fmt.Fprintf(cmd.OutOrStdout(), "ragctl daemon is not running (socket %s)\n", socket)
+			return ExitCodeError{Code: 1}
+		}
+		return err
+	}
+	h, err := c.Health(cmd.Context())
+	if err != nil {
+		return err
+	}
+
+	out := cmd.OutOrStdout()
+	fmt.Fprintf(out, "%-14s running (pid %d)\n", "daemon:", h.PID)
+	fmt.Fprintf(out, "%-14s %s\n", "socket:", h.Socket)
+	fmt.Fprintf(out, "%-14s %s\n", "control db:", h.ControlPath)
+	fmt.Fprintf(out, "%-14s %s\n", "version:", h.Version)
+	fmt.Fprintf(out, "%-14s %s\n", "uptime:", time.Since(h.StartedAt).Truncate(time.Second))
+	fmt.Fprintf(out, "%-14s %t\n", "watching:", h.Watching)
+	fmt.Fprintf(out, "%-14s %s\n", "config:", configFreshnessLabel(h.ConfigFingerprint))
+	fmt.Fprintf(out, "%-14s %s\n", "embedding:", embeddingStatusLabel(h.EmbeddingState, h.EmbeddingDetail))
+	fmt.Fprintf(out, "%-14s %s\n", "vector:", vectorStatusLabel(h.VectorState, h.VectorDetail))
+	return nil
+}
+
+// embeddingStatusLabel formats a daemon's reported embedding-readiness
+// state for `ragctl daemon status`'s one-line summary.
+func embeddingStatusLabel(state, detail string) string {
+	switch embeddingState(state) {
+	case embeddingStateReady, embeddingStateUnknown, "":
+		return "ready"
+	case embeddingStateChecking:
+		return "checking"
+	case embeddingStatePulling:
+		return fmt.Sprintf("pulling %s", detail)
+	case embeddingStateUnreachable:
+		return fmt.Sprintf("unreachable (%s)", detail)
+	case embeddingStateError:
+		return fmt.Sprintf("error: %s", detail)
+	default:
+		return state
+	}
+}
+
+// vectorStatusLabel formats a daemon's reported vector-readiness state
+// for `ragctl daemon status`'s one-line summary.
+func vectorStatusLabel(state, detail string) string {
+	switch vectorState(state) {
+	case vectorStateReady, vectorStateUnknown, "":
+		return "ready"
+	case vectorStateChecking:
+		return "checking"
+	case vectorStateStarting:
+		return fmt.Sprintf("starting managed container %s", detail)
+	case vectorStateUnreachable:
+		return fmt.Sprintf("unreachable (%s)", detail)
+	case vectorStateError:
+		return fmt.Sprintf("error: %s", detail)
+	default:
+		return state
+	}
+}
+
+func runDaemonStop(cmd *cobra.Command) error {
+	socket, err := socketPath()
+	if err != nil {
+		return err
+	}
+	c, err := client.Dial(cmd.Context(), socket)
+	if err != nil {
+		if errors.Is(err, client.ErrNotRunning) {
+			fmt.Fprintln(cmd.OutOrStdout(), "ragctl daemon is not running")
+			return nil
+		}
+		return err
+	}
+	if err := c.Shutdown(cmd.Context()); err != nil {
+		return err
+	}
+
+	deadline := time.Now().Add(stopWait)
+	for time.Now().Before(deadline) {
+		if _, err := client.Dial(cmd.Context(), socket); errors.Is(err, client.ErrNotRunning) {
+			fmt.Fprintln(cmd.OutOrStdout(), "stopped")
+			return nil
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	return fmt.Errorf("daemon did not stop within %s", stopWait)
+}
+
+// lockedWriter serializes writes from the daemon's goroutines onto one
+// output stream.
+type lockedWriter struct {
+	mu sync.Mutex
+	w  io.Writer
+}
+
+func (l *lockedWriter) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.w.Write(p)
+}

@@ -6,7 +6,9 @@ Related package docs: [cli](../internal/cli.md), [planner](../internal/planner.m
 
 ## Where the trigger comes from
 
-`ragctl sync` (`internal/cli/sync.go`) and MCP's disabled-by-default `sync_project` tool both call the same exported `RunSync` (`internal/cli/sync.go`) — there is exactly one sync-execution code path in the binary. `RunSync` first calls `computePlans` (`internal/cli/plan.go`), which reads every registered project's `Resolution` and `VersionReference`s from bbolt and calls `planner.Plan` to diff them against the registry and any already-active generation. Only a `planner.ActionSyncVersion` action reaches the pipeline below; `ActionAddReference`/`ActionDropReference` are cheap bbolt/retention writes handled inline in `RunSync`'s loop (`internal/cli/sync.go`) and never touch generation/embedding/vector-backend code at all.
+`ragctl sync` (`internal/cli/sync.go`), MCP's `sync_project` tool (enabled by default — see [query-serving](query-serving.md)), `search_dependency_docs`'s own JIT-sync-on-miss branch (WATCH-019, also in [query-serving](query-serving.md)), and `ragctl watch` (`internal/cli/watch.go`, which re-resolves a project after one of its manifest files changes, then syncs just that project) all call the same exported `RunSync` (`internal/cli/sync.go`) — there is exactly one sync-execution code path in the binary. `RunSync` first calls `computePlans` (`internal/cli/plan.go`), which reads every registered project's `Resolution` and `VersionReference`s from bbolt and calls `planner.Plan` to diff them against the registry and any already-active generation. Only a `planner.ActionSyncVersion` action reaches the pipeline below; `ActionAddReference`/`ActionDropReference` are cheap bbolt/retention writes handled inline in `RunSync`'s loop (`internal/cli/sync.go`) and never touch generation/embedding/vector-backend code at all.
+
+`RunSync` also takes an optional `*daemon.SyncPriority` (WATCH-020): a small FIFO a concurrent `BumpPriority` call (the daemon's `/v1/sync/priority` endpoint, reached by `search_dependency_docs` when a background sync for the project is already running) can push a dependency name onto. Before dispatching each action, `RunSync`'s loop drains it and calls `bumpActionToFront` (`internal/cli/sync.go`) to reorder that dependency's `SYNC_VERSION` action to the front of the remaining queue — the action still runs through the exact same pipeline below, just sooner. A `nil` `*SyncPriority` (the CLI's own `ragctl sync` invocation) is a valid, always-empty no-op.
 
 ## The pipeline for one `SYNC_VERSION` action
 
@@ -29,7 +31,7 @@ sequenceDiagram
 
     Sync->>Reg: Match(ecosystem, package)
     alt no manifest match
-        Sync->>Sync: fallbackManifest(dep)\n(Go github.com/org/repo paths only)
+        Sync->>Sync: fallbackManifest(dep)\n(Go only: github.com/org/repo directly,\nelse resolveVanityImport go-import lookup)
         alt still no manifest
             Sync-->>Sync: error "no registry manifest for <dep>"
         end
@@ -41,8 +43,8 @@ sequenceDiagram
 
     Sync->>Gen: Build(ctx, gen, manifest.Sources, gitCache)
     Gen->>Bbolt: setState ACQUIRING
-    Gen->>Git: EnsureMirror, ResolveRef, MaterializeWorktree\n(per type:git source, Ref templated with dep version)
-    Git-->>Gen: worktree(s) (temp dirs)
+    Gen->>Git: EnsureMirror (blobless: --filter=blob:none, GIT-005),\nResolveRef, MaterializeWorktree(sparsePatterns)\n(per type:git source, Ref templated with dep version)
+    Git-->>Gen: worktree(s) (temp dirs;\nsparse checkout scoped to source's patterns,\nfalls back to a full checkout if sparse-checkout fails)
     Gen->>Bbolt: setState NORMALIZING
     Gen->>Norm: walk worktrees, Registry.Select / godoc.New per Go dir
     Norm-->>Gen: []domain.KnowledgeObject
@@ -104,4 +106,5 @@ sequenceDiagram
 - **Lazy pipeline construction**: `getPipeline()` (`internal/cli/sync.go`) builds the embedder/vector-backend/git-cache exactly once, on the first action that needs it, and reuses it for the rest of the run — a plan with zero `SYNC_VERSION` actions never probes the embedder's `Dimensions()`, which is itself a live call.
 - **Any `Build`/`Replicate` stage failure**: the generation is marked `FAILED` with the error persisted (wrapped in `ErrAcquisition`/`ErrNormalization`/`ErrReplication`); `syncVersion` returns the error, `RunSync` reports `FAIL` for that action and continues to the next one — one dependency's failure never aborts the whole `sync` run.
 - **`--force`**: overrides only a `Sanity` (VAL-002) failure — a plausible-but-flagged count change. `Structural` and `VersionCorrectness` failures always block promotion; they indicate a broken replica, not something a human judgment call should override.
-- **No registry manifest**: `fallbackManifest` (`internal/cli/sync.go`) derives a single `git` source for a Go module shaped like `github.com/org/repo`, tagged `Authority: 0` (still `TrustRepository`, since the content itself isn't less authoritative — only its ranking). Anything else with no manifest match fails immediately with "no registry manifest for `<dep>`", never reaching `generation.Create`.
+- **No registry manifest**: `fallbackManifest` (`internal/cli/sync.go`) derives a single `git` source for a Go module, tagged `Authority: 0` (still `TrustRepository`, since the content itself isn't less authoritative — only its ranking) — either directly, when the module path is already shaped like `github.com/org/repo`, or via `resolveVanityImport`'s `go-import` meta-tag lookup (GIT-008) for anything else. Anything else with no manifest match, or a non-Go ecosystem, fails immediately with "no registry manifest for `<dep>`", never reaching `generation.Create`.
+- **Sparse checkout falls back to a full checkout**: when a `git` source specifies `sparsePatterns` (GIT-005) and `git sparse-checkout` itself fails against the mirror, `MaterializeWorktree` (`internal/source/git/worktree.go`) retries with a plain, unfiltered checkout rather than failing the whole `Build` step — a slower worktree, not a broken sync.

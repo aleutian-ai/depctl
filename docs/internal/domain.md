@@ -1,6 +1,6 @@
 # internal/domain
 
-`internal/domain` defines ragctl's core data types and lifecycle state machines, shared by every other package in the codebase. It has no dependencies on storage, network, or CLI packages — it exists purely so that resolvers, storage, normalization, chunking, generation, validation, and the CLI all agree on one shared vocabulary (`Project`, `Dependency`, `KnowledgeObject`, `Generation`, ...) without importing each other. Types are added incrementally as the commands that need them land, not sketched up front (see `docs/tickets/planned/02-core-domain-storage/CORE-001-domain-types.md`).
+`internal/domain` defines ragctl's core data types and lifecycle state machines, shared by every other package in the codebase. It has no dependencies on storage, network, or CLI packages — it exists purely so that resolvers, storage, normalization, chunking, generation, validation, and the CLI all agree on one shared vocabulary (`Project`, `Dependency`, `KnowledgeObject`, `Generation`, ...) without importing each other. Types are added incrementally as the commands that need them land, not sketched up front (see `docs/tickets/completed/02-core-domain-storage/CORE-001-domain-types.md`).
 
 ## Key types and functions
 

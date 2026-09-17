@@ -36,11 +36,13 @@ For the full shipped-behavior narrative and per-command sequence diagrams, see [
 - [planner](planner.md) — diffs a project's resolution against stored state to produce sync actions.
 - [lifecycle](lifecycle.md) — `validate` (structural/sanity/live smoke-test checks) and `promote`, plus `gc`.
 - [retention](retention.md) — reference counting and grace-period GC planning.
+- [watch](watch.md) — debounced detection of dependency-manifest changes, driving `ragctl watch`.
 
 ## Serving
 
 - [query](query.md) — vector search over a project's active generation.
 - [mcp](mcp.md) — the MCP server exposing query/registry tools to agents.
+- [daemon](daemon.md) — the single-owner store process (ADR-011): HTTP/JSON API over a Unix socket, the sync+GC scheduler, and the in-process watcher every CLI command becomes a thin client of.
 
 ## CLI
 

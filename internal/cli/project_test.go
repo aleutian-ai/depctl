@@ -9,6 +9,7 @@ import (
 func TestProjectListEmpty(t *testing.T) {
 	isolateEnv(t)
 	runInitForTest(t)
+	useRealRagctlBinary(t)
 
 	rootCmd := NewRootCmd()
 	rootCmd.SetArgs([]string{"project", "list"})
@@ -26,6 +27,7 @@ func TestProjectListAndShowAfterScan(t *testing.T) {
 	isolateEnv(t)
 	requireGo(t)
 	runInitForTest(t)
+	useRealRagctlBinary(t)
 
 	root := t.TempDir()
 	writeGoMod(t, root, "module example.com/showme\n\ngo 1.21\n")
@@ -36,6 +38,11 @@ func TestProjectListAndShowAfterScan(t *testing.T) {
 	if err := scanCmd.Execute(); err != nil {
 		t.Fatalf("scan: %v", err)
 	}
+
+	// `project list`/`show` open the control store directly (they haven't
+	// moved to the daemon); release the lock the auto-started daemon
+	// still holds.
+	stopRunningDaemon(t)
 
 	listCmd := NewRootCmd()
 	listCmd.SetArgs([]string{"project", "list"})
@@ -69,6 +76,7 @@ func TestProjectListAndShowAfterScan(t *testing.T) {
 func TestProjectShowNotFound(t *testing.T) {
 	isolateEnv(t)
 	runInitForTest(t)
+	useRealRagctlBinary(t)
 
 	cmd := NewRootCmd()
 	cmd.SetArgs([]string{"project", "show", "proj_missing"})

@@ -6,3 +6,8 @@ import "errors"
 // exist, so callers can distinguish "missing" from a storage failure via
 // errors.Is.
 var ErrNotFound = errors.New("not found")
+
+// ErrLocked means another process — under ADR-011, that's the single
+// `ragctl daemon run` process for as long as it's up — holds control.db's
+// exclusive file lock.
+var ErrLocked = errors.New("control database is locked by another ragctl process (is `ragctl daemon run` already running?)")

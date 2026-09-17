@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -119,6 +120,128 @@ func (c *Client) Embed(ctx context.Context, texts []string) ([][]float32, error)
 		}
 	}
 	return out, nil
+}
+
+// Reachable reports whether Ollama itself is responding at c's
+// endpoint, independent of whether c's model is pulled — callers use
+// this to tell "Ollama isn't running" from "Ollama is up but missing
+// this model" and act on each differently.
+func (c *Client) Reachable(ctx context.Context) bool {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.endpoint+"/api/tags", nil)
+	if err != nil {
+		return false
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	return resp.StatusCode == http.StatusOK
+}
+
+type tagsResponse struct {
+	Models []struct {
+		Name  string `json:"name"`
+		Model string `json:"model"`
+	} `json:"models"`
+}
+
+// ModelPulled reports whether c.model is already present in Ollama's
+// local model list, without downloading or embedding anything.
+func (c *Client) ModelPulled(ctx context.Context) (bool, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.endpoint+"/api/tags", nil)
+	if err != nil {
+		return false, fmt.Errorf("ollama: build request: %w", err)
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return false, fmt.Errorf("ollama: request: %w", err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return false, fmt.Errorf("ollama: read response: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return false, fmt.Errorf("ollama: request failed %d: %s", resp.StatusCode, bytes.TrimSpace(body))
+	}
+	var parsed tagsResponse
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return false, fmt.Errorf("ollama: decode response: %w", err)
+	}
+	for _, m := range parsed.Models {
+		if modelMatches(m.Name, c.model) || modelMatches(m.Model, c.model) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// modelMatches compares a pulled model's name (which always carries a
+// tag, e.g. "nomic-embed-text-v2-moe:latest") against the configured
+// model name, which typically omits the ":latest" tag.
+func modelMatches(pulled, configured string) bool {
+	return pulled == configured || pulled == configured+":latest"
+}
+
+type pullRequest struct {
+	Model string `json:"model"`
+}
+
+type pullStatusLine struct {
+	Status string `json:"status"`
+	Error  string `json:"error"`
+}
+
+// PullModel downloads c.model into Ollama, relaying each distinct
+// status Ollama itself reports (e.g. "pulling manifest", "verifying
+// sha256 digest", "success") to out as the download progresses — not
+// every line, since Ollama reports a completed/total byte count on
+// nearly every line during the download phase, which would flood a
+// plain line-oriented writer. Uses its own long-lived HTTP client
+// rather than c.httpClient, since a model pull can run far longer than
+// the short per-embed-request timeout that client is tuned for; the
+// caller's ctx is the real bound.
+func (c *Client) PullModel(ctx context.Context, out io.Writer) error {
+	body, err := json.Marshal(pullRequest{Model: c.model})
+	if err != nil {
+		return fmt.Errorf("ollama: encode pull request: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint+"/api/pull", bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("ollama: build pull request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	pullClient := &http.Client{}
+	resp, err := pullClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("ollama: pull request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("ollama: pull failed %d: %s", resp.StatusCode, bytes.TrimSpace(respBody))
+	}
+
+	dec := json.NewDecoder(resp.Body)
+	lastStatus := ""
+	for {
+		var line pullStatusLine
+		if err := dec.Decode(&line); err != nil {
+			if errors.Is(err, io.EOF) {
+				return nil
+			}
+			return fmt.Errorf("ollama: decode pull response: %w", err)
+		}
+		if line.Error != "" {
+			return fmt.Errorf("ollama: pull: %s", line.Error)
+		}
+		if line.Status != "" && line.Status != lastStatus {
+			fmt.Fprintf(out, "  %s\n", line.Status)
+			lastStatus = line.Status
+		}
+	}
 }
 
 type embedRequest struct {

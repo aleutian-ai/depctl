@@ -1,7 +1,7 @@
 # WATCH-002: fsnotify watcher
 
 **Epic:** Watch Mode
-**Status:** planned
+**Status:** done
 **Depends on:** WATCH-001
 **Estimated size:** medium
 
@@ -56,6 +56,16 @@ Filesystem callbacks must only enqueue into `events`/debounce timers — never p
 - No network/blocking work happens on the fsnotify callback goroutine (verified via a fake blocking downstream consumer not blocking the watcher).
 
 ## Acceptance criteria
-- [ ] Debounce configurable via `watch.debounce` (default 2s).
-- [ ] Rename and recreation handled without losing watch coverage.
-- [ ] Filesystem callback never performs blocking network work.
+- [x] Debounce configurable via `watch.debounce` (default 2s).
+- [x] Rename and recreation handled without losing watch coverage.
+- [x] Filesystem callback never performs blocking network work.
+
+## Post-implementation note
+
+Lives in `internal/watch/watcher.go`. The API is `New(debounce, logf)`, `SetProjects(projects)`, `Run(ctx)`, and `Events()` rather than the sketched `NewWatcher(cfg)` plus `Watch(ctx, projects)`. `SetProjects` replaces the whole watched set, which is how project removal works: a root missing from the new set is unwatched and its pending change is dropped. `Run` is separate so the caller owns the goroutine and its shutdown.
+
+The biggest change is **watching directories instead of files**, following fsnotify's own guidance. A watch held on a file silently stops working when a tool replaces that file by renaming a temp file over it, which is how many package managers and editors write lockfiles. So each project's root directory is watched (fsnotify watches aren't recursive) and events are filtered to manifest names. That handles all three quirks this ticket lists without special-case code: rename-into-place is just a create event for the manifest name; remove-then-create lands in the same debounce window as one change; and there's nothing to re-`Add`. It also catches a lockfile being created for the first time, which per-file watches can't.
+
+Debounce: each project has one pending "burst" (changed paths plus a `time.AfterFunc` timer), reset on every new event. `Run` only records paths and resets timers under a mutex. The send to `Events()` happens on the timer's goroutine, so a slow consumer delays delivery but never blocks the filesystem-event loop. A timer superseded by project removal or a later burst checks that it's still current and does nothing. A panic while handling one event is recovered and logged; an unwatchable root is logged and skipped.
+
+Tests: `internal/watch/watcher_test.go` — five rapid writes produce one event; rename-into-place triggers and the watch keeps working after; remove-then-recreate is one event; non-manifest files never trigger; a removed project stops emitting; a blocked consumer doesn't stop another project's change being seen; an unwatchable root doesn't affect others. Run under `-race` ten times in a row on macOS (kqueue) and five times on Linux (inotify) via `hack/test-linux.sh`.

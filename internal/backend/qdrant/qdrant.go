@@ -13,6 +13,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/zeebo/blake3"
 
@@ -21,6 +22,14 @@ import (
 
 // defaultBatchSize bounds how many points go into one upsert request.
 const defaultBatchSize = 256
+
+// defaultHTTPTimeout bounds one request to Qdrant. http.DefaultClient has
+// no timeout at all — an unreachable/stopped Qdrant (a killed container,
+// a down podman VM) would otherwise hang a request forever, which, run
+// inside the daemon's scheduler, can keep the whole daemon process alive
+// indefinitely even after Shutdown is requested (see internal/daemon's
+// Scheduler.execute).
+const defaultHTTPTimeout = 60 * time.Second
 
 // Client implements backend.VectorBackend against a Qdrant HTTP
 // endpoint. One collection per ragctl install (Namespace.Name), filtered
@@ -50,7 +59,7 @@ func WithHTTPClient(h *http.Client) Option {
 func New(endpoint string, opts ...Option) *Client {
 	c := &Client{
 		endpoint:   endpoint,
-		httpClient: http.DefaultClient,
+		httpClient: &http.Client{Timeout: defaultHTTPTimeout},
 		batchSize:  defaultBatchSize,
 	}
 	for _, opt := range opts {

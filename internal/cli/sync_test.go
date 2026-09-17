@@ -3,17 +3,24 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
+	"aleutian-ai/ragctl/internal/config"
 	"aleutian-ai/ragctl/internal/domain"
+	"aleutian-ai/ragctl/internal/planner"
 )
 
 func TestSyncDryRunPerformsNoWrites(t *testing.T) {
 	isolateEnv(t)
 	requireGo(t)
 	runInitForTest(t)
+	useRealRagctlBinary(t)
 	scanDepFixture(t)
 
 	cmd := NewRootCmd()
@@ -28,6 +35,9 @@ func TestSyncDryRunPerformsNoWrites(t *testing.T) {
 	}
 
 	// No reference should have been recorded — dry-run must not write.
+	// The daemon still holds the control store's exclusive lock; release
+	// it before reading the store directly.
+	stopRunningDaemon(t)
 	store, err := openControlStore()
 	if err != nil {
 		t.Fatalf("openControlStore: %v", err)
@@ -46,6 +56,7 @@ func TestSyncOfflineSkipsSyncVersionButRecordsReference(t *testing.T) {
 	isolateEnv(t)
 	requireGo(t)
 	runInitForTest(t)
+	useRealRagctlBinary(t)
 	root := scanDepFixture(t)
 
 	cmd := NewRootCmd()
@@ -59,7 +70,9 @@ func TestSyncOfflineSkipsSyncVersionButRecordsReference(t *testing.T) {
 		t.Errorf("offline sync output missing skip line:\n%s", out.String())
 	}
 
-	// Find the project ID that was scanned.
+	// Find the project ID that was scanned. The daemon still holds the
+	// control store's exclusive lock; release it first.
+	stopRunningDaemon(t)
 	store, err := openControlStore()
 	if err != nil {
 		t.Fatalf("openControlStore: %v", err)
@@ -94,6 +107,7 @@ func TestSyncNoOpAfterOfflineSyncPerformsNoFurtherReferenceChanges(t *testing.T)
 	isolateEnv(t)
 	requireGo(t)
 	runInitForTest(t)
+	useRealRagctlBinary(t)
 	scanDepFixture(t)
 
 	first := NewRootCmd()
@@ -130,8 +144,13 @@ func TestSyncNoOpPlanMakesNoNetworkCalls(t *testing.T) {
 	isolateEnv(t)
 	requireGo(t)
 	runInitForTest(t)
+	useRealRagctlBinary(t)
 	root := scanDepFixture(t)
 
+	// The daemon `scan` auto-started still holds the control store's
+	// exclusive lock; release it before reading and writing the store
+	// directly. `sync` below auto-starts a fresh daemon of its own.
+	stopRunningDaemon(t)
 	store, err := openControlStore()
 	if err != nil {
 		t.Fatalf("openControlStore: %v", err)
@@ -193,6 +212,7 @@ func TestSyncDependencyFilter(t *testing.T) {
 	isolateEnv(t)
 	requireGo(t)
 	runInitForTest(t)
+	useRealRagctlBinary(t)
 	scanDepFixture(t)
 
 	cmd := NewRootCmd()
@@ -207,13 +227,110 @@ func TestSyncDependencyFilter(t *testing.T) {
 	}
 }
 
+// TestSyncReportsStructuredErrorForUnreachableEmbeddingBackend is
+// WATCH-014's regression test: a sync that hits a SYNC_VERSION action
+// against a dead embedding endpoint must report the daemon's own
+// actionable "embedding backend unreachable" message, not a raw
+// connection-refused error bubbled up from inside buildEmbedder.
+func TestSyncReportsStructuredErrorForUnreachableEmbeddingBackend(t *testing.T) {
+	isolateEnv(t)
+	requireGo(t)
+	runInitForTest(t)
+	useRealRagctlBinary(t)
+	deadEndpointsConfig(t, nil)
+	scanDepFixture(t)
+
+	c, err := ensureDaemon(context.Background())
+	if err != nil {
+		t.Fatalf("ensureDaemon: %v", err)
+	}
+	waitFor(t, "embedding readiness to report unreachable", func() bool {
+		h, err := c.Health(context.Background())
+		return err == nil && h.EmbeddingState == "unreachable"
+	})
+
+	cmd := NewRootCmd()
+	cmd.SetArgs([]string{"sync"})
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	// A failed sync action makes `sync` exit non-zero (see runSync) —
+	// expected here, since the embedding backend is unreachable. The
+	// assertion that matters is what got streamed to out, not the exit.
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("sync succeeded despite an unreachable embedding backend, want a failed action")
+	}
+	if !strings.Contains(out.String(), "embedding backend unreachable") {
+		t.Errorf("sync output = %q, want it to report the structured embedding-unreachable message instead of a raw connection error", out.String())
+	}
+}
+
+// TestSyncReportsStructuredErrorForUnreachableVectorBackend is
+// WATCH-015's regression test, mirroring WATCH-014's own: a sync that
+// hits a SYNC_VERSION action against a dead vector endpoint (with a
+// *reachable* embedding endpoint, to isolate which readiness check is
+// actually firing) must report the daemon's own actionable "vector
+// backend unreachable" message, not a raw dial error bubbled up from
+// deep inside generation.Replicate.
+func TestSyncReportsStructuredErrorForUnreachableVectorBackend(t *testing.T) {
+	isolateEnv(t)
+	requireGo(t)
+	runInitForTest(t)
+	useRealRagctlBinary(t)
+
+	ollama := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{
+			"models": []map[string]string{{"name": config.Default("/data").Embedding.Model + ":latest"}},
+		})
+	}))
+	t.Cleanup(ollama.Close)
+	deadVector := deadBackendURL(t)
+	writeTestConfig(t, func(c *config.Config) {
+		c.Embedding.Endpoint = ollama.URL
+		c.Vector.Endpoint = deadVector
+		c.Vector.Managed = false // exercise the plain report-only path, not WATCH-016's bootstrap
+	})
+	scanDepFixture(t)
+
+	c, err := ensureDaemon(context.Background())
+	if err != nil {
+		t.Fatalf("ensureDaemon: %v", err)
+	}
+	waitFor(t, "vector readiness to report unreachable", func() bool {
+		h, err := c.Health(context.Background())
+		return err == nil && h.VectorState == "unreachable"
+	})
+	waitFor(t, "embedding readiness to report ready", func() bool {
+		h, err := c.Health(context.Background())
+		return err == nil && h.EmbeddingState == "ready"
+	})
+
+	cmd := NewRootCmd()
+	cmd.SetArgs([]string{"sync"})
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("sync succeeded despite an unreachable vector backend, want a failed action")
+	}
+	if !strings.Contains(out.String(), "vector backend unreachable") {
+		t.Errorf("sync output = %q, want it to report the structured vector-unreachable message instead of a raw connection error", out.String())
+	}
+}
+
 // TestFallbackManifestDerivesGithubURL covers REG-005: a Go dependency
 // shaped like a direct github.com/<org>/<repo> import derives a
 // single-source manifest instead of hitting the "no registry manifest"
-// error a genuinely unmapped package still gets.
+// error a genuinely unmapped package still gets. No HTTP call should
+// happen for this case — the fast path never needs one.
 func TestFallbackManifestDerivesGithubURL(t *testing.T) {
+	prev := vanityImportHTTPClient
+	vanityImportHTTPClient = &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		t.Fatal("resolveVanityImport was called for a github.com-shaped module path")
+		return nil, nil
+	})}
+	defer func() { vanityImportHTTPClient = prev }()
+
 	dep := domain.Dependency{Ecosystem: domain.EcosystemGo, Name: "github.com/dgraph-io/badger/v4"}
-	m, ok := fallbackManifest(dep)
+	m, ok := fallbackManifest(context.Background(), dep)
 	if !ok {
 		t.Fatal("fallbackManifest = false, want true for a github.com module path")
 	}
@@ -222,16 +339,160 @@ func TestFallbackManifestDerivesGithubURL(t *testing.T) {
 	}
 }
 
-func TestFallbackManifestRejectsVanityImportPath(t *testing.T) {
-	dep := domain.Dependency{Ecosystem: domain.EcosystemGo, Name: "google.golang.org/grpc"}
-	if _, ok := fallbackManifest(dep); ok {
-		t.Error("fallbackManifest = true for a vanity import path, want false (no fetchable location without HTTP go-import resolution)")
+// roundTripFunc adapts a plain function to http.RoundTripper, so tests
+// can redirect an http.Client at a local httptest.Server regardless of
+// what host the request under test was built for.
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
+
+// fakeVanityImportServer stands in for a real vanity-import host,
+// serving body at any path (mirroring how a real ?go-get=1 request is
+// answered regardless of the exact module subpath requested).
+func fakeVanityImportServer(t *testing.T, body string) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, body)
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// redirectVanityImportClient points vanityImportHTTPClient at srv for
+// the duration of the test, regardless of the request's original host —
+// exactly what a real go-import lookup does (GET https://<modulePath>),
+// just served locally instead of over the real network.
+func redirectVanityImportClient(t *testing.T, srv *httptest.Server) {
+	t.Helper()
+	prev := vanityImportHTTPClient
+	vanityImportHTTPClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		redirected := req.Clone(req.Context())
+		redirected.URL.Scheme = "http"
+		redirected.URL.Host = strings.TrimPrefix(srv.URL, "http://")
+		return http.DefaultTransport.RoundTrip(redirected)
+	})}
+	t.Cleanup(func() { vanityImportHTTPClient = prev })
+}
+
+// TestFallbackManifestResolvesVanityImportPath covers REG-008: a Go
+// module path with no github.com-shaped prefix, but a real go-import
+// meta tag, still derives a fallback manifest — the exact live gap
+// found running github.com/spf13/cobra's own transitive dependencies
+// (go.yaml.in/yaml/v3) through ragctl end to end.
+func TestFallbackManifestResolvesVanityImportPath(t *testing.T) {
+	srv := fakeVanityImportServer(t, `<html><head>
+<meta name="go-import" content="example.vanity/pkg git https://github.com/example/pkg">
+</head></html>`)
+	redirectVanityImportClient(t, srv)
+
+	dep := domain.Dependency{Ecosystem: domain.EcosystemGo, Name: "example.vanity/pkg"}
+	m, ok := fallbackManifest(context.Background(), dep)
+	if !ok {
+		t.Fatal("fallbackManifest = false, want true for a resolvable vanity import path")
+	}
+	if len(m.Sources) != 1 || m.Sources[0].URL != "https://github.com/example/pkg" {
+		t.Errorf("Sources = %+v, want one source at https://github.com/example/pkg", m.Sources)
+	}
+}
+
+// TestFallbackManifestResolvesVanityImportSubpackage covers a subpackage
+// import path (root != the full module path) — exactly go.yaml.in/yaml/v3's
+// own shape, where the go-import root is go.yaml.in/yaml.
+func TestFallbackManifestResolvesVanityImportSubpackage(t *testing.T) {
+	srv := fakeVanityImportServer(t, `<meta name="go-import" content="example.vanity/pkg git https://github.com/example/pkg" />`)
+	redirectVanityImportClient(t, srv)
+
+	dep := domain.Dependency{Ecosystem: domain.EcosystemGo, Name: "example.vanity/pkg/v3"}
+	m, ok := fallbackManifest(context.Background(), dep)
+	if !ok {
+		t.Fatal("fallbackManifest = false, want true for a subpackage of a resolvable vanity import root")
+	}
+	if len(m.Sources) != 1 || m.Sources[0].URL != "https://github.com/example/pkg" {
+		t.Errorf("Sources = %+v, want one source at https://github.com/example/pkg", m.Sources)
+	}
+}
+
+func TestFallbackManifestRejectsNonGitVanityImport(t *testing.T) {
+	srv := fakeVanityImportServer(t, `<meta name="go-import" content="example.vanity/pkg bzr https://example.vanity/pkg">`)
+	redirectVanityImportClient(t, srv)
+
+	dep := domain.Dependency{Ecosystem: domain.EcosystemGo, Name: "example.vanity/pkg"}
+	if _, ok := fallbackManifest(context.Background(), dep); ok {
+		t.Error("fallbackManifest = true for a non-git go-import VCS, want false (ragctl can only acquire from git)")
+	}
+}
+
+func TestFallbackManifestRejectsNoGoImportTag(t *testing.T) {
+	srv := fakeVanityImportServer(t, `<html><body>not a go-gettable page</body></html>`)
+	redirectVanityImportClient(t, srv)
+
+	dep := domain.Dependency{Ecosystem: domain.EcosystemGo, Name: "example.vanity/pkg"}
+	if _, ok := fallbackManifest(context.Background(), dep); ok {
+		t.Error("fallbackManifest = true for a page with no go-import tag, want false")
 	}
 }
 
 func TestFallbackManifestRejectsNonGoEcosystems(t *testing.T) {
 	dep := domain.Dependency{Ecosystem: domain.EcosystemNode, Name: "some-package"}
-	if _, ok := fallbackManifest(dep); ok {
+	if _, ok := fallbackManifest(context.Background(), dep); ok {
 		t.Error("fallbackManifest = true for a non-Go ecosystem, want false")
 	}
+}
+
+// syncVersionAction is a small fixture helper for bumpActionToFront's
+// tests — a bare-minimum SYNC_VERSION action naming dep, nothing else
+// about it matters for reordering logic.
+func syncVersionAction(dep string) planner.Action {
+	return planner.Action{
+		Kind:       planner.ActionSyncVersion,
+		Dependency: domain.DependencyVersion{Dependency: domain.Dependency{Name: dep}},
+	}
+}
+
+func TestBumpActionToFrontMovesNamedDependencyToFront(t *testing.T) {
+	queue := []planner.Action{syncVersionAction("a"), syncVersionAction("b"), syncVersionAction("c")}
+	got := bumpActionToFront(queue, "c")
+	want := []string{"c", "a", "b"}
+	for i, a := range got {
+		if a.Dependency.Dependency.Name != want[i] {
+			t.Errorf("bumpActionToFront order = %v, want %v", actionNames(got), want)
+			break
+		}
+	}
+}
+
+func TestBumpActionToFrontAlreadyAtFrontIsNoOp(t *testing.T) {
+	queue := []planner.Action{syncVersionAction("a"), syncVersionAction("b")}
+	got := bumpActionToFront(queue, "a")
+	if actionNames(got)[0] != "a" || actionNames(got)[1] != "b" {
+		t.Errorf("bumpActionToFront order = %v, want unchanged [a b]", actionNames(got))
+	}
+}
+
+func TestBumpActionToFrontMissingDependencyIsNoOp(t *testing.T) {
+	queue := []planner.Action{syncVersionAction("a"), syncVersionAction("b")}
+	got := bumpActionToFront(queue, "not-in-queue")
+	if len(got) != 2 || actionNames(got)[0] != "a" || actionNames(got)[1] != "b" {
+		t.Errorf("bumpActionToFront order = %v, want unchanged [a b] for a dependency not in the queue", actionNames(got))
+	}
+}
+
+func TestBumpActionToFrontSkipsNonSyncVersionActionsWithSameName(t *testing.T) {
+	// An ADD_REFERENCE action can share a dependency name with a later
+	// SYNC_VERSION one — bumping must target the SYNC_VERSION action
+	// specifically, not whatever action happens to match by name first.
+	ref := planner.Action{Kind: planner.ActionAddReference, Dependency: domain.DependencyVersion{Dependency: domain.Dependency{Name: "a"}}}
+	queue := []planner.Action{ref, syncVersionAction("b"), syncVersionAction("a")}
+	got := bumpActionToFront(queue, "a")
+	if got[0].Kind != planner.ActionSyncVersion || got[0].Dependency.Dependency.Name != "a" {
+		t.Errorf("bumpActionToFront = %+v, want the SYNC_VERSION action for %q moved to front, not the ADD_REFERENCE one", got, "a")
+	}
+}
+
+func actionNames(actions []planner.Action) []string {
+	names := make([]string, len(actions))
+	for i, a := range actions {
+		names[i] = a.Dependency.Dependency.Name
+	}
+	return names
 }

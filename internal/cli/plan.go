@@ -115,19 +115,12 @@ func loadRegistryForCLI(ctx context.Context) (*registry.Registry, error) {
 }
 
 func runPlan(cmd *cobra.Command, projectID string, jsonOut bool) error {
-	store, err := openControlStore()
-	if err != nil {
-		return fmt.Errorf("open control store: %w", err)
-	}
-	defer store.Close()
-
-	backendName, err := configuredVectorBackendName()
+	c, err := ensureDaemon(cmd.Context())
 	if err != nil {
 		return err
 	}
-
-	plans, err := computePlans(context.Background(), store, backendName, projectID)
-	if err != nil {
+	var plans []projectPlan
+	if err := c.Plan(cmd.Context(), projectID, &plans); err != nil {
 		return err
 	}
 

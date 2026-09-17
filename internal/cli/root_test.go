@@ -6,7 +6,7 @@ import (
 )
 
 func TestUnimplementedCommandsFailLoudly(t *testing.T) {
-	cmds := []string{"status", "doctor", "watch", "backend"}
+	cmds := []string{"backend"}
 	for _, name := range cmds {
 		t.Run(name, func(t *testing.T) {
 			root := NewRootCmd()

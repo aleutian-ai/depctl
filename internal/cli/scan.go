@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"path/filepath"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -50,20 +52,36 @@ func newScanCmd() *cobra.Command {
 }
 
 func runScan(cmd *cobra.Command, root string) error {
-	detected, err := project.Scan(context.Background(), root)
+	// The daemon's working directory isn't the user's, so the path is
+	// resolved here and sent absolute.
+	abs, err := filepath.Abs(root)
 	if err != nil {
-		return fmt.Errorf("scan %s: %w", root, err)
+		return fmt.Errorf("resolve %s: %w", root, err)
+	}
+	c, err := ensureDaemon(cmd.Context())
+	if err != nil {
+		return err
+	}
+	_, err = c.Resolve(cmd.Context(), abs, cmd.OutOrStdout())
+	return err
+}
+
+// scanAndResolve discovers projects under root, registers them, and
+// resolves each one's dependencies, returning the project IDs it
+// touched. This is `ragctl scan`'s work, run inside the daemon.
+//
+// lockProject is held around each project's own persist step (registration
+// plus resolve-and-store), never across the whole scan: two concurrent
+// scans that discover different projects proceed independently, and only
+// discovering the *same* project twice at once serializes — see
+// daemon.Scheduler.LockProject, which is what a real caller passes.
+func scanAndResolve(ctx context.Context, store *bboltstore.Store, root string, out io.Writer, lockProject func(string) func()) ([]string, error) {
+	detected, err := project.Scan(ctx, root)
+	if err != nil {
+		return nil, fmt.Errorf("scan %s: %w", root, err)
 	}
 
-	store, err := openControlStore()
-	if err != nil {
-		return fmt.Errorf("open control store: %w", err)
-	}
-	defer store.Close()
-
-	ctx := context.Background()
-	out := cmd.OutOrStdout()
-
+	var ids []string
 	var newCount, existingCount, unsupportedCount int
 
 	for _, dp := range detected {
@@ -74,45 +92,51 @@ func runScan(cmd *cobra.Command, root string) error {
 		}
 
 		id := project.ProjectID(dp.Root)
-		existing, err := store.GetProject(ctx, id)
-		isNew := errors.Is(err, bboltstore.ErrNotFound)
-		if err != nil && !isNew {
-			fmt.Fprintf(cmd.ErrOrStderr(), "error        %-8s %s: %v\n", dp.Ecosystem, dp.Root, err)
-			continue
-		}
+		func() {
+			unlock := lockProject(id)
+			defer unlock()
 
-		now := time.Now()
-		p := domain.Project{ID: id, Root: dp.Root, CreatedAt: now, UpdatedAt: now}
-		if !isNew {
-			p.CreatedAt = existing.CreatedAt
-		}
-		if err := store.PutProject(ctx, p); err != nil {
-			fmt.Fprintf(cmd.ErrOrStderr(), "error        %-8s %s: %v\n", dp.Ecosystem, dp.Root, err)
-			continue
-		}
+			existing, err := store.GetProject(ctx, id)
+			isNew := errors.Is(err, bboltstore.ErrNotFound)
+			if err != nil && !isNew {
+				fmt.Fprintf(out, "error        %-8s %s: %v\n", dp.Ecosystem, dp.Root, err)
+				return
+			}
 
-		if isNew {
-			newCount++
-			fmt.Fprintf(out, "new          %-8s %s\n", dp.Ecosystem, dp.Root)
-		} else {
-			existingCount++
-			fmt.Fprintf(out, "existing     %-8s %s\n", dp.Ecosystem, dp.Root)
-		}
+			now := time.Now()
+			p := domain.Project{ID: id, Root: dp.Root, CreatedAt: now, UpdatedAt: now}
+			if !isNew {
+				p.CreatedAt = existing.CreatedAt
+			}
+			if err := store.PutProject(ctx, p); err != nil {
+				fmt.Fprintf(out, "error        %-8s %s: %v\n", dp.Ecosystem, dp.Root, err)
+				return
+			}
+			ids = append(ids, id)
 
-		res, err := resolvers[dp.Ecosystem].Resolve(ctx, dp.Root)
-		if err != nil {
-			fmt.Fprintf(cmd.ErrOrStderr(), "resolve error %-8s %s: %v\n", dp.Ecosystem, dp.Root, err)
-			continue
-		}
-		if err := store.PutResolution(ctx, id, res); err != nil {
-			fmt.Fprintf(cmd.ErrOrStderr(), "resolve error %-8s %s: %v\n", dp.Ecosystem, dp.Root, err)
-			continue
-		}
-		fmt.Fprintf(out, "resolved     %-8s %s: %d dependencies\n", dp.Ecosystem, dp.Root, len(res.Dependencies))
+			if isNew {
+				newCount++
+				fmt.Fprintf(out, "new          %-8s %s\n", dp.Ecosystem, dp.Root)
+			} else {
+				existingCount++
+				fmt.Fprintf(out, "existing     %-8s %s\n", dp.Ecosystem, dp.Root)
+			}
+
+			res, err := resolvers[dp.Ecosystem].Resolve(ctx, dp.Root)
+			if err != nil {
+				fmt.Fprintf(out, "resolve error %-8s %s: %v\n", dp.Ecosystem, dp.Root, err)
+				return
+			}
+			if err := store.PutResolution(ctx, id, res); err != nil {
+				fmt.Fprintf(out, "resolve error %-8s %s: %v\n", dp.Ecosystem, dp.Root, err)
+				return
+			}
+			fmt.Fprintf(out, "resolved     %-8s %s: %d dependencies\n", dp.Ecosystem, dp.Root, len(res.Dependencies))
+		}()
 	}
 
 	fmt.Fprintf(out, "\ndiscovered %d, new %d, existing %d, unsupported %d\n",
 		len(detected), newCount, existingCount, unsupportedCount)
 
-	return nil
+	return ids, nil
 }

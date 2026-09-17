@@ -1,10 +1,13 @@
 package ollama
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -169,5 +172,92 @@ func TestEmbedBatchesRequests(t *testing.T) {
 		if requestSizes[i] != w {
 			t.Errorf("request %d size = %d, want %d", i, requestSizes[i], w)
 		}
+	}
+}
+
+func TestReachableReportsServerHealth(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{"models": []any{}})
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, "m")
+	if !c.Reachable(context.Background()) {
+		t.Error("Reachable = false against a live server, want true")
+	}
+
+	c2 := New("http://127.0.0.1:1", "m") // nothing listens here
+	if c2.Reachable(context.Background()) {
+		t.Error("Reachable = true against an unreachable endpoint, want false")
+	}
+}
+
+func TestModelPulledMatchesWithAndWithoutLatestTag(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/tags" {
+			t.Errorf("path = %s, want /api/tags", r.URL.Path)
+		}
+		json.NewEncoder(w).Encode(map[string]any{
+			"models": []map[string]string{{"name": "nomic-embed-text-v2-moe:latest", "model": "nomic-embed-text-v2-moe:latest"}},
+		})
+	}))
+	defer srv.Close()
+
+	pulled, err := New(srv.URL, "nomic-embed-text-v2-moe").ModelPulled(context.Background())
+	if err != nil {
+		t.Fatalf("ModelPulled: %v", err)
+	}
+	if !pulled {
+		t.Error("ModelPulled = false, want true (bare name should match a :latest-tagged pull)")
+	}
+
+	missing, err := New(srv.URL, "some-other-model").ModelPulled(context.Background())
+	if err != nil {
+		t.Fatalf("ModelPulled: %v", err)
+	}
+	if missing {
+		t.Error("ModelPulled = true for a model not in the list, want false")
+	}
+}
+
+func TestPullModelRelaysDistinctStatusLinesAndDetectsError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/pull" {
+			t.Errorf("path = %s, want /api/pull", r.URL.Path)
+		}
+		enc := json.NewEncoder(w)
+		enc.Encode(map[string]string{"status": "pulling manifest"})
+		enc.Encode(map[string]string{"status": "pulling manifest"}) // duplicate, should be collapsed
+		enc.Encode(map[string]string{"status": "verifying sha256 digest"})
+		enc.Encode(map[string]string{"status": "success"})
+	}))
+	defer srv.Close()
+
+	var buf bytes.Buffer
+	err := New(srv.URL, "m").PullModel(context.Background(), &buf)
+	if err != nil {
+		t.Fatalf("PullModel: %v", err)
+	}
+	lines := strings.Split(strings.TrimRight(buf.String(), "\n"), "\n")
+	want := []string{"  pulling manifest", "  verifying sha256 digest", "  success"}
+	if len(lines) != len(want) {
+		t.Fatalf("lines = %v, want %v", lines, want)
+	}
+	for i := range want {
+		if lines[i] != want[i] {
+			t.Errorf("line %d = %q, want %q", i, lines[i], want[i])
+		}
+	}
+}
+
+func TestPullModelSurfacesOllamaReportedError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]string{"error": "model not found on registry"})
+	}))
+	defer srv.Close()
+
+	err := New(srv.URL, "does-not-exist").PullModel(context.Background(), io.Discard)
+	if err == nil {
+		t.Fatal("PullModel succeeded despite an error line, want it surfaced")
 	}
 }

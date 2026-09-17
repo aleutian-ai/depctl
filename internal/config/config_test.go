@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -25,8 +26,50 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 		t.Fatalf("Load: %v", err)
 	}
 
-	if got != want {
+	// Not got != want: Daemon.Autostart is a *bool (nil means "unset"),
+	// so equal round-tripped values still land in distinct allocations.
+	if !reflect.DeepEqual(got, want) {
 		t.Errorf("round-trip mismatch:\n got:  %+v\n want: %+v", got, want)
+	}
+}
+
+func TestFingerprintDetectsARealChangeNotARoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	original := Default(dir)
+
+	f1, err := original.Fingerprint()
+	if err != nil {
+		t.Fatalf("Fingerprint: %v", err)
+	}
+
+	// A save-then-load round trip must not register as a change: the
+	// whole point is comparing what the daemon actually loaded against
+	// a fresh load, not raw file bytes.
+	path := filepath.Join(dir, "config.yaml")
+	if err := original.Save(path); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	reloaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	f2, err := reloaded.Fingerprint()
+	if err != nil {
+		t.Fatalf("Fingerprint (reloaded): %v", err)
+	}
+	if f1 != f2 {
+		t.Errorf("fingerprint changed across a save/load round trip: %s vs %s", f1, f2)
+	}
+
+	// An actual semantic change must register.
+	changed := reloaded
+	changed.Embedding.Model = "a-different-model"
+	f3, err := changed.Fingerprint()
+	if err != nil {
+		t.Fatalf("Fingerprint (changed): %v", err)
+	}
+	if f3 == f2 {
+		t.Error("fingerprint did not change after a real config edit")
 	}
 }
 
@@ -108,6 +151,34 @@ func TestDefaultsAreApplied(t *testing.T) {
 	}
 }
 
+func TestDefaultVectorManagedIsTrueForFreshInstalls(t *testing.T) {
+	c := Default("/data")
+	if !c.Vector.Managed {
+		t.Error("vector.managed should default to true for a fresh install (WATCH-016)")
+	}
+}
+
+func TestConfigWithNoManagedKeyLoadsAsFalse(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	// A config file written before WATCH-016 existed — no "managed" key
+	// under vector at all.
+	body := "version: 1\n" +
+		"storage:\n  control:\n    type: bbolt\n    path: " + dir + "/control.db\n  data:\n    type: badger\n    path: " + dir + "/badger\n" +
+		"embedding:\n  provider: ollama\n  model: nomic-embed-text-v2-moe\n  endpoint: http://127.0.0.1:11434\n" +
+		"vector:\n  backend: qdrant\n  endpoint: http://127.0.0.1:6333\n  collection: ragctl\n"
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	c, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if c.Vector.Managed {
+		t.Error("a config predating vector.managed must load as false — no surprise second Qdrant instance for existing users")
+	}
+}
+
 func TestSecretsNeverSerialized(t *testing.T) {
 	c := Default("/data")
 	c.Vector.APIKeyEnv = "QDRANT_API_KEY"
@@ -141,4 +212,36 @@ func readFile(t *testing.T, path string) string {
 		t.Fatalf("read %s: %v", path, err)
 	}
 	return string(data)
+}
+
+func TestAutostartDefaultsOnWhenKeyAbsent(t *testing.T) {
+	// A config written before the daemon existed has no daemon key at
+	// all, and Load never fills in defaults — auto-start must still be on.
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	body := `version: 1
+storage:
+  control:
+    type: bbolt
+    path: /tmp/ragctl/control.db
+  data:
+    type: badger
+    path: /tmp/ragctl/badger
+`
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !cfg.Daemon.AutostartEnabled() {
+		t.Error("AutostartEnabled() = false for a config with no daemon key, want true")
+	}
+
+	off := false
+	cfg.Daemon.Autostart = &off
+	if cfg.Daemon.AutostartEnabled() {
+		t.Error("AutostartEnabled() = true with autostart: false")
+	}
 }

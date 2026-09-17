@@ -1,7 +1,7 @@
 // Package planner computes the diff between a project's current
 // dependency resolution and its recorded state (references, active
 // generations), producing typed actions for `ragctl plan`/`ragctl sync`
-// to report or execute. See docs/tickets/planned/15-planner-sync.
+// to report or execute. See docs/tickets/completed/15-planner-sync.
 package planner
 
 import (

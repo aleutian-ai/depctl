@@ -7,6 +7,18 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// ExitCodeError is returned by a command whose outcome is its exit code
+// rather than an error message (e.g. `ragctl doctor`); it has already
+// printed its report, so main exits with Code without printing anything.
+type ExitCodeError struct {
+	Code int
+}
+
+// Error implements error.
+func (e ExitCodeError) Error() string {
+	return fmt.Sprintf("exit status %d", e.Code)
+}
+
 // NewRootCmd builds the root ragctl command with every top-level
 // subcommand registered. Unimplemented subcommands fail loudly with a
 // fixed error rather than silently doing nothing.
@@ -26,11 +38,12 @@ func NewRootCmd() *cobra.Command {
 		newDescribeCmd(),
 		newPlanCmd(),
 		newSyncCmd(),
-		notImplementedCmd("status", "Show system status"),
-		notImplementedCmd("doctor", "Run health diagnostics"),
+		newStatusCmd(),
+		newDoctorCmd(),
 		newGCCmd(),
-		notImplementedCmd("watch", "Watch projects for dependency changes"),
+		newWatchCmd(),
 		newServeCmd(),
+		newDaemonCmd(),
 		notImplementedCmd("backend", "Manage vector backends"),
 		newRegistryCmd(),
 		newCorpusCmd(),

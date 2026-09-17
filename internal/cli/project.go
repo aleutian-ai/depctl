@@ -1,14 +1,10 @@
 package cli
 
 import (
-	"context"
-	"errors"
 	"fmt"
 	"sort"
 
 	"github.com/spf13/cobra"
-
-	bboltstore "aleutian-ai/ragctl/internal/control/bbolt"
 )
 
 func newProjectCmd() *cobra.Command {
@@ -38,17 +34,16 @@ func newProjectCmd() *cobra.Command {
 }
 
 func runProjectList(cmd *cobra.Command) error {
-	store, err := openControlStore()
+	c, err := ensureDaemon(cmd.Context())
 	if err != nil {
-		return fmt.Errorf("open control store: %w", err)
+		return err
 	}
-	defer store.Close()
-
-	projects, err := store.ListProjects(context.Background())
+	resp, err := c.ProjectList(cmd.Context())
 	if err != nil {
-		return fmt.Errorf("list projects: %w", err)
+		return err
 	}
 
+	projects := resp.Projects
 	sort.Slice(projects, func(i, j int) bool { return projects[i].Root < projects[j].Root })
 
 	out := cmd.OutOrStdout()
@@ -63,19 +58,13 @@ func runProjectList(cmd *cobra.Command) error {
 }
 
 func runProjectShow(cmd *cobra.Command, id string) error {
-	store, err := openControlStore()
+	c, err := ensureDaemon(cmd.Context())
 	if err != nil {
-		return fmt.Errorf("open control store: %w", err)
+		return err
 	}
-	defer store.Close()
-
-	ctx := context.Background()
-	p, err := store.GetProject(ctx, id)
+	p, err := c.ProjectGet(cmd.Context(), id)
 	if err != nil {
-		if errors.Is(err, bboltstore.ErrNotFound) {
-			return fmt.Errorf("no registered project with ID %s (run `ragctl project list` to see registered projects)", id)
-		}
-		return fmt.Errorf("get project %s: %w", id, err)
+		return err
 	}
 
 	out := cmd.OutOrStdout()
@@ -84,14 +73,10 @@ func runProjectShow(cmd *cobra.Command, id string) error {
 	fmt.Fprintf(out, "Registered: %s\n", p.CreatedAt.Format("2006-01-02 15:04:05"))
 	fmt.Fprintf(out, "Updated:    %s\n", p.UpdatedAt.Format("2006-01-02 15:04:05"))
 
-	res, err := store.GetResolution(ctx, id)
-	switch {
-	case errors.Is(err, bboltstore.ErrNotFound):
+	if !p.HasResolution {
 		fmt.Fprintln(out, "Resolution: none (run `ragctl scan` against this project's root)")
-	case err != nil:
-		return fmt.Errorf("get resolution for %s: %w", id, err)
-	default:
-		fmt.Fprintf(out, "Resolution: %s, %d dependencies (fingerprint %s)\n", res.Ecosystem, len(res.Dependencies), res.Fingerprint)
+		return nil
 	}
+	fmt.Fprintf(out, "Resolution: %s, %d dependencies (fingerprint %s)\n", p.Ecosystem, len(p.Dependencies), p.Fingerprint)
 	return nil
 }

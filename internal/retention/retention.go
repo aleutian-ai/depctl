@@ -2,7 +2,7 @@
 // (RET-002) and GC eligibility planning (RET-003): keeping a dependency
 // version's knowledge retained for a configurable window after a
 // project stops referencing it, then computing which versions are
-// finally safe to delete. See docs/tickets/planned/16-retention-gc.
+// finally safe to delete. See docs/tickets/completed/16-retention-gc.
 package retention
 
 import (

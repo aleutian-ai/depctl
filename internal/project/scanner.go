@@ -1,6 +1,6 @@
 // Package project detects local project roots by walking a directory tree
 // for known ecosystem manifest files, and assigns stable IDs to them. See
-// docs/tickets/planned/04-project-discovery.
+// docs/tickets/completed/04-project-discovery.
 package project
 
 import (

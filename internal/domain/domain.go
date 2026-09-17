@@ -1,6 +1,6 @@
 // Package domain defines ragctl's core data types, shared by every other
 // package. It has no dependencies on storage, network, or CLI packages —
-// see docs/tickets/planned/02-core-domain-storage/CORE-001-domain-types.md.
+// see docs/tickets/completed/02-core-domain-storage/CORE-001-domain-types.md.
 //
 // Types are added here incrementally, as the commands that need them are
 // implemented — not all at once up front.
@@ -142,7 +142,7 @@ type Chunk struct {
 
 // Generation is one dependency version's knowledge snapshot as it moves
 // through acquisition, normalization, and indexing (see
-// docs/tickets/planned/11-generation-builder). ID is a ULID ("gen_"
+// docs/tickets/completed/11-generation-builder). ID is a ULID ("gen_"
 // prefixed) — generations are lifecycle entities, not content-addressed,
 // so unlike KnowledgeObject/Chunk their ID carries no derived identity.
 type Generation struct {
