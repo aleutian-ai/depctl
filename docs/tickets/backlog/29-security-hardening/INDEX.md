@@ -8,3 +8,4 @@ Establishes the security invariants the project promises: local-first defaults, 
 - [SEC-002](SEC-002-prompt-injection-labeling.md) — Label MCP retrieval results as data, not instructions.
 - [SEC-003](SEC-003-fetch-limits.md) — Configurable size/redirect/decompression limits on Git and HTTP fetches.
 - [SEC-004](SEC-004-no-downloaded-code-execution.md) — Structural guarantee that fetched repo code is never executed and resolver commands only run against registered project roots.
+- [SEC-005](SEC-005-no-telemetry-invariant.md) — Enforce "no telemetry by default" as a CI-checked invariant, not just a claim (surfaced by comparing against Grounded Docs, which ships telemetry on by default).

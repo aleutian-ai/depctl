@@ -47,14 +47,15 @@ Not sourced from the original implementation plan doc — added from `docs/scrat
 39. [39-curated-text-acquisition](39-curated-text-acquisition/INDEX.md) — explicit curator-selected web pages and Confluence/internal-wiki acquisition, extending (not duplicating) epic 24's HTTP client and HTML normalizer.
 40. [40-structured-artifact-normalizers](40-structured-artifact-normalizers/INDEX.md) — OpenAPI and protobuf normalizers, one `KnowledgeObject` per operation/RPC method.
 41. [41-retrieval-and-embedding-experiments](41-retrieval-and-embedding-experiments/INDEX.md) — evidence-gated: bounded embedding concurrency, token-aware chunk sizing, chunk-overlap experiment run via the separate `context-evals` repository.
-42. [42-repo-graph-symbol-join](42-repo-graph-symbol-join/INDEX.md) — a thin external-symbol-provider interface and the join from a resolved call-site symbol to ragctl's exact-version evidence.
 44. [44-containerized-embedding-backend](44-containerized-embedding-backend/INDEX.md) — an opt-in `ragctl backend up` for a self-contained, containerized Ollama + embedding model, as a second installation path alongside (never a replacement for) native Ollama — the daemon itself stays native regardless, per ADR-010.
 
 Epic 43 ([43-local-cache-reuse](../planned/43-local-cache-reuse/INDEX.md)) moved to `planned/` — GIT-005 shipped after real usage showed the cost this epic was waiting for (see that epic's `INDEX.md`); GIT-004 remains unbuilt there.
 
+Epic 42 ([42-repo-graph-symbol-join](../planned/42-repo-graph-symbol-join/INDEX.md)) moved to `planned/` — a 2026-09 competitive review reaffirmed this join's shape independently and prompted scoping it for real implementation (GRAPH-003/004 added, settling the provider choice GRAPH-001 originally deferred).
+
 ## Ticket ID prefixes in this directory
 
-`PY / NODE / RUST / JAVA / HTTP / VEC (010-014) / EVAL / OBS / EXT / SEC / LOCAL / LLAMA / CLIENT / DATA` — these match the task IDs used in the implementation plan directly, except `DATA` (see above). `REG` (epic 38, continuing from REG-008) continues epics 07/34's prefix. `NORM` (epic 40) continues epic 09's prefix into backlog use; `EMB`/`CHUNK` (epic 41) continue epics 12/10's prefixes. `CONF` (epic 39) and `GRAPH` (epic 42) are new prefixes, since Confluence/wiki acquisition and repo-graph symbol join don't exist yet elsewhere. `GIT` (epic 43, continuing from GIT-003) continues epic 08's prefix into backlog use.
+`PY / NODE / RUST / JAVA / HTTP / VEC (010-014) / EVAL / OBS / EXT / SEC / LOCAL / LLAMA / CLIENT / DATA` — these match the task IDs used in the implementation plan directly, except `DATA` (see above). `REG` (epic 38, continuing from REG-008) continues epics 07/34's prefix. `NORM` (epic 40) continues epic 09's prefix into backlog use; `EMB`/`CHUNK` (epic 41) continue epics 12/10's prefixes. `CONF` (epic 39) is a new prefix, since Confluence/wiki acquisition doesn't exist yet elsewhere. `GIT` (epic 43, continuing from GIT-003) continues epic 08's prefix into backlog use. `GRAPH` (epic 42) has moved to `planned/README.md` along with the epic.
 
 ## A note on `26-evaluation-framework`
 

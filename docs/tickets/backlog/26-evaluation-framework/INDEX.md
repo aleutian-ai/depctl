@@ -12,6 +12,8 @@ The scratch doc's own split (§12.1 vs §12.2) actually maps cleanly onto splitt
 
 Nobody has decided this yet — the tickets below are left as originally specced. Before picking any of them up, confirm with the user whether to (a) keep this epic in-repo as-is, (b) narrow it to just EVAL-002/005 and spin the rest into a new sibling repo, or (c) drop it entirely in favor of `context-evals` handling all of it externally via MCP/CLI.
 
+**2026-09 update:** a deep-dive comparison against Grounded Docs (`docs-mcp-server`) — a mature, MIT-licensed, locally-hosted documentation MCP server with its own MRR/Recall@K/nDCG benchmark — reaffirmed option (b)'s split rather than resolving the decision outright: see [epic 45 (Competitive Validation)](../45-competitive-validation/INDEX.md), which builds the deterministic, ragctl-owned fixtures and invariant tests (atomic promotion under failure, cross-project version isolation, a private-dependency version-break fixture) that stay in this repo either way, while explicitly keeping any cross-system benchmark adapter or head-to-head comparison runner out of ragctl and into a future `context-evals`.
+
 ## Tickets
 
 - [EVAL-001](EVAL-001-eval-case-model.md) — Define the `EvalCase` struct and a YAML fixture loader.
