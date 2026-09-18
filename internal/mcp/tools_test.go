@@ -38,6 +38,7 @@ type fakeControlStore struct {
 	resolutions map[string]domain.Resolution
 	active      map[string]domain.Generation
 	refs        []domain.VersionReference
+	generations []domain.Generation // every generation ever seeded, any state — see seedChunk
 }
 
 func newFakeControlStore() *fakeControlStore {
@@ -85,6 +86,15 @@ func (s *fakeControlStore) ListReferences(ctx context.Context, ecosystem domain.
 }
 func (s *fakeControlStore) ListAllReferences(ctx context.Context) ([]domain.VersionReference, error) {
 	return s.refs, nil
+}
+func (s *fakeControlStore) ListGenerationsByDependencyVersion(ctx context.Context, ecosystem domain.Ecosystem, pkg, version string) ([]domain.Generation, error) {
+	var out []domain.Generation
+	for _, g := range s.generations {
+		if g.Dependency.Dependency.Ecosystem == ecosystem && g.Dependency.Dependency.Name == pkg && g.Dependency.Version == version {
+			out = append(out, g)
+		}
+	}
+	return out, nil
 }
 
 type fakeDataStore struct {
@@ -215,7 +225,13 @@ func (e *testEnv) seedChunk(t *testing.T, ecosystem domain.Ecosystem, pkg, versi
 		t.Fatalf("Upsert: %v", err)
 	}
 	e.data.chunks[generationID+"|"+chunkID] = domain.Chunk{ID: chunkID, Content: []byte(content)}
-	e.control.active[string(ecosystem)+"|"+pkg+"|qdrant"] = domain.Generation{ID: generationID}
+	gen := domain.Generation{
+		ID:         generationID,
+		Dependency: domain.DependencyVersion{Dependency: domain.Dependency{Ecosystem: ecosystem, Name: pkg}, Version: version},
+		State:      domain.GenActive,
+	}
+	e.control.active[string(ecosystem)+"|"+pkg+"|qdrant"] = gen
+	e.control.generations = append(e.control.generations, gen)
 }
 
 func TestSearchDependencyDocsHandlerReturnsChunksWithSecurityNote(t *testing.T) {

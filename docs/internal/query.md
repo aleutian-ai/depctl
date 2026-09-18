@@ -35,7 +35,7 @@ sequenceDiagram
     participant Badger as DataStore (Badger)
 
     MCP->>Svc: SearchKnowledge(Query{Mode, Dependency, Text, ...})
-    Svc->>Bbolt: resolve project/dependency/version\n(GetResolution, GetActiveGeneration, ListAllReferences)
+    Svc->>Bbolt: resolve project/dependency/version\n(GetResolution, GetActiveGeneration,\nListGenerationsByDependencyVersion, ListAllReferences)
     Svc->>Embed: Embed(ctx, []string{text})
     Embed-->>Svc: vector
     Svc->>VB: Query(Namespace, vector, TopK, Filter{Ecosystem,Dependency,Version})
@@ -59,7 +59,7 @@ An MCP client running inside project `proj_a1b2` (root `/home/jin/work/checkout-
 
 3. `searchProject` resolves the project's actual dependency version via `resolveProjectDependency` (internal/query/search.go, internal/query/search.go): it calls `s.getResolution(ctx, "proj_a1b2")`, which first confirms the project exists (`ControlStore.GetProject`, else `ErrProjectNotFound`) then fetches its `domain.Resolution` (`ControlStore.GetResolution`, else `ErrDependencyNotFound`). Walking `resolution.Dependencies` finds `domain.DependencyVersion{Dependency: {Ecosystem: "go", Name: "google.golang.org/grpc"}, Version: "v1.67.0"}` — this project resolved grpc to `v1.67.0`.
 
-4. `searchProject` confirms that version has a promoted generation by calling `ControlStore.GetActiveGeneration(ctx, "go", "google.golang.org/grpc", s.backendName)` (internal/query/search.go); `s.backendName` is `"qdrant"`. This returns `domain.Generation{ID: "gen_20260904_1"}`; if it errored, `searchProject` would return `ErrNoActiveGeneration` instead of proceeding.
+4. `searchProject` runs two checks, both of which must pass (internal/query/search.go, FIX-002): first, `ControlStore.GetActiveGeneration(ctx, "go", "google.golang.org/grpc", s.backendName)` (`s.backendName` is `"qdrant"`) confirms *some* generation is active for this ecosystem+package+backend at all — this returns `domain.Generation{ID: "gen_20260904_1"}`. Second, `ControlStore.ListGenerationsByDependencyVersion(ctx, "go", "google.golang.org/grpc", "v1.67.0")` confirms the project's *own resolved version specifically* was itself successfully promoted at some point (`State == ACTIVE` or `State == SUPERSEDED` on at least one returned generation) — deliberately not the same check as the first: `active_generations` is a single pointer per ecosystem+package+backend, so a *different* project promoting a newer version of the same dependency moves that pointer without invalidating this project's own, still-valid, still-synced version. If either check fails, `searchProject` returns `ErrNoActiveGeneration` instead of proceeding.
 
 5. `searchProject` calls the shared `search` helper (internal/query/search.go, 247) with `text = "how do I configure retry policy on a client connection"`, `topK = 0` (defaults to `defaultTopK = 10`, internal/query/search.go, internal/query/query.go), and `filter = &backend.Filter{Ecosystem: "go", Dependency: "google.golang.org/grpc", Version: "v1.67.0"}` — note `Generation` is left empty on this filter, since the version alone is what constrains the search.
 

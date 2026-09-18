@@ -164,6 +164,10 @@ type PlanRequest struct {
 // GCRequest is one `ragctl gc` invocation.
 type GCRequest struct {
 	DryRun bool `json:"dry_run"`
+	// Orphans selects GC-001/GC-002's orphan-generation eligibility path
+	// (FAILED/stuck-non-terminal generations) instead of the default
+	// reference-based path — never both in the same request.
+	Orphans bool `json:"orphans,omitempty"`
 }
 
 // GCResult summarizes a GC run.

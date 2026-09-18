@@ -9,9 +9,11 @@
 // search_dependency_docs can also trigger a sync itself, scoped to just
 // the missing dependency, when nothing's been synced yet (SyncTrigger/
 // PriorityBumper, WATCH-019/020) rather than requiring a separate
-// sync_project call first. No business logic lives in this package —
-// every trigger/query implementation lives in internal/cli or
-// internal/query.
+// sync_project call first. explain_call_site (GRAPH-004) joins a source
+// call site to version-correct evidence via CallSiteResolver, backed by
+// internal/symbolgraph. No business logic lives in this package — every
+// trigger/query/join implementation lives in internal/cli,
+// internal/query, or internal/symbolgraph.
 package mcp
 
 import (
@@ -21,6 +23,7 @@ import (
 
 	"aleutian-ai/ragctl/internal/domain"
 	"aleutian-ai/ragctl/internal/query"
+	"aleutian-ai/ragctl/internal/symbolgraph"
 )
 
 // securityNote is attached to every tool result, per SEC-002's
@@ -104,6 +107,18 @@ type Deps struct {
 	// then always falls back to SyncTrigger's plain JIT-sync path
 	// (WATCH-019), same as if BumpSyncPriority always returned false.
 	Priority PriorityBumper
+	// Symbols may be nil — explain_call_site is still registered, but
+	// always reports "not configured" rather than being conditionally
+	// absent, matching sync_project's existing disabled-by-config
+	// precedent (GRAPH-004).
+	Symbols CallSiteResolver
+}
+
+// CallSiteResolver lets explain_call_site join a project source call
+// site to the dependency-version evidence relevant to it (GRAPH-002) —
+// narrow, consumer-side, satisfied by *internal/symbolgraph.Resolver.
+type CallSiteResolver interface {
+	ResolveEvidence(ctx context.Context, projectID string, site symbolgraph.CallSite, queryText string) (*symbolgraph.EvidenceBundle, error)
 }
 
 // PriorityBumper lets search_dependency_docs's JIT-sync path (WATCH-019)

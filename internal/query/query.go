@@ -112,6 +112,7 @@ type ControlStore interface {
 	GetActiveGeneration(ctx context.Context, ecosystem domain.Ecosystem, pkg, backendName string) (domain.Generation, error)
 	ListReferences(ctx context.Context, ecosystem domain.Ecosystem, pkg, version string) ([]domain.VersionReference, error)
 	ListAllReferences(ctx context.Context) ([]domain.VersionReference, error)
+	ListGenerationsByDependencyVersion(ctx context.Context, ecosystem domain.Ecosystem, pkg, version string) ([]domain.Generation, error)
 }
 
 // Status is knowledge_status's coarse fleet-wide summary — not a full

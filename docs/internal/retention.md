@@ -10,6 +10,9 @@
 - `GraceExpiry(r, gracePeriod)` — `r.LastSeenAt.Add(gracePeriod)`; only meaningful for a `grace_period`-reason reference (internal/retention/retention.go).
 - `GCCandidate` — one `(Ecosystem, Package, Version, Reason)` tuple RET-003 has determined is safe to delete (internal/retention/gc_planner.go).
 - `PlanGC(ctx, store, backendName, gracePeriod, now)` — computes every dependency version eligible for GC: no `project`/`latest`/`manual_pin` reference blocking it, a `grace_period` reference exists and is expired, and it is not the currently active generation for that dependency+backend (internal/retention/gc_planner.go).
+- `OrphanCandidate` — one `domain.Generation` (identified by `GenerationID`, not dependency+version) GC-001 has determined is safe to delete: `FAILED`, or stuck non-terminal past `orphanAge` and not currently active (internal/retention/orphan_planner.go).
+- `EffectiveOrphanAge(configured)` — same zero/missing-config-must-not-mean-immediate defaulting pattern as `EffectiveGracePeriod`, 24h default (internal/retention/orphan_planner.go).
+- `PlanOrphanGC(ctx, store, backendName, orphanAge, now)` — a full `ListAllGenerations` scan (an orphan, by definition never promoted, has no dependency+version reference index pointing at it the way `PlanGC`'s candidate discovery does) for `FAILED` or stale-non-terminal generations not currently active — an entirely separate eligibility path from `PlanGC`, never merged with it (epic 22, internal/retention/orphan_planner.go).
 
 ## Dataflow
 
@@ -21,10 +24,15 @@ flowchart TD
     GCCmd["ragctl gc (cli/gc.go)"] -->|PlanGC| Plan["retention.PlanGC"]
     Bbolt2[(bbolt: references bucket,\nactive_generations)] -->|ListAllReferences, ListReferences,\nGetActiveGeneration| Plan
     Plan -->|"[]GCCandidate"| GCRun["lifecycle/gc.Run"]
-    GCRun -->|deletes vector + Badger + bbolt data| Stores[(vector backend, Badger, bbolt)]
+    GCRun -->|deletes vector + Badger + bbolt data,\ndependency+version scoped| Stores[(vector backend, Badger, bbolt)]
+
+    OrphanCmd["ragctl gc --orphans\n(cli/gc.go, GC-002)"] -->|PlanOrphanGC| OPlan["retention.PlanOrphanGC"]
+    Bbolt3[(bbolt: generations bucket,\nactive_generations)] -->|ListAllGenerations,\nGetActiveGeneration| OPlan
+    OPlan -->|"[]OrphanCandidate"| GCRunOrphans["lifecycle/gc.RunOrphans"]
+    GCRunOrphans -->|deletes vector + Badger + bbolt data,\nGENERATION-ID scoped only| Stores
 ```
 
-`DropReference` is called from `ragctl sync`'s action dispatch whenever `planner.Plan` emits `ActionDropReference` — it's the only writer in this package, touching the `references` bbolt bucket. `PlanGC` is called from `ragctl gc` (cli/gc.go); it only reads (`ListAllReferences`, `ListReferences`, `GetActiveGeneration`) and returns `[]GCCandidate` for `internal/lifecycle/gc.Run` to act on — `retention` itself never deletes anything.
+`DropReference` is called from `ragctl sync`'s action dispatch whenever `planner.Plan` emits `ActionDropReference` — it's the only writer in this package, touching the `references` bbolt bucket. `PlanGC` is called from `ragctl gc` (cli/gc.go); it only reads (`ListAllReferences`, `ListReferences`, `GetActiveGeneration`) and returns `[]GCCandidate` for `internal/lifecycle/gc.Run` to act on — `retention` itself never deletes anything. `PlanOrphanGC` (GC-001) is `ragctl gc --orphans`'s own, independent read path — no writer of its own in this package, since a generation's `FAILED`/stuck state is already written by `internal/data/generation.Build`/`Replicate`, not by anything in `retention`.
 
 ## Walkthrough
 

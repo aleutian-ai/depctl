@@ -145,6 +145,50 @@ func TestTypeAndMethodDocsLinked(t *testing.T) {
 	}
 }
 
+// TestConstructorFunctionReturningTypeIsExtracted is VALID-004's
+// regression test: go/doc groups a package-level function under the
+// type it returns (Type.Funcs), not the package-level Doc.Funcs list —
+// the extremely common Go constructor convention (NewFoo(), Open(),
+// Connect() returning *T). Normalize previously only read Type.Methods,
+// silently never indexing any such constructor at all, found via
+// VALID-004's live fixture (a Connect(...) (*Client, error) function
+// that never appeared in search results).
+func TestConstructorFunctionReturningTypeIsExtracted(t *testing.T) {
+	dir, err := filepath.Abs(filepath.Join("testdata", "sources", "constructorpkg"))
+	if err != nil {
+		t.Fatalf("abs path: %v", err)
+	}
+	n := New()
+	objs, err := n.Normalize(context.Background(), domain.SourceSnapshot{LocalPath: dir, LogicalPath: "constructorpkg"})
+	if err != nil {
+		t.Fatalf("Normalize: %v", err)
+	}
+
+	obj, ok := findByTitle(objs, "NewClient", "symbol_doc")
+	if !ok {
+		t.Fatal("no symbol_doc object found for NewClient — Type.Funcs functions are not being extracted")
+	}
+	if obj.Metadata["receiver"] != "" {
+		t.Errorf("NewClient is a package-level function, not a method, want no receiver, got %q", obj.Metadata["receiver"])
+	}
+	if obj.Metadata["signature"] == "" {
+		t.Error("NewClient's signature metadata is empty")
+	}
+	if string(obj.Content) == "" {
+		t.Error("NewClient's doc Content is empty")
+	}
+
+	// The method (a genuinely different code path, Type.Methods) must
+	// still work correctly alongside the fix.
+	methodObj, ok := findByTitle(objs, "Ping", "symbol_doc")
+	if !ok {
+		t.Fatal("no symbol_doc object found for Ping method")
+	}
+	if methodObj.Metadata["receiver"] != "Client" {
+		t.Errorf("Ping's receiver = %q, want Client", methodObj.Metadata["receiver"])
+	}
+}
+
 func TestUnexportedSymbolsNeverAppear(t *testing.T) {
 	objs := normalizeFixture(t)
 	for _, o := range objs {

@@ -220,9 +220,19 @@ func (s *Server) handleDoctor(w http.ResponseWriter, r *http.Request) {
 // GC never interleaves with one), is bounded by maxActionDuration so a
 // hung GC can't wedge every future sync, and a GC request that arrives
 // while one is already running collapses into a single follow-up.
+// req.Orphans selects GC-001/GC-002's separate orphan-generation path
+// instead (RequestOrphanGC) — no request-coalescing there, since orphan
+// GC is deliberately manual/opt-in, never fired automatically the way
+// sync (and therefore reference-based GC's own coalescing need) is.
 func (s *Server) handleGC(w http.ResponseWriter, r *http.Request) {
 	var req api.GCRequest
 	if !decodeBody(w, r, &req) {
+		return
+	}
+	if req.Orphans {
+		stream(w, func(out io.Writer) (any, error) {
+			return s.scheduler.RequestOrphanGC(r.Context(), s.opts.Engine.OrphanGC, req.DryRun, out)
+		})
 		return
 	}
 	stream(w, func(out io.Writer) (any, error) {

@@ -114,6 +114,11 @@ func TestValidateFailures(t *testing.T) {
 			wantErr: "retention.grace_period",
 		},
 		{
+			name:    "negative orphan age",
+			mutate:  func(c *Config) { c.Retention.OrphanAge = -time.Hour },
+			wantErr: "retention.orphan_age",
+		},
+		{
 			name:    "negative debounce",
 			mutate:  func(c *Config) { c.Watch.Debounce = -time.Second },
 			wantErr: "watch.debounce",
@@ -139,6 +144,9 @@ func TestDefaultsAreApplied(t *testing.T) {
 	c := Default("/data")
 	if c.Retention.GracePeriod != 336*time.Hour {
 		t.Errorf("grace_period = %v, want 336h", c.Retention.GracePeriod)
+	}
+	if c.Retention.OrphanAge != 24*time.Hour {
+		t.Errorf("orphan_age = %v, want 24h", c.Retention.OrphanAge)
 	}
 	if !c.Watch.Enabled {
 		t.Error("watch.enabled should default to true")

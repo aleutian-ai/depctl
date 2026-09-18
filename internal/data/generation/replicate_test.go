@@ -7,6 +7,7 @@ import (
 
 	"aleutian-ai/ragctl/internal/backend"
 	"aleutian-ai/ragctl/internal/backend/backendtest"
+	"aleutian-ai/ragctl/internal/domain"
 	"aleutian-ai/ragctl/internal/registry"
 	"aleutian-ai/ragctl/internal/source/git"
 )
@@ -145,6 +146,24 @@ func TestReplicateFailureMarksReplicaFailedWithError(t *testing.T) {
 	}
 	if replica.LastError == "" {
 		t.Error("replica.LastError is empty, want a stored failure message")
+	}
+
+	// The Generation record itself must also transition to FAILED, not
+	// stay stuck at whatever state Build left it in (INDEXING) — found
+	// missing via VALID-001's live testing (docs/tickets/completed/
+	// 45-competitive-validation), where an INDEXING-stuck generation was
+	// functionally harmless for query correctness but invisible to
+	// anything inspecting Generation.State directly (status/doctor,
+	// orphan GC's own candidate discovery).
+	failedGen, getGenErr := store.GetGeneration(ctx, gen.ID)
+	if getGenErr != nil {
+		t.Fatalf("GetGeneration: %v", getGenErr)
+	}
+	if failedGen.State != domain.GenFailed {
+		t.Errorf("generation.State = %s, want FAILED", failedGen.State)
+	}
+	if failedGen.Error == "" {
+		t.Error("generation.Error is empty, want the same failure message the replica carries")
 	}
 }
 

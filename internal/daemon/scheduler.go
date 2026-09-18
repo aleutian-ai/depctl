@@ -224,6 +224,40 @@ func (s *Scheduler) Request(projectID string, opts SyncOptions, out io.Writer) <
 	return w.done
 }
 
+// RequestOrphanGC runs one orphan GC pass (GC-001/GC-002), serialized
+// against sync and against reference-based GC via the same s.global
+// lock RequestGC's runs already use. Unlike RequestGC, this has none of
+// its request-coalescing sophistication — reference-based GC needs that
+// because file-watch events can fire sync (and therefore, indirectly,
+// interest in GC) repeatedly in quick succession, but orphan GC is
+// deliberately manual/opt-in (epic 22's own non-goal: "no automatic/
+// implicit orphan cleanup"), so a caller always gets its own real run
+// and its own real result rather than being folded into someone else's.
+// run is GCFunc-shaped but orphan-specific (GC-002's runOrphanGC),
+// passed in rather than stored on Scheduler so this method needs no
+// change to NewScheduler's constructor or its existing tests.
+func (s *Scheduler) RequestOrphanGC(ctx context.Context, run GCFunc, dryRun bool, out io.Writer) (api.GCResult, error) {
+	if out == nil {
+		out = io.Discard // matches writerForGC's own nil-safety for RequestGC's callers
+	}
+
+	s.mu.Lock()
+	if s.stopped {
+		s.mu.Unlock()
+		return api.GCResult{}, ErrShuttingDown
+	}
+	s.inFlight.Add(1)
+	s.mu.Unlock()
+	defer s.inFlight.Done()
+
+	s.global.Lock()
+	defer s.global.Unlock()
+
+	runCtx, cancel := context.WithTimeout(context.WithoutCancel(s.base), maxActionDuration)
+	defer cancel()
+	return run(runCtx, dryRun, out)
+}
+
 // RequestGC queues a GC run and returns a channel that receives the
 // result of the run covering this request — the run it starts, or the
 // single follow-up run if one is already under way. Progress is written

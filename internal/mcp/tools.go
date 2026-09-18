@@ -11,6 +11,7 @@ import (
 
 	"aleutian-ai/ragctl/internal/domain"
 	"aleutian-ai/ragctl/internal/query"
+	"aleutian-ai/ragctl/internal/symbolgraph"
 )
 
 // registerTools wires every MCP-003 tool onto sdk, backed by deps.
@@ -49,6 +50,11 @@ func registerTools(sdk *sdkmcp.Server, deps Deps) {
 		Name:        "scan_project",
 		Description: "Discover and register the project(s) under a directory (default: the MCP server's own working directory, typically the project you're already in) so the other tools have a project_id to work with. Call this first whenever knowledge_status shows no matching project — it's always safe to (re-)run. Registration only; call sync_project afterward to actually build searchable knowledge.",
 	}, scanProjectHandler(deps.Scan))
+
+	sdkmcp.AddTool(sdk, &sdkmcp.Tool{
+		Name:        "explain_call_site",
+		Description: "Resolve one source call site (file/line/column) to the exact-version dependency evidence relevant to it — what it's calling, and version-correct documentation for that call, without having to already know the dependency's name.",
+	}, explainCallSiteHandler(deps.Symbols))
 }
 
 // progressReporter returns nil (meaning "don't bother") when the call
@@ -154,17 +160,25 @@ func searchDependencyDocsHandler(svc QueryService, sync SyncTrigger, enableSync 
 		if err != nil {
 			return nil, SearchDependencyDocsOut{}, toolError(err)
 		}
-		out := SearchDependencyDocsOut{Note: securityNote, Chunks: make([]SearchResultChunk, len(result.Chunks))}
-		for i, c := range result.Chunks {
-			out.Chunks[i] = SearchResultChunk{
-				ChunkID: c.ChunkID, Content: c.Content, Score: c.Score,
-				Ecosystem: c.Ecosystem, Dependency: c.Dependency, Version: c.Version,
-				Generation: c.Generation, SourceType: c.SourceType, Authority: c.Authority,
-				TrustClass: c.TrustClass,
-			}
-		}
+		out := SearchDependencyDocsOut{Note: securityNote, Chunks: resultChunks(result.Chunks)}
 		return nil, out, nil
 	}
+}
+
+// resultChunks maps query.ResultChunk to the MCP wire type, shared by
+// every tool that returns search results (search_dependency_docs,
+// explain_call_site) so the field mapping lives in exactly one place.
+func resultChunks(chunks []query.ResultChunk) []SearchResultChunk {
+	out := make([]SearchResultChunk, len(chunks))
+	for i, c := range chunks {
+		out[i] = SearchResultChunk{
+			ChunkID: c.ChunkID, Content: c.Content, Score: c.Score,
+			Ecosystem: c.Ecosystem, Dependency: c.Dependency, Version: c.Version,
+			Generation: c.Generation, SourceType: c.SourceType, Authority: c.Authority,
+			TrustClass: c.TrustClass,
+		}
+	}
+	return out
 }
 
 // --- get_dependency_version ---
@@ -420,6 +434,57 @@ func scanProjectHandler(scan ScanTrigger) sdkmcp.ToolHandlerFor[ScanProjectIn, S
 	}
 }
 
+// --- explain_call_site ---
+
+type ExplainCallSiteIn struct {
+	ProjectID string `json:"project_id" jsonschema:"the registered project ID"`
+	File      string `json:"file" jsonschema:"path to the source file, relative to the project root"`
+	Line      int    `json:"line" jsonschema:"1-indexed line number of the call site"`
+	Column    int    `json:"column" jsonschema:"1-indexed column number of the call site"`
+	Query     string `json:"query,omitempty" jsonschema:"optional — what to ask about the resolved symbol; defaults to the symbol's own qualified name if omitted"`
+}
+
+type ResolvedSymbol struct {
+	Ecosystem     string `json:"ecosystem"`
+	Module        string `json:"module"`
+	Package       string `json:"package"`
+	QualifiedName string `json:"qualified_name"`
+	Version       string `json:"version"`
+}
+
+type ExplainCallSiteOut struct {
+	Symbol *ResolvedSymbol     `json:"symbol,omitempty"`
+	Chunks []SearchResultChunk `json:"chunks,omitempty"`
+	Note   string              `json:"note"`
+}
+
+func explainCallSiteHandler(symbols CallSiteResolver) sdkmcp.ToolHandlerFor[ExplainCallSiteIn, ExplainCallSiteOut] {
+	return func(ctx context.Context, req *sdkmcp.CallToolRequest, in ExplainCallSiteIn) (*sdkmcp.CallToolResult, ExplainCallSiteOut, error) {
+		if symbols == nil {
+			return nil, ExplainCallSiteOut{}, errors.New("explain_call_site is not configured for this server")
+		}
+		site := symbolgraph.CallSite{File: in.File, Line: in.Line, Column: in.Column}
+
+		bundle, err := symbols.ResolveEvidence(ctx, in.ProjectID, site, in.Query)
+		if err != nil {
+			return nil, ExplainCallSiteOut{}, toolError(err)
+		}
+		if bundle == nil {
+			return nil, ExplainCallSiteOut{Note: "this call site refers to code inside the project, not an external dependency"}, nil
+		}
+
+		return nil, ExplainCallSiteOut{
+			Symbol: &ResolvedSymbol{
+				Ecosystem: bundle.Symbol.Ecosystem, Module: bundle.Symbol.Module,
+				Package: bundle.Symbol.Package, QualifiedName: bundle.Symbol.QualifiedName,
+				Version: bundle.Dependency.Version,
+			},
+			Chunks: resultChunks(bundle.Result.Chunks),
+			Note:   securityNote,
+		}, nil
+	}
+}
+
 // waitForDependencyGeneration polls SearchKnowledge until it stops
 // reporting ErrNoActiveGeneration (the bumped dependency became active)
 // or jitSyncPriorityWaitBound elapses — WATCH-020's counterpart to
@@ -440,9 +505,10 @@ func waitForDependencyGeneration(ctx context.Context, svc QueryService, q query.
 	}
 }
 
-// toolError maps query's typed errors to actionable tool-facing
-// messages (per MCP-003's failure-behavior requirement), falling back
-// to the error's own message for anything else.
+// toolError maps query's (and, for explain_call_site, symbolgraph's)
+// typed errors to actionable tool-facing messages (per MCP-003's
+// failure-behavior requirement), falling back to the error's own
+// message for anything else.
 func toolError(err error) error {
 	switch {
 	case errors.Is(err, query.ErrProjectNotFound):
@@ -451,6 +517,8 @@ func toolError(err error) error {
 		return fmt.Errorf("dependency not found for this project: %w", err)
 	case errors.Is(err, query.ErrNoActiveGeneration):
 		return fmt.Errorf("no synced knowledge for this version yet — run `ragctl sync`: %w", err)
+	case errors.Is(err, symbolgraph.ErrDependencyNotResolved):
+		return fmt.Errorf("this call site's dependency isn't in the project's resolved dependencies — call scan_project/sync_project, or the resolution may be stale: %w", err)
 	default:
 		return err
 	}

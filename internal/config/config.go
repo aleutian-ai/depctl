@@ -69,6 +69,11 @@ type VectorConfig struct {
 type RetentionConfig struct {
 	GracePeriod time.Duration `yaml:"grace_period"`
 	KeepLatest  bool          `yaml:"keep_latest"`
+	// OrphanAge is how long a FAILED or stuck-non-terminal generation
+	// must be untouched before `ragctl gc --orphans` considers it
+	// eligible for cleanup (GC-001) — independent of GracePeriod, which
+	// only governs the reference-based path.
+	OrphanAge time.Duration `yaml:"orphan_age"`
 }
 
 type WatchConfig struct {
@@ -140,6 +145,7 @@ func Default(dataDir string) Config {
 		Retention: RetentionConfig{
 			GracePeriod: 336 * time.Hour, // 14 days
 			KeepLatest:  true,
+			OrphanAge:   24 * time.Hour,
 		},
 		Watch: WatchConfig{
 			Enabled:  true,
@@ -189,6 +195,9 @@ func (c Config) Validate() error {
 	}
 	if c.Retention.GracePeriod < 0 {
 		return errors.New("retention.grace_period: must be a non-negative duration")
+	}
+	if c.Retention.OrphanAge < 0 {
+		return errors.New("retention.orphan_age: must be a non-negative duration")
 	}
 	if c.Watch.Debounce < 0 {
 		return errors.New("watch.debounce: must be a non-negative duration")

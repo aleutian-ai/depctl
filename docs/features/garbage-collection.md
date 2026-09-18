@@ -70,3 +70,19 @@ A `domain.Job` (bbolt, `internal/control/bbolt/jobs.go`) tracks each candidate's
 - A candidate's `Reason` field (printed to the user) explains *why* it's eligible — e.g. "grace period expired" — so `ragctl gc`'s output is auditable, not just a bare list of deletions.
 - GC is per-backend: `PlanGC` and `gc.Run` both take `backendName`, since a `BackendReplica`/active-generation pointer is itself backend-scoped — running against two configured backends requires running `ragctl gc` once per backend name.
 - One candidate's failure is caught and reported per-candidate; the loop continues to the rest, and the command's exit code reflects whether *any* candidate failed — the same "don't let one bad item abort the batch" pattern `ragctl sync` uses for `SYNC_VERSION` actions.
+
+## The separate orphan-generation path (`--orphans`)
+
+Everything above assumes a generation that *succeeded* — it was promoted, served, and is now safely unreferenced. A generation that failed mid-build, or crashed and got stuck `ACQUIRING`/`NORMALIZING`/`INDEXING`/`VALIDATING`, was never promoted at all, so it has no `dependency+version+active` semantics the reference-based path above relies on — it never enters `PlanGC`'s candidate discovery, and could otherwise leak Badger content and vector-backend points indefinitely (epic 22).
+
+`ragctl gc --orphans [--dry-run]` is a second, independent eligibility path — opt-in, never automatic, and never combined with the reference-based path in one report or one deletion run:
+
+- `retention.PlanOrphanGC` (GC-001) finds every generation that's `FAILED`, or stuck non-terminal past `config.retention.orphan_age` (default 24h) and not currently anyone's active generation — a full `ListAllGenerations` scan, since an orphan by definition has no dependency+version index pointing at it.
+- Deletion (GC-003, `gc.RunOrphans`) is **generation-ID scoped throughout**, not dependency+version scoped like `gc.Run` above — a healthy, successfully-*retried* generation can legitimately share the same dependency+version as a failed earlier attempt, so deleting "everything for this dependency+version" would be unsafe here. `backend.Filter.Generation` (already fully wired for the reference-based path's `PointMetadata.Generation` stamping) is reused as-is; no new backend capability was needed. An orphan generation also never owned reference rows (it was never promoted), so `RunOrphans` never calls `DeleteAllReferences`.
+- Scheduling: `Scheduler.RequestOrphanGC` shares the same global lock `RequestGC` uses (GC and sync still never interleave), but — unlike `RequestGC` — has no request-coalescing: orphan GC is deliberately manual, never fired automatically the way sync (and therefore reference-based GC's own coalescing need) is, so each caller gets its own real run rather than being folded into someone else's.
+- `ragctl gc` (no `--orphans`) is completely unaffected — orphan generations are invisible to it.
+
+## Notes (orphan path)
+
+- Same three-store deletion order as the reference-based path (vector → Badger → bbolt), same idempotent-job restartability (`orphanJobID`, derived directly from the generation ID rather than a hash of dependency+version, since a generation ID already is a unique, stable identity).
+- `config.Retention.OrphanAge` is independent of `GracePeriod` — the two paths' eligibility windows are configured separately.

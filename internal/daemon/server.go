@@ -47,6 +47,11 @@ type Engine interface {
 	Scan(ctx context.Context, root string, out io.Writer, lockProject func(projectID string) func()) ([]string, error)
 	Plan(ctx context.Context, projectID string) (any, error)
 	GC(ctx context.Context, dryRun bool, out io.Writer) (api.GCResult, error)
+	// OrphanGC runs GC-001/GC-002/GC-003's orphan-generation cleanup
+	// (FAILED or stuck-non-terminal generations, never promoted) — an
+	// entirely separate eligibility path from GC's reference-based one,
+	// never combined into the same report or deletion run.
+	OrphanGC(ctx context.Context, dryRun bool, out io.Writer) (api.GCResult, error)
 
 	// Search, ProjectDependencies, DependencyVersion, ReleaseChanges, and
 	// KnowledgeStatus back the MCP query tools (internal/mcp.QueryService),

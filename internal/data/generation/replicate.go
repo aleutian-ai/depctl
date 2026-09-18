@@ -64,12 +64,12 @@ func Replicate(ctx context.Context, gen domain.Generation, sources []registry.So
 	}
 
 	if err := vb.EnsureNamespace(ctx, ns); err != nil {
-		return failReplica(ctx, store, &replica, fmt.Errorf("%w: ensure namespace %s: %v", ErrReplication, ns.Name, err))
+		return failReplica(ctx, store, &replica, &gen, fmt.Errorf("%w: ensure namespace %s: %v", ErrReplication, ns.Name, err))
 	}
 
 	chunks, err := badgerStore.ListGenerationChunks(ctx, gen.ID)
 	if err != nil {
-		return failReplica(ctx, store, &replica, fmt.Errorf("%w: list chunks for %s: %v", ErrReplication, gen.ID, err))
+		return failReplica(ctx, store, &replica, &gen, fmt.Errorf("%w: list chunks for %s: %v", ErrReplication, gen.ID, err))
 	}
 
 	objectCache := map[string]domain.KnowledgeObject{}
@@ -79,17 +79,17 @@ func Replicate(ctx context.Context, gen domain.Generation, sources []registry.So
 
 		points, err := embedBatch(ctx, embedder, badgerStore, objectCache, gen, sourcesByID, batch)
 		if err != nil {
-			return failReplica(ctx, store, &replica, err)
+			return failReplica(ctx, store, &replica, &gen, err)
 		}
 
 		if err := vb.Upsert(ctx, backend.UpsertRequest{Namespace: ns.Name, Points: points}); err != nil {
-			return failReplica(ctx, store, &replica, fmt.Errorf("%w: upsert batch: %v", ErrReplication, err))
+			return failReplica(ctx, store, &replica, &gen, fmt.Errorf("%w: upsert batch: %v", ErrReplication, err))
 		}
 
 		replica.PointCount += len(points)
 		replica.UpdatedAt = time.Now()
 		if err := store.PutBackendReplica(ctx, replica); err != nil {
-			return failReplica(ctx, store, &replica, fmt.Errorf("%w: persist progress: %v", ErrReplication, err))
+			return failReplica(ctx, store, &replica, &gen, fmt.Errorf("%w: persist progress: %v", ErrReplication, err))
 		}
 	}
 
@@ -159,10 +159,19 @@ func embedBatch(ctx context.Context, embedder embedding.Embedder, badgerStore *b
 	return points, nil
 }
 
-// failReplica persists replica as FAILED with err's message and returns
-// err unchanged, so callers can both classify (errors.Is) and propagate
-// in one line.
-func failReplica(ctx context.Context, store *bbolt.Store, replica *domain.BackendReplica, err error) error {
+// failReplica persists replica as FAILED with err's message, and also
+// transitions gen itself to FAILED (fail, generation.go) — before this
+// fix, only the BackendReplica record was marked FAILED on a Replicate-
+// stage error, leaving the Generation record stuck at whatever state
+// Build last set it to (INDEXING). Functionally harmless for query
+// correctness (an INDEXING-state generation was never promoted or
+// served either way — confirmed by VALID-001's own test before this
+// fix), but a real observability gap: anything inspecting
+// Generation.State directly (status/doctor, orphan GC's own candidate
+// discovery) saw a generation stuck mid-build, not visibly failed.
+// Returns err unchanged so callers can both classify (errors.Is) and
+// propagate in one line.
+func failReplica(ctx context.Context, store *bbolt.Store, replica *domain.BackendReplica, gen *domain.Generation, err error) error {
 	replica.Status = "failed"
 	replica.LastError = err.Error()
 	replica.UpdatedAt = time.Now()
@@ -172,5 +181,6 @@ func failReplica(ctx context.Context, store *bbolt.Store, replica *domain.Backen
 		// failure itself doesn't change what we return.
 		fmt.Printf("generation: failed to persist FAILED replica state for %s/%s: %v\n", replica.GenerationID, replica.BackendName, putErr)
 	}
+	fail(ctx, store, gen, err.Error())
 	return err
 }

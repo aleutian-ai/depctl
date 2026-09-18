@@ -12,8 +12,9 @@
 - `New(deps)` — constructs a `Server`, calls `registerTools` (internal/mcp/server.go).
 - `(*Server) Run(ctx, t)` — serves MCP requests over transport `t` until cancelled (internal/mcp/server.go).
 - `(*Server) Connect(ctx, t)` — starts a non-blocking session, used by tests wanting a live session to send calls over (internal/mcp/server.go).
-- `registerTools(sdk, deps)` — registers all six tools onto the SDK server (internal/mcp/tools.go).
-- `toolError(err)` — maps `query`'s typed sentinel errors to actionable tool-facing messages (e.g. suggesting `ragctl scan`/`ragctl sync`), falling back to the raw error otherwise (internal/mcp/tools.go).
+- `CallSiteResolver` — narrow consumer-side interface (`ResolveEvidence(ctx, projectID string, site symbolgraph.CallSite, queryText string) (*symbolgraph.EvidenceBundle, error)`, GRAPH-004), implemented by `*internal/symbolgraph.Resolver` — lets `explain_call_site` join a source call site to version-correct evidence without this package depending on `internal/symbolgraph` beyond this one interface (internal/mcp/server.go).
+- `registerTools(sdk, deps)` — registers all eight tools onto the SDK server (internal/mcp/tools.go).
+- `toolError(err)` — maps `query`'s and `symbolgraph`'s typed sentinel errors to actionable tool-facing messages (e.g. suggesting `ragctl scan`/`ragctl sync`), falling back to the raw error otherwise (internal/mcp/tools.go).
 
 **Registered tools** (each is a `Name`/`In`/`Out` struct trio plus a `*Handler(svc)` constructor in internal/mcp/tools.go):
 - `search_dependency_docs` — calls `query.Service.SearchKnowledge`; defaults `Mode` to `project` if unset. On a miss (`ErrNoActiveGeneration`, a named `dependency`, sync enabled), tries `PriorityBumper` first if a background sync is already running for the project, else falls back to a JIT `SyncTrigger.SyncProject` scoped to just that dependency and retries once (WATCH-019/020, tools.go).
@@ -22,6 +23,8 @@
 - `get_release_changes` — calls `query.Service.GetReleaseChanges`; note explicitly states only the exact from/to versions are returned (tools.go).
 - `knowledge_status` — calls `query.Service.Status`; the tool description tells agents to call this first to discover a project's real `project_id` (tools.go).
 - `sync_project` — calls `SyncTrigger.SyncProject`; enabled by default (`server.mcp.enable_sync_tool: false` to disable), returns an error if `!enabled || sync == nil` (tools.go).
+- `scan_project` — calls `ScanTrigger.ScanProject`; discovers/registers the project(s) under a directory (default: the MCP server's own working directory). No enable/disable gate, unlike `sync_project` — a fresh agent session has no other way to get a `project_id` at all (tools.go).
+- `explain_call_site` — calls `CallSiteResolver.ResolveEvidence` (GRAPH-004); resolves a file/line/column call site to the external symbol it refers to and returns version-correct evidence for it, without the caller needing to already know the dependency's name. An internal-to-project call site returns an explanatory `Note`, not an error; `symbols == nil` reports "not configured" (tools.go).
 
 ## Dataflow
 
@@ -32,6 +35,10 @@ flowchart TD
     Handlers -->|SearchKnowledge / GetDependencyVersion /\nGetProjectDependencies / GetReleaseChanges / Status| Query["internal/query.Service"]
     Handlers -->|SyncProject| Sync["SyncTrigger\n(internal/cli wraps RunSync)"]
     Handlers -->|BumpSyncPriority\n(search_dependency_docs miss, WATCH-020)| Priority["PriorityBumper\n(internal/cli, daemon /v1/sync/priority)"]
+    Handlers -->|ResolveEvidence\n(explain_call_site, GRAPH-004)| Symbols["CallSiteResolver\n(internal/symbolgraph.Resolver)"]
+    Symbols -->|Resolve| SymProvider["symbolgraph.SymbolProvider\n(gopackages: go/packages + go/types)"]
+    Symbols -->|GetResolution| Bbolt
+    Symbols -->|SearchKnowledge| Query
     Query -->|Embed + Query| Backend["internal/backend.VectorBackend"]
     Query -->|reads| Bbolt[(bbolt: projects, resolutions,\nreferences, generations)]
     Query -->|reads| Badger[(Badger: chunks, objects)]
@@ -118,3 +125,5 @@ An AI coding agent working on a project registered as `proj_9f3a2b` wants to kno
 - `toolError` only special-cases `ErrProjectNotFound`/`ErrDependencyNotFound`/`ErrNoActiveGeneration`; every other error from `query.Service` passes through unmodified to the MCP client.
 - `SearchResultChunk.TrustClass` carries a `jsonschema` doc hint telling the calling agent to weigh trust class alongside `authority` when chunks disagree — this schema-level guidance, not code, is how MCP-003 surfaces `internal/query`'s `TrustClass` derivation to agents (internal/mcp/tools.go).
 - `get_release_changes`'s tool output note explicitly restates the from/to-only limitation inherited from `query.Service.GetReleaseChanges` (internal/mcp/tools.go) — a reminder duplicated at the MCP layer since agents only see tool output, not `internal/query`'s doc comments.
+- `explain_call_site` reuses `search_dependency_docs`'s chunk-mapping code via a shared `resultChunks` helper (internal/mcp/tools.go) rather than duplicating it — the two tools' output shapes both embed `[]SearchResultChunk`.
+- `Deps.Symbols` is constructed in `internal/cli/serve.go` scoped to the MCP server's own working directory (the same convention `scan_project`'s default root already uses), via a real `gopackages.Provider` (GRAPH-003) and daemon-backed `ControlStore`/`QueryService` adapters (`daemonResolutionStore`, `daemonQueryService` — internal/cli/query_client.go). A working-directory lookup failure at server startup leaves `Symbols` nil rather than failing `ragctl serve` entirely.

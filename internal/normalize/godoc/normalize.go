@@ -91,6 +91,17 @@ func (n *Normalizer) Normalize(ctx context.Context, src domain.SourceSnapshot) (
 		for _, m := range t.Methods {
 			objects = append(objects, symbolObject(src, fset, docPkg.Name, m.Name, t.Name, m.Doc, m.Decl))
 		}
+		// go/doc groups a package-level function under the type it
+		// returns (Type.Funcs) rather than the package-level Doc.Funcs
+		// list — the extremely common Go constructor convention
+		// (NewFoo(), Open(), Connect() returning *Client, etc.). Missing
+		// this meant every such constructor function was silently never
+		// indexed at all, regardless of how prominent it is in a real
+		// dependency's API (found via VALID-004's live fixture, which
+		// specifically used a Connect(...) (*Client, error) constructor).
+		for _, fn := range t.Funcs {
+			objects = append(objects, symbolObject(src, fset, docPkg.Name, fn.Name, "", fn.Doc, fn.Decl))
+		}
 	}
 
 	return objects, nil

@@ -48,14 +48,19 @@ Not sourced from the original implementation plan doc — added from `docs/scrat
 40. [40-structured-artifact-normalizers](40-structured-artifact-normalizers/INDEX.md) — OpenAPI and protobuf normalizers, one `KnowledgeObject` per operation/RPC method.
 41. [41-retrieval-and-embedding-experiments](41-retrieval-and-embedding-experiments/INDEX.md) — evidence-gated: bounded embedding concurrency, token-aware chunk sizing, chunk-overlap experiment run via the separate `context-evals` repository.
 44. [44-containerized-embedding-backend](44-containerized-embedding-backend/INDEX.md) — an opt-in `ragctl backend up` for a self-contained, containerized Ollama + embedding model, as a second installation path alongside (never a replacement for) native Ollama — the daemon itself stays native regardless, per ADR-010.
+46. [46-dependency-change-events](46-dependency-change-events/INDEX.md) — a standalone `DependencyChangeEvent` record persisted whenever `planner.Plan` detects a real version transition, infrastructure for a future Upgrade Manager, not that feature itself. Sourced from a 2026-09 competitive review.
+
+Epic 45 ([45-competitive-validation](../completed/45-competitive-validation/INDEX.md)) moved to `planned/`, then `completed/` — all five tickets (VALID-001..004, POS-001) shipped in one pass.
+
+Epic 50 ([50-go-monorepo-workspace-resolution](../completed/50-go-monorepo-workspace-resolution/INDEX.md)) was filed directly into `completed/` — a same-session fix (MONO-001) for a gap STRESS-001 found live, never sat in `backlog/` waiting to be picked up.
 
 Epic 43 ([43-local-cache-reuse](../planned/43-local-cache-reuse/INDEX.md)) moved to `planned/` — GIT-005 shipped after real usage showed the cost this epic was waiting for (see that epic's `INDEX.md`); GIT-004 remains unbuilt there.
 
-Epic 42 ([42-repo-graph-symbol-join](../planned/42-repo-graph-symbol-join/INDEX.md)) moved to `planned/` — a 2026-09 competitive review reaffirmed this join's shape independently and prompted scoping it for real implementation (GRAPH-003/004 added, settling the provider choice GRAPH-001 originally deferred).
+Epic 42 ([42-repo-graph-symbol-join](../completed/42-repo-graph-symbol-join/INDEX.md)) moved to `planned/` and then `completed/` — a 2026-09 competitive review reaffirmed this join's shape independently and prompted scoping it for real implementation (GRAPH-003/004 added, settling the provider choice GRAPH-001 originally deferred), and all four tickets shipped in one pass.
 
 ## Ticket ID prefixes in this directory
 
-`PY / NODE / RUST / JAVA / HTTP / VEC (010-014) / EVAL / OBS / EXT / SEC / LOCAL / LLAMA / CLIENT / DATA` — these match the task IDs used in the implementation plan directly, except `DATA` (see above). `REG` (epic 38, continuing from REG-008) continues epics 07/34's prefix. `NORM` (epic 40) continues epic 09's prefix into backlog use; `EMB`/`CHUNK` (epic 41) continue epics 12/10's prefixes. `CONF` (epic 39) is a new prefix, since Confluence/wiki acquisition doesn't exist yet elsewhere. `GIT` (epic 43, continuing from GIT-003) continues epic 08's prefix into backlog use. `GRAPH` (epic 42) has moved to `planned/README.md` along with the epic.
+`PY / NODE / RUST / JAVA / HTTP / VEC (010-014) / EVAL / OBS / EXT / SEC / LOCAL / LLAMA / CLIENT / DATA` — these match the task IDs used in the implementation plan directly, except `DATA` (see above). `REG` (epic 38, continuing from REG-008) continues epics 07/34's prefix. `NORM` (epic 40) continues epic 09's prefix into backlog use; `EMB`/`CHUNK` (epic 41) continue epics 12/10's prefixes. `CONF` (epic 39) is a new prefix, since Confluence/wiki acquisition doesn't exist yet elsewhere. `GIT` (epic 43, continuing from GIT-003) continues epic 08's prefix into backlog use. `GRAPH` (epic 42) has moved to `completed/README.md` along with the epic. `MONO` (epic 50) has likewise moved to `completed/README.md`.
 
 ## A note on `26-evaluation-framework`
 

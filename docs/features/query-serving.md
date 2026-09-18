@@ -6,7 +6,7 @@ Related package docs: [mcp](../internal/mcp.md), [query](../internal/query.md), 
 
 ## Tool surface
 
-`internal/mcp` registers six tools, each a thin adapter with no business logic of its own — parse MCP input, call exactly one `query.Service` method (or, for the two write-capable tools, `SyncTrigger`/`PriorityBumper`), format the result:
+`internal/mcp` registers eight tools, each a thin adapter with no business logic of its own — parse MCP input, call exactly one `query.Service` method (or, for the write-capable tools, `SyncTrigger`/`ScanTrigger`/`PriorityBumper`/`CallSiteResolver`), format the result:
 
 | Tool | `query.Service` method | Reads |
 |---|---|---|
@@ -16,6 +16,8 @@ Related package docs: [mcp](../internal/mcp.md), [query](../internal/query.md), 
 | `get_release_changes` | `GetReleaseChanges` | bbolt + Badger (release-note chunks between two versions) |
 | `knowledge_status` | `Status` | bbolt (fleet-wide summary; lists every project's real ID + root, since an agent has no other way to discover a `project_id`) |
 | `sync_project` | *(none — calls `SyncTrigger.SyncProject`)* | triggers the [sync](sync.md) pipeline; enabled by default (`server.mcp.enable_sync_tool: false` to disable) |
+| `scan_project` | *(none — calls `ScanTrigger.ScanProject`)* | discovers/registers the project(s) under a directory (default: the MCP server's own working directory) — no enable/disable gate, unlike `sync_project`, since it's the fix for a fresh agent session having no `project_id` to work with at all |
+| `explain_call_site` | *(none — calls `CallSiteResolver.ResolveEvidence`)* | resolves a file/line/column call site to an external symbol (real Go source, not bbolt/Badger), matches it against bbolt's stored resolution, then `SearchKnowledge`s the matched dependency (GRAPH-002/003/004) |
 
 ## `search_dependency_docs` — the four query modes
 
@@ -89,6 +91,46 @@ sequenceDiagram
 `sync_project` is the main exception to "MCP never writes": it's wired to the exact same `cli.RunSync` that `ragctl sync` calls, via a narrow `mcp.SyncTrigger` interface — see [sync](sync.md) for that pipeline. It's enabled by default (`server.mcp.enable_sync_tool: false` to disable for a deliberately read-only session) but always *registered*; the handler checks the flag at call time and returns a disabled-by-config error rather than being conditionally absent, so a client that enables it later doesn't need the server restarted for the tool to appear. `RunSync` never opens its own Badger handle here — Badger allows exactly one open handle per directory per process, and `ragctl serve` already holds one open for `query.Service`'s whole lifetime.
 
 `SyncTrigger` and the narrower `mcp.PriorityBumper` (WATCH-020's `BumpSyncPriority`) are also reached from *inside* `search_dependency_docs` itself, not just from the standalone `sync_project` call — see the JIT-sync branch in the sequence diagram above (WATCH-019/020). Both respect the same `enable_sync_tool` gate; a read-only session never triggers either implicitly.
+
+**Measured cold-JIT-sync latency (2026-09, VALID-003):** against real network, a real Ollama embedder, and a real Qdrant instance — `github.com/spf13/pflag` (small, single-file): ~5.9s total (5.76s sync, 168ms search), 10 chunks. `github.com/stretchr/testify` (medium, multi-package): ~8.1s total (7.94s sync, 123ms search), 10 chunks. This is a measured range as of the date above, not a guarantee — see `internal/cli/jit_sync_latency_benchmark_test.go`'s `TestJITSyncColdLatencyBenchmark` (gated behind `RAGCTL_LIVE_BENCHMARK=1`, never part of normal CI) to re-run it.
+
+## `explain_call_site` — resolving "what does this call mean" without knowing the dependency name
+
+The repo-graph symbol join (epic 42): an agent hands over a source location (`project_id`, `file`, `line`, `column`, optional `query`) instead of a dependency name and question, and `explain_call_site` does the rest —
+
+```mermaid
+sequenceDiagram
+    participant Agent
+    participant MCP as internal/mcp
+    participant Resolver as symbolgraph.Resolver
+    participant Provider as gopackages.Provider
+    participant Bbolt as control/bbolt.Store
+    participant Query as query.Service
+
+    Agent->>MCP: CallTool("explain_call_site", {project_id, file, line, column, query?})
+    MCP->>Resolver: ResolveEvidence(projectID, CallSite, queryText)
+    Resolver->>Provider: Resolve(CallSite)
+    Provider->>Provider: go/packages type-checked load,\nidentifier/selector -> types.Object
+    alt call site is internal to the project
+        Provider-->>Resolver: ok=false
+        Resolver-->>MCP: (nil, nil)
+        MCP-->>Agent: Note: "refers to code inside the project"
+    else external symbol
+        Provider-->>Resolver: ExternalSymbolRef{Module, QualifiedName, ...}
+        Resolver->>Bbolt: GetResolution(projectID)
+        alt Module not in this project's resolution
+            Resolver-->>MCP: ErrDependencyNotResolved
+            MCP-->>Agent: toolError()-mapped message
+        else matched
+            Resolver->>Query: SearchKnowledge(Query{Dependency: matched, Text: queryText or QualifiedName, Mode: project})
+            Query-->>Resolver: SearchResult
+            Resolver-->>MCP: EvidenceBundle{Symbol, Dependency, Result}
+            MCP-->>Agent: ResolvedSymbol + chunks + securityNote
+        end
+    end
+```
+
+`gopackages.Provider` (GRAPH-003) is the one reference `SymbolProvider` implementation — Go-only, a one-shot `golang.org/x/tools/go/packages` + `go/types` load scoped to the call site's own package, not an LSP session. An empty `query` defaults to the resolved symbol's own `QualifiedName` inside `Resolver.ResolveEvidence` itself (not the MCP handler), since the handler has nothing better to search for until the symbol is known. No JIT-sync-on-miss here (unlike `search_dependency_docs`) — a resolved-but-unsynced dependency reports the same `ErrNoActiveGeneration`-derived message `SearchKnowledge` already produces, deliberately not duplicating WATCH-019's logic on first landing.
 
 ## Notes
 

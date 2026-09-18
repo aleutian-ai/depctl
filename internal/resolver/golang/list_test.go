@@ -170,6 +170,63 @@ func TestListModulesWorkspaceMode(t *testing.T) {
 	}
 }
 
+// TestListModulesWorkspaceFallbackForIncompleteSiblingReplace reproduces
+// the failure found scanning hashicorp/terraform (STRESS-001): a Go
+// workspace-shaped monorepo with no go.work checked in, where each
+// submodule's go.mod carries local replace directives only for the
+// siblings it itself knows about. Resolving a submodule standalone hits an
+// unresolvable placeholder pseudo-version for any sibling its own replace
+// block omits; listModules must fall back to a synthesized workspace
+// covering every go.mod under the repo and succeed anyway.
+func TestListModulesWorkspaceFallbackForIncompleteSiblingReplace(t *testing.T) {
+	requireGo(t)
+	offlineEnv(t)
+
+	repoRoot := t.TempDir()
+	if err := os.Mkdir(filepath.Join(repoRoot, ".git"), 0o755); err != nil {
+		t.Fatalf("mkdir .git: %v", err)
+	}
+
+	writeGoMod(t, repoRoot, "module example.com/main\n\ngo 1.21\n\n"+
+		"require (\n\texample.com/sub1 v0.0.0\n\texample.com/sub2 v0.0.0\n)\n\n"+
+		"replace example.com/sub1 => ./sub1\n\nreplace example.com/sub2 => ./sub2\n")
+
+	sub1 := filepath.Join(repoRoot, "sub1")
+	// sub1 requires sub2 at the zero-time placeholder pseudo-version, the
+	// shape `go mod tidy` produces for a require whose version only ever
+	// existed via another module's local replace — but sub1's own go.mod
+	// (unlike main's) has no replace for sub2, reproducing terraform's
+	// per-submodule incomplete replace coverage.
+	writeGoMod(t, sub1, "module example.com/sub1\n\ngo 1.21\n\n"+
+		"require example.com/sub2 v0.0.0-00010101000000-000000000000\n")
+
+	sub2 := filepath.Join(repoRoot, "sub2")
+	writeGoMod(t, sub2, "module example.com/sub2\n\ngo 1.21\n")
+
+	_, standaloneErr := runGoList(context.Background(), sub1, standaloneListEnv())
+	if standaloneErr == nil {
+		t.Fatal("expected the standalone resolve to fail with an unresolved local replace, got nil")
+	}
+	if !isUnresolvedLocalReplaceError(standaloneErr) {
+		t.Fatalf("standalone error = %v, want isUnresolvedLocalReplaceError to recognize it (fixture doesn't reproduce the real failure shape)", standaloneErr)
+	}
+
+	modules, err := listModules(context.Background(), sub1)
+	if err != nil {
+		t.Fatalf("listModules: %v, want the workspace fallback to resolve sub1 despite its incomplete replace block", err)
+	}
+
+	var sawSub2 bool
+	for _, m := range modules {
+		if m.Path == "example.com/sub2" {
+			sawSub2 = true
+		}
+	}
+	if !sawSub2 {
+		t.Errorf("modules = %+v, want example.com/sub2 resolved via the synthesized workspace", modules)
+	}
+}
+
 func TestListModulesContextCancellation(t *testing.T) {
 	requireGo(t)
 	offlineEnv(t)

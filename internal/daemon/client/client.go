@@ -157,11 +157,13 @@ func (c *Client) Plan(ctx context.Context, projectID string, plans any) error {
 }
 
 // GC runs garbage collection in the daemon, relaying progress to out.
-func (c *Client) GC(ctx context.Context, dryRun bool, out io.Writer) (api.GCResult, error) {
+// orphans selects GC-001/GC-002's orphan-generation path instead of the
+// default reference-based one — never both in the same call.
+func (c *Client) GC(ctx context.Context, dryRun, orphans bool, out io.Writer) (api.GCResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, longRunningRequestTimeout)
 	defer cancel()
 	var res api.GCResult
-	err := c.stream(ctx, api.PathGC, api.GCRequest{DryRun: dryRun}, out, &res)
+	err := c.stream(ctx, api.PathGC, api.GCRequest{DryRun: dryRun, Orphans: orphans}, out, &res)
 	return res, err
 }
 

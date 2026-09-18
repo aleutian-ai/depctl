@@ -172,7 +172,40 @@ func (s *Service) searchProject(ctx context.Context, q Query) (SearchResult, err
 	if err != nil {
 		return SearchResult{}, err
 	}
+	// GetActiveGeneration only checks "has *anything* ever been promoted
+	// for this ecosystem+package+backend" — active_generations is a
+	// single, backend-scoped pointer (whichever generation was most
+	// recently promoted, by any project), not a per-project or per-
+	// version one. Comparing its Version against dep.Version directly
+	// was tried and reverted: it broke the legitimate multi-project case
+	// VALID-002 (docs/tickets/completed/45-competitive-validation)
+	// exists to prove — Project A resolving v1.0.0 after Project B's
+	// v2.0.0 supersedes it as the active pointer is exactly the case
+	// where the active pointer's version differs from dep.Version but
+	// the search must still succeed (v1.0.0's real content is untouched
+	// by v2.0.0's promotion, just no longer "the" active generation).
 	if _, err := s.control.GetActiveGeneration(ctx, dep.Dependency.Ecosystem, dep.Dependency.Name, s.backendName); err != nil {
+		return SearchResult{}, fmt.Errorf("%w: %s", ErrNoActiveGeneration, dep.Dependency.Name)
+	}
+	// The real, correctly-scoped check (VALID-001's actual finding): has
+	// THIS SPECIFIC VERSION ever itself been successfully promoted —
+	// State ACTIVE (currently the pointer) or SUPERSEDED (was the
+	// pointer once, since replaced by a newer promotion) — as opposed to
+	// FAILED or stuck non-terminal. Unlike the active-pointer check
+	// above, this is per-version, so it can't misfire on VALID-002's
+	// multi-project scenario the way the reverted attempt did.
+	versionGens, err := s.control.ListGenerationsByDependencyVersion(ctx, dep.Dependency.Ecosystem, dep.Dependency.Name, dep.Version)
+	if err != nil {
+		return SearchResult{}, fmt.Errorf("%w: %s", ErrNoActiveGeneration, dep.Dependency.Name)
+	}
+	promoted := false
+	for _, g := range versionGens {
+		if g.State == domain.GenActive || g.State == domain.GenSuperseded {
+			promoted = true
+			break
+		}
+	}
+	if !promoted {
 		return SearchResult{}, fmt.Errorf("%w: %s", ErrNoActiveGeneration, dep.Dependency.Name)
 	}
 	return s.search(ctx, q.Text, q.TopK, &backend.Filter{

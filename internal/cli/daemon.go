@@ -499,6 +499,12 @@ func (e *engine) GC(ctx context.Context, dryRun bool, out io.Writer) (api.GCResu
 	return RunGC(ctx, e.store, e.badgerStore, e.cfg, dryRun, out, e.vectorReadiness)
 }
 
+// OrphanGC plans and runs GC-001/GC-002/GC-003's orphan-generation
+// cleanup — see RunOrphanGC.
+func (e *engine) OrphanGC(ctx context.Context, dryRun bool, out io.Writer) (api.GCResult, error) {
+	return RunOrphanGC(ctx, e.store, e.badgerStore, e.cfg, dryRun, out, e.vectorReadiness)
+}
+
 // Search runs a knowledge search, the work behind the search_dependency_docs
 // MCP tool.
 func (e *engine) Search(ctx context.Context, req api.SearchRequest) (api.SearchResponse, error) {
