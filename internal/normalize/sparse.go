@@ -23,7 +23,18 @@ func SparsePatterns(ecosystem domain.Ecosystem) []string {
 	if ecosystem == domain.EcosystemGo {
 		// godoc.Normalizer needs the actual .go source, not just files an
 		// extension/filename matcher like markdown/plaintext would catch.
-		patterns = append(patterns, "*.go")
+		//
+		// go.mod is never itself normalized, but generation.normalizeSources
+		// needs it present in the checked-out worktree to detect a nested
+		// Go module boundary (a subdirectory with its own go.mod is a
+		// separate, independently-versioned module, not content belonging
+		// to the dependency being synced — see hasGoMod in build.go). A
+		// go.mod is a few hundred bytes; the cost of always fetching it is
+		// negligible next to what omitting it costs for a repo like
+		// google-cloud-go, whose root module is one file (doc.go)
+		// alongside 200+ sibling modules that would otherwise be
+		// misattributed as the root module's own content.
+		patterns = append(patterns, "*.go", "go.mod")
 	}
 	return patterns
 }

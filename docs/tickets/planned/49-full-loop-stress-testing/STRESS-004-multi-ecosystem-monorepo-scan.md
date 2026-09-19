@@ -1,7 +1,7 @@
 # STRESS-004: Multi-ecosystem monorepo scan
 
 **Epic:** Full-Loop Stress Testing
-**Status:** planned
+**Status:** done
 **Depends on:** none
 **Estimated size:** small
 
@@ -35,5 +35,17 @@ Scan a real (or realistically constructed) monorepo containing both a Go module 
 - Manual/live exercise; results recorded in this ticket's post-implementation note.
 
 ## Acceptance criteria
-- [ ] Both the Go and Node projects in the monorepo are discovered and registered by one `scan` invocation.
-- [ ] Each project's resolved dependency list contains only its own ecosystem's real dependencies.
+- [x] Both the Go and Node projects in the monorepo are discovered and registered by one `scan` invocation.
+- [x] Each project's resolved dependency list contains only its own ecosystem's real dependencies.
+
+## Post-implementation note
+
+Ran via `hack/test-linux.sh`'s Podman pattern (with `nodejs npm` added to the image for this ticket). Built the fixture exactly as designed: `go-side/go.mod` requiring real `github.com/spf13/cobra` (plus a one-line `main.go` importing it), `node-side/package.json` requiring real `express` + `lodash`, with `npm install --package-lock-only` generating a real `package-lock.json` (the Node resolver reads the lockfile directly, per `internal/resolver/node/resolve.go` — no `node_modules` needed).
+
+One `ragctl scan /tmp/monorepo` invocation: `discovered 2, new 2, existing 0` — both `go-side` and `node-side` found and registered as two distinct projects in the same pass, each dispatched to its correct resolver (`resolvers[dp.Ecosystem]` in `internal/cli/scan.go`).
+
+`ragctl deps` per project confirmed zero cross-contamination in either direction:
+- **Go project**: exactly 7 dependencies — `cobra` (direct) + its real transitive closure (`pflag`, `mousetrap`, `go-md2man`, `blackfriday`, `yaml/v3`, `check.v1`), no Node package anywhere in the list.
+- **Node project**: exactly 69 dependencies — `express` + `lodash` (direct) + their real transitive closure (`body-parser`, `qs`, `send`, `debug`, etc.), no Go module anywhere in the list.
+
+Clean pass, no follow-up needed.

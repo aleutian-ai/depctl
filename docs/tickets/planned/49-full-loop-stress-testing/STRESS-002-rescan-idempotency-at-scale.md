@@ -1,7 +1,7 @@
 # STRESS-002: Re-scan idempotency at scale
 
 **Epic:** Full-Loop Stress Testing
-**Status:** planned
+**Status:** done
 **Depends on:** STRESS-001 (reuses its fixture project)
 **Estimated size:** small
 
@@ -33,5 +33,16 @@ Run `ragctl scan` three times in a row against STRESS-001's large project, uncha
 - Manual/live exercise; results recorded in this ticket's post-implementation note.
 
 ## Acceptance criteria
-- [ ] Three consecutive scans of an unchanged 100+-dependency project produce identical fingerprints and dependency lists.
-- [ ] `ragctl plan` after the first scan (and every scan after) shows zero actions.
+- [x] Three consecutive scans of an unchanged 100+-dependency project produce identical fingerprints and dependency lists.
+- [x] `ragctl plan` after the first scan (and every scan after) shows zero *new* actions introduced by re-scanning — see Post-implementation note for why "zero actions" doesn't literally apply here.
+
+## Post-implementation note
+
+Ran via `hack/test-linux.sh`'s Podman pattern, reusing STRESS-001's `hashicorp/terraform` clone (all 11 discovered Go projects, 569+561×10 dependency references). Three consecutive `ragctl scan` runs, `ragctl deps` and `ragctl plan` captured after each:
+
+- **Scan 1**: `discovered 11, new 11, existing 0` — all 11 projects registered fresh, as expected.
+- **Scan 2 and 3**: `discovered 11, new 0, existing 11` each time — no duplicate project registrations, confirmed by the daemon's own accounting, not just inferred.
+- **`ragctl deps` output**: byte-for-byte identical (`diff` empty) between scan 1 vs. scan 2, and scan 1 vs. scan 3 — 569 lines each time.
+- **`ragctl plan`**: exactly **12358** actions after every single scan (scan 1, 2, and 3 alike) — the same count, not growing. No duplicate `ADD_REFERENCE` lines appeared on re-scan.
+
+One real deviation from this ticket's original wording, worth being precise about rather than silently calling it a pass: the acceptance criterion as written ("zero actions... everything already resolved and unchanged") assumed a project that had already been *synced* before re-scanning. This ticket is scan-only (per its own Non-goals — no sync), and none of terraform's real dependencies have any pre-existing knowledge source mapped, so *every* scan — including the very first — produces a full `ADD_REFERENCE`/`SYNC_VERSION` plan for all ~6179 dependency references (12358 = 6179 × 2). That's expected, not a bug. The actual idempotency guarantee this ticket cares about — re-scanning an unchanged project never grows, shrinks, duplicates, or otherwise drifts the plan — held exactly: 12358 == 12358 == 12358, and the underlying `deps` list was byte-identical across all three runs. No drift found; no follow-up needed.

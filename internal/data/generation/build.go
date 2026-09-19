@@ -180,6 +180,18 @@ func normalizeSources(ctx context.Context, dep domain.DependencyVersion, acquire
 				if skipDirNames[d.Name()] {
 					return filepath.SkipDir
 				}
+				// A subdirectory with its own go.mod is a separate Go
+				// module's root, not content belonging to dep — a real,
+				// large repo (e.g. google-cloud-go, whose root module
+				// resolves to a single file, doc.go, alongside 200+
+				// independently-versioned sibling modules in the same
+				// git repo) would otherwise have every sibling module's
+				// content normalized and attributed to dep, both wildly
+				// inflating chunk volume and mislabeling unrelated
+				// packages' docs as dep's own.
+				if path != a.worktreeDir && hasGoMod(path) {
+					return filepath.SkipDir
+				}
 				if hasGoFiles(path) {
 					objs, err := normalizeOne(ctx, gd, a, path)
 					if err != nil {
@@ -282,6 +294,13 @@ func hasGoFiles(dir string) bool {
 		}
 	}
 	return false
+}
+
+// hasGoMod reports whether dir directly contains a go.mod — marking it
+// as a separate Go module's root within a larger checked-out worktree.
+func hasGoMod(dir string) bool {
+	info, err := os.Stat(filepath.Join(dir, "go.mod"))
+	return err == nil && !info.IsDir()
 }
 
 // indexObjects fingerprints, dedups (GEN-003), chunks, and stores every

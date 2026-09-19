@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 
 	"aleutian-ai/ragctl/internal/backend"
@@ -32,10 +33,13 @@ import (
 // failAfter pattern as internal/data/generation's own fakeEmbedder (that
 // one is unexported and lives in a different package, so this is a
 // small, deliberate duplicate rather than a cross-package reach-in).
+// calls is an atomic.Int32, not a plain int — VALID-001's own tests only
+// ever used this single-threaded, but epic 53/COORD-003's worker-pool
+// tests share one instance across concurrent goroutines.
 type atomicPromotionFakeEmbedder struct {
 	dims      int
 	failAfter int // if > 0, the (failAfter+1)th Embed call fails
-	calls     int
+	calls     atomic.Int32
 }
 
 func (f *atomicPromotionFakeEmbedder) Name() string    { return "fake" }
@@ -44,8 +48,8 @@ func (f *atomicPromotionFakeEmbedder) Dimensions(ctx context.Context) (int, erro
 	return f.dims, nil
 }
 func (f *atomicPromotionFakeEmbedder) Embed(ctx context.Context, texts []string) ([][]float32, error) {
-	f.calls++
-	if f.failAfter > 0 && f.calls >= f.failAfter {
+	calls := f.calls.Add(1)
+	if f.failAfter > 0 && int(calls) >= f.failAfter {
 		return nil, errors.New("atomicPromotionFakeEmbedder: simulated failure")
 	}
 	out := make([][]float32, len(texts))

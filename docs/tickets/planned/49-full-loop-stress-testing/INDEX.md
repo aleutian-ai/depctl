@@ -8,12 +8,12 @@ Sourced from a 2026-09 design review's own stress-test plan, in the order propos
 
 ### Stage 1 — `scan`
 - [x] [STRESS-001](STRESS-001-real-dependency-heavy-project-scan.md) — Scan a real, 100+-dependency public project; measure wall-clock, confirm full resolution. Done — `hashicorp/terraform`, 569 deps in ~5s; found and fixed the monorepo/`go.work` gap, see [epic 50](../../completed/50-go-monorepo-workspace-resolution/INDEX.md).
-- [STRESS-002](STRESS-002-rescan-idempotency-at-scale.md) — Re-scan the same large project three times; confirm zero state drift.
-- [STRESS-003](STRESS-003-concurrent-scans-same-project.md) — Two concurrent `ragctl scan` invocations against the same project directory; confirm `LockProject` actually serializes under real concurrency.
-- [STRESS-004](STRESS-004-multi-ecosystem-monorepo-scan.md) — A monorepo spanning two ecosystems (Go + Node); confirm correct multi-resolver dispatch in one scan.
+- [x] [STRESS-002](STRESS-002-rescan-idempotency-at-scale.md) — Re-scan the same large project three times; confirm zero state drift. Done — `deps` byte-identical and `plan` action count stable (12358) across all three scans of `hashicorp/terraform`.
+- [x] [STRESS-003](STRESS-003-concurrent-scans-same-project.md) — Two concurrent `ragctl scan` invocations against the same project directory; confirm `LockProject` actually serializes under real concurrency. Done — 12/12 race iterations clean, no duplicate registrations.
+- [x] [STRESS-004](STRESS-004-multi-ecosystem-monorepo-scan.md) — A monorepo spanning two ecosystems (Go + Node); confirm correct multi-resolver dispatch in one scan. Done — both discovered in one pass, zero cross-contamination (7 Go deps, 69 Node deps, correctly separated).
 
 ### Stage 2 — `sync`
-- [STRESS-005](STRESS-005-full-cold-sync-real-scale.md) — Cold sync of the STRESS-001 project; measure real wall-clock/disk usage post-GIT-005.
+- [x] [STRESS-005](STRESS-005-full-cold-sync-real-scale.md) — Cold sync of the STRESS-001 project; measure real wall-clock/disk usage post-GIT-005. Done — found and fixed the dominant real cause (nested-Go-module over-normalization, [epic 52](../../completed/52-nested-go-module-normalization-boundary/INDEX.md)); the whole-batch 30-minute ceiling itself remains a separate, still-open question ([epic 51](../../backlog/51-bulk-sync-batch-timeout/INDEX.md)).
 - [STRESS-006](STRESS-006-kill-daemon-mid-sync.md) — `kill -9` the daemon mid-sync; confirm no corrupted state and a clean resume/orphan path.
 - [STRESS-007](STRESS-007-concurrent-cross-project-sync-real-daemon.md) — VALID-002's scenario against a real daemon and real backend, not fakes.
 - [STRESS-008](STRESS-008-jit-sync-storm.md) — Many simultaneous JIT-sync triggers for different dependencies on one project.

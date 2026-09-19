@@ -443,14 +443,17 @@ func (e *engine) Projects(ctx context.Context) ([]watch.Project, error) {
 
 // Sync runs one project's sync, re-resolving first when the request came
 // from a manifest change. It is the function the scheduler runs, and it
-// calls exactly the same RunSync as `ragctl sync`.
-func (e *engine) Sync(ctx context.Context, projectID string, opts daemon.SyncOptions, out io.Writer) (api.SyncResult, error) {
+// calls exactly the same RunSync as `ragctl sync`. coordinator is the
+// same instance the scheduler uses for GC exclusion — forwarded straight
+// into RunSync, which is where the real per-action build coordination
+// happens (epic 53/COORD-001..002).
+func (e *engine) Sync(ctx context.Context, coordinator *daemon.BuildCoordinator, projectID string, opts daemon.SyncOptions, out io.Writer) (api.SyncResult, error) {
 	if opts.Resolve {
 		if err := resolveProject(ctx, e.store, projectID, out); err != nil {
 			return api.SyncResult{}, err
 		}
 	}
-	synced, failed, skipped, err := RunSync(ctx, e.store, e.badgerStore, e.cfg, projectID, opts.Dependency, opts.Offline, opts.Force, out, e.embeddingReadiness, e.vectorReadiness, opts.Priority)
+	synced, failed, skipped, err := RunSync(ctx, coordinator, e.store, e.badgerStore, e.cfg, projectID, opts.Dependency, opts.Offline, opts.Force, out, e.embeddingReadiness, e.vectorReadiness, opts.Priority)
 	return api.SyncResult{ProjectID: projectID, Synced: synced, Failed: failed, Skipped: skipped}, err
 }
 

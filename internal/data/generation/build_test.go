@@ -179,6 +179,75 @@ func TestBuildEndToEnd(t *testing.T) {
 	}
 }
 
+// TestBuildSkipsNestedGoModuleBoundary reproduces the failure found live
+// syncing google-cloud-go (STRESS-005): a real repo's root module can sit
+// alongside hundreds of separately-versioned sibling modules (each its
+// own go.mod) in the same git checkout — google-cloud-go's root module
+// resolves to a single file, doc.go, but the repo also contains 216
+// nested go.mod boundaries. Before this fix, normalizeSources walked
+// straight past those boundaries, normalizing every sibling module's
+// content as if it belonged to the dependency being synced — both
+// wildly inflating chunk volume (13399 directories walked instead of 23
+// for google-cloud-go) and mislabeling unrelated packages' docs as this
+// dependency's own.
+func TestBuildSkipsNestedGoModuleBoundary(t *testing.T) {
+	requireGit(t)
+	ctx := context.Background()
+
+	baseline := func(t *testing.T) int {
+		store, badgerStore := testStores(t)
+		gitCache := git.NewCache(t.TempDir())
+		repoDir := newFixtureRepo(t)
+		dep := testDependency()
+		sources := []registry.Source{{ID: "repository", Type: "git", URL: repoDir, Ref: "v${version}", Authority: 100}}
+		gen, err := Create(ctx, store, badgerStore, dep)
+		if err != nil {
+			t.Fatalf("Create: %v", err)
+		}
+		if err := Build(ctx, gen, sources, gitCache, store, badgerStore); err != nil {
+			t.Fatalf("Build: %v", err)
+		}
+		manifest, err := getManifest(ctx, badgerStore, gen.ID)
+		if err != nil {
+			t.Fatalf("getManifest: %v", err)
+		}
+		return manifest.ObjectCount
+	}
+
+	baselineCount := baseline(t)
+
+	// Same fixture, plus a nested Go module (its own go.mod, its own
+	// exported, documented function) inside a subdirectory — the shape
+	// google-cloud-go's storage/, bigquery/, etc. take relative to its
+	// root module.
+	store, badgerStore := testStores(t)
+	gitCache := git.NewCache(t.TempDir())
+	repoDir := newFixtureRepo(t)
+	writeFile(t, repoDir, "sibling/go.mod", "module example.com/widget/sibling\n\ngo 1.21\n")
+	writeFile(t, repoDir, "sibling/sibling.go", "// Package sibling is a wholly separate module.\npackage sibling\n\n// Other does something else entirely.\nfunc Other() {}\n")
+	runGit(t, repoDir, "add", ".")
+	runGit(t, repoDir, "commit", "-q", "-m", "add sibling module")
+	runGit(t, repoDir, "tag", "-f", "v1.0.0")
+
+	dep := testDependency()
+	sources := []registry.Source{{ID: "repository", Type: "git", URL: repoDir, Ref: "v${version}", Authority: 100}}
+	gen, err := Create(ctx, store, badgerStore, dep)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if err := Build(ctx, gen, sources, gitCache, store, badgerStore); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	manifest, err := getManifest(ctx, badgerStore, gen.ID)
+	if err != nil {
+		t.Fatalf("getManifest: %v", err)
+	}
+
+	if manifest.ObjectCount != baselineCount {
+		t.Errorf("ObjectCount = %d with a nested sibling module present, want %d (identical to the baseline without it — the sibling module's content must never be normalized as this dependency's own)", manifest.ObjectCount, baselineCount)
+	}
+}
+
 func TestBuildAcquisitionFailureMarksGenerationFailed(t *testing.T) {
 	requireGit(t)
 	ctx := context.Background()

@@ -34,6 +34,19 @@ func TestSparsePatternsIncludesGoOnlyForGoEcosystem(t *testing.T) {
 	}
 }
 
+// TestSparsePatternsIncludesGoModForNestedModuleBoundaryDetection covers
+// the STRESS-005 finding: generation.normalizeSources needs go.mod
+// present in the checked-out worktree to detect a nested Go module
+// boundary — without it here, a sparse checkout silently strips away the
+// only signal that distinguishes a dependency's own content from a
+// sibling module's.
+func TestSparsePatternsIncludesGoModForNestedModuleBoundaryDetection(t *testing.T) {
+	goPatterns := SparsePatterns(domain.EcosystemGo)
+	if !contains(goPatterns, "go.mod") {
+		t.Errorf("SparsePatterns(go) = %v, want it to include go.mod", goPatterns)
+	}
+}
+
 func contains(patterns []string, p string) bool {
 	for _, x := range patterns {
 		if x == p {

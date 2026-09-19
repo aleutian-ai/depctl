@@ -26,6 +26,7 @@ type Config struct {
 	Vector    VectorConfig    `yaml:"vector"`
 	Retention RetentionConfig `yaml:"retention"`
 	Watch     WatchConfig     `yaml:"watch"`
+	Sync      SyncConfig      `yaml:"sync"`
 	Server    ServerConfig    `yaml:"server"`
 	Daemon    DaemonConfig    `yaml:"daemon"`
 }
@@ -74,6 +75,19 @@ type RetentionConfig struct {
 	// eligible for cleanup (GC-001) — independent of GracePeriod, which
 	// only governs the reference-based path.
 	OrphanAge time.Duration `yaml:"orphan_age"`
+}
+
+// SyncConfig controls RunSync's bulk-sync worker pool (epic 53/
+// COORD-003) — irrelevant to a JIT single-dependency sync, which is
+// always one action regardless of this setting.
+type SyncConfig struct {
+	// MaxConcurrency bounds how many SYNC_VERSION actions one RunSync
+	// call processes at once. Default 2, deliberately conservative:
+	// real concurrent throughput against GitHub (clone rate-limiting)
+	// and Ollama (GPU-bound embed throughput) was unmeasured at the
+	// time this shipped — see epic 53/COORD-003's own benchmark note
+	// for the real numbers this default was chosen from.
+	MaxConcurrency int `yaml:"max_concurrency"`
 }
 
 type WatchConfig struct {
@@ -151,6 +165,9 @@ func Default(dataDir string) Config {
 			Enabled:  true,
 			Debounce: 2 * time.Second,
 		},
+		Sync: SyncConfig{
+			MaxConcurrency: 2,
+		},
 		Server: ServerConfig{
 			MCP:  MCPServerConfig{Enabled: true, EnableSyncTool: true},
 			HTTP: HTTPServerConfig{Listen: "127.0.0.1:7447"},
@@ -201,6 +218,9 @@ func (c Config) Validate() error {
 	}
 	if c.Watch.Debounce < 0 {
 		return errors.New("watch.debounce: must be a non-negative duration")
+	}
+	if c.Sync.MaxConcurrency < 0 {
+		return errors.New("sync.max_concurrency: must be non-negative")
 	}
 	return nil
 }

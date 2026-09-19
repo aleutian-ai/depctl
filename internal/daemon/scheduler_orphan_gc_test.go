@@ -8,8 +8,9 @@ import (
 )
 
 // TestSchedulerOrphanGCAndSyncExcludeEachOther proves RequestOrphanGC
-// shares RequestGC's own global lock — GC-002's orphan path must never
-// interleave with sync any more than the reference-based path does.
+// shares RequestGC's own coordinator.ExcludeForGC exclusion — GC-002's
+// orphan path must never interleave with an in-flight build any more
+// than the reference-based path does.
 func TestSchedulerOrphanGCAndSyncExcludeEachOther(t *testing.T) {
 	f := newFakeSync()
 	g := newFakeGC()
@@ -36,7 +37,7 @@ func TestSchedulerOrphanGCAndSyncExcludeEachOther(t *testing.T) {
 	s.Wait()
 
 	if maxSync, maxGC := f.maxSeen.Load(), g.maxSeen.Load(); maxSync > 1 || maxGC > 1 {
-		t.Errorf("sync saw %d concurrent, orphan-gc saw %d concurrent, want at most 1 each (they share the global lock)", maxSync, maxGC)
+		t.Errorf("sync saw %d concurrent, orphan-gc saw %d concurrent, want at most 1 each (coordinator.ExcludeForGC must exclude every in-flight Build)", maxSync, maxGC)
 	}
 }
 

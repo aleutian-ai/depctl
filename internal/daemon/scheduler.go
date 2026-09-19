@@ -79,7 +79,12 @@ func (p *SyncPriority) Drain() []string {
 }
 
 // SyncFunc runs one sync to completion, writing progress to out.
-type SyncFunc func(ctx context.Context, projectID string, opts SyncOptions, out io.Writer) (api.SyncResult, error)
+// coordinator is the same instance Scheduler uses for GC exclusion
+// (ExcludeForGC) — RunSync is expected to route each actual generation
+// build through coordinator.Build, and each reference-state mutation
+// through coordinator.ProtectFromGC, since PlanGC reads that same state
+// directly (see COORD-001/002).
+type SyncFunc func(ctx context.Context, coordinator *BuildCoordinator, projectID string, opts SyncOptions, out io.Writer) (api.SyncResult, error)
 
 // GCFunc runs one GC pass to completion, writing progress to out.
 type GCFunc func(ctx context.Context, dryRun bool, out io.Writer) (api.GCResult, error)
@@ -107,16 +112,16 @@ type Scheduler struct {
 	runGC GCFunc
 	logf  func(format string, args ...any)
 
-	// global serializes sync and GC runs against each other, not just
-	// against runs of their own kind. Two reasons, not one: generations
-	// are shared between projects, so two projects could otherwise race
-	// to build the same one (ADR-011 §6) — and GC decides a generation is
-	// unreferenced by reading the same `references` state a concurrent
-	// sync can be actively adding to, so GC and sync racing risks deleting
-	// a generation a reference now points to. Per-project state above is
-	// deliberately independent of this, so dropping the restriction later
-	// means removing this lock, not reworking the state machine.
-	global sync.Mutex
+	// coordinator replaces what used to be a single global sync.Mutex
+	// (see epic 53/COORD-001..002): GC still needs excluding from every
+	// concurrent build and reference-state mutation (ADR-011 §6, PlanGC
+	// reads the same `references`/`active_generations` state a build can
+	// be actively mutating), but unrelated builds no longer need to
+	// exclude *each other* — only builds of the identical generation do,
+	// via coordinator.Build's singleflight coalescing. execute() no
+	// longer takes any lock of its own at all; RunSync (via SyncFunc's
+	// coordinator param) does the real per-action coordination.
+	coordinator *BuildCoordinator
 
 	mu       sync.Mutex
 	projects map[string]*projectState
@@ -180,12 +185,13 @@ func NewScheduler(base context.Context, run SyncFunc, runGC GCFunc, logf func(st
 		logf = func(string, ...any) {}
 	}
 	return &Scheduler{
-		base:      base,
-		run:       run,
-		runGC:     runGC,
-		logf:      logf,
-		projects:  map[string]*projectState{},
-		scanLocks: map[string]*scanLock{},
+		base:        base,
+		run:         run,
+		runGC:       runGC,
+		logf:        logf,
+		coordinator: NewBuildCoordinator(),
+		projects:    map[string]*projectState{},
+		scanLocks:   map[string]*scanLock{},
 	}
 }
 
@@ -224,10 +230,11 @@ func (s *Scheduler) Request(projectID string, opts SyncOptions, out io.Writer) <
 	return w.done
 }
 
-// RequestOrphanGC runs one orphan GC pass (GC-001/GC-002), serialized
-// against sync and against reference-based GC via the same s.global
-// lock RequestGC's runs already use. Unlike RequestGC, this has none of
-// its request-coalescing sophistication — reference-based GC needs that
+// RequestOrphanGC runs one orphan GC pass (GC-001/GC-002), excluded from
+// every concurrent build/reference-mutation via the same
+// coordinator.ExcludeForGC executeGC's runs already use. Unlike
+// RequestGC, this has none of its request-coalescing sophistication —
+// reference-based GC needs that
 // because file-watch events can fire sync (and therefore, indirectly,
 // interest in GC) repeatedly in quick succession, but orphan GC is
 // deliberately manual/opt-in (epic 22's own non-goal: "no automatic/
@@ -250,8 +257,8 @@ func (s *Scheduler) RequestOrphanGC(ctx context.Context, run GCFunc, dryRun bool
 	s.mu.Unlock()
 	defer s.inFlight.Done()
 
-	s.global.Lock()
-	defer s.global.Unlock()
+	release := s.coordinator.ExcludeForGC()
+	defer release()
 
 	runCtx, cancel := context.WithTimeout(context.WithoutCancel(s.base), maxActionDuration)
 	defer cancel()
@@ -418,23 +425,30 @@ func (s *Scheduler) execute(projectID string, opts SyncOptions, waiters []*waite
 		}
 	}()
 
-	s.global.Lock()
-	defer s.global.Unlock()
-
-	// context.WithoutCancel deliberately survives Shutdown (a sync
-	// already under way must finish, not leave a half-built generation —
-	// see the type doc). But "survives shutdown" and "runs forever" are
-	// different guarantees: without a ceiling, a single hung network call
-	// inside run (an unreachable embedder or vector backend) keeps this
-	// goroutine — and Scheduler.Wait, and therefore the whole daemon
-	// process — alive indefinitely. maxActionDuration bounds it generously
-	// (real syncs in this codebase's own corpus testing finished in well
-	// under a minute even for large repos) while still never cancelling
-	// a healthy, progressing sync early.
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(s.base), maxActionDuration)
-	defer cancel()
+	// No lock taken here at all, deliberately (epic 53/COORD-002): two
+	// different projects' runs no longer exclude each other just for
+	// existing — only builds of the identical generation coalesce
+	// (coordinator.Build), and GC excludes every build/mutation via
+	// coordinator.ExcludeForGC/ProtectFromGC, both inside s.run/RunSync
+	// itself now, not wrapped around the whole call here.
+	//
+	// No aggregate maxActionDuration wrap here either, as of epic 53/
+	// COORD-003 — deliberately, not an oversight. STRESS-005 found this
+	// ceiling was the wrong granularity for a large untargeted sync: one
+	// shared deadline for hundreds of dependencies meant a handful of
+	// genuinely slow ones could starve everything queued behind them.
+	// The real protection against "a hung network call keeps this
+	// goroutine alive forever" already exists at the right granularity
+	// without it: every individual network/subprocess call in the sync
+	// pipeline already carries its own bound (ollama's and qdrant's own
+	// http.Client.Timeout, executil.Run's per-call Timeout), and
+	// RunSync's own dependencySyncTimeout now bounds each
+	// SYNC_VERSION action specifically. context.WithoutCancel still
+	// deliberately survives Shutdown (a sync already under way must
+	// finish, not leave a half-built generation — see the type doc).
+	ctx := context.WithoutCancel(s.base)
 	out := writerFor(waiters)
-	res, err := s.run(ctx, projectID, opts, out)
+	res, err := s.run(ctx, s.coordinator, projectID, opts, out)
 	if err != nil {
 		s.logf("%s: %v", projectID, err)
 	}
@@ -479,10 +493,13 @@ func (s *Scheduler) startGC(dryRun bool, waiters []*gcWaiter) {
 }
 
 // executeGC runs one GC pass, turning a panic into an error so GC can
-// never take the daemon down with it. Mirrors execute: same global lock
-// (see the type doc for why GC and sync must exclude each other), same
-// maxActionDuration ceiling, same "survives shutdown, doesn't run
-// forever" reasoning.
+// never take the daemon down with it. coordinator.ExcludeForGC waits for
+// every currently in-flight build/reference-mutation across every
+// project before this runs, and blocks new ones from starting until
+// release is called (epic 53/COORD-001..002) — replacing what used to
+// be the same global sync.Mutex execute() took. Same maxActionDuration
+// ceiling and "survives shutdown, doesn't run forever" reasoning as
+// execute().
 func (s *Scheduler) executeGC(dryRun bool, waiters []*gcWaiter) (result GCOutcome) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -491,8 +508,8 @@ func (s *Scheduler) executeGC(dryRun bool, waiters []*gcWaiter) (result GCOutcom
 		}
 	}()
 
-	s.global.Lock()
-	defer s.global.Unlock()
+	release := s.coordinator.ExcludeForGC()
+	defer release()
 
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(s.base), maxActionDuration)
 	defer cancel()

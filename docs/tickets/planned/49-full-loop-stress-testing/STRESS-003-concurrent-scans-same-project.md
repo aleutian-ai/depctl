@@ -1,7 +1,7 @@
 # STRESS-003: Concurrent scans of the same project
 
 **Epic:** Full-Loop Stress Testing
-**Status:** planned
+**Status:** done
 **Depends on:** none (can reuse STRESS-001's project, or a smaller one — see Design)
 **Estimated size:** medium
 
@@ -33,5 +33,11 @@ Fire two `ragctl scan` invocations at the same project directory at (as close to
 - Manual/live exercise, ideally scripted (a small shell loop) so it can be re-run easily if a fix is later attempted.
 
 ## Acceptance criteria
-- [ ] Two genuinely concurrent `scan` processes against the same project directory never produce a duplicate or corrupted project registration, across 10+ repeated attempts.
-- [ ] Any race found is reliably reproducible, not a one-off flake report.
+- [x] Two genuinely concurrent `scan` processes against the same project directory never produce a duplicate or corrupted project registration, across 10+ repeated attempts.
+- [x] Any race found is reliably reproducible, not a one-off flake report. (N/A — no race found.)
+
+## Post-implementation note
+
+Ran via `hack/test-linux.sh`'s Podman pattern. Used a small hand-built fixture per the ticket's own Simplicity constraint (`example.com/raceproj`, `go.mod` requiring real `github.com/spf13/cobra` + `github.com/google/uuid`) rather than STRESS-001's terraform clone — real network resolution but fast enough to repeat the race many times in one session. Started the daemon explicitly first (`ragctl daemon start`), then fired 12 iterations of two genuinely separate `ragctl scan` OS processes backgrounded with no delay between them (`&` + `wait`), checking `ragctl project list`'s count after every iteration.
+
+**Result: 12/12 clean.** Every iteration produced exactly one project registration, both processes always exited 0, and the final resolved dependency list was correct and complete (cobra + uuid + their real transitive deps, direct/indirect correctly flagged) — no corruption, no daemon crash, no duplicate. `Scheduler.LockProject` serializes the persist step correctly under real OS-level concurrency, not just the existing in-process unit test's synthetic timing. No race found; no follow-up needed.

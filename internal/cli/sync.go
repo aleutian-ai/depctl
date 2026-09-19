@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -88,7 +89,12 @@ func runSync(cmd *cobra.Command, projectID, dependency string, dryRun, offline, 
 // own Badger store, since Badger only allows one open handle per
 // directory per process and the MCP server already holds one open for
 // query.Service's whole lifetime.
-func RunSync(ctx context.Context, store *bboltstore.Store, badgerStore *badgerstore.Store, cfg config.Config, projectID, dependency string, offline, force bool, out io.Writer, readiness *embeddingReadiness, vecReadiness *vectorReadiness, priority *daemon.SyncPriority) (synced, failed, skipped int, err error) {
+//
+// coordinator gates every actual generation build (ActionSyncVersion)
+// and every reference-state mutation (ActionAddReference/DropReference)
+// against concurrent GC and against duplicate builds of the identical
+// generation — see daemon.BuildCoordinator and epic 53/COORD-001..002.
+func RunSync(ctx context.Context, coordinator *daemon.BuildCoordinator, store *bboltstore.Store, badgerStore *badgerstore.Store, cfg config.Config, projectID, dependency string, offline, force bool, out io.Writer, readiness *embeddingReadiness, vecReadiness *vectorReadiness, priority *daemon.SyncPriority) (synced, failed, skipped int, err error) {
 	plans, err := computePlans(ctx, store, cfg.Vector.Backend, projectID)
 	if err != nil {
 		return 0, 0, 0, err
@@ -103,17 +109,23 @@ func RunSync(ctx context.Context, store *bboltstore.Store, badgerStore *badgerst
 	// The readiness check happens every call, not just when pipeline is
 	// nil, for the same reason fullQueryService's does: a "still
 	// pulling" result must never get treated as if it were the real,
-	// memoized pipeline build.
+	// memoized pipeline build. pipelineMu guards the lazy build itself
+	// (not the readiness checks, which can run concurrently) — COORD-003
+	// made getPipeline reachable from multiple worker goroutines at
+	// once, and an unguarded read/write of pipeline would race.
+	var pipelineMu sync.Mutex
 	var pipeline *syncPipeline
 	getPipeline := func() (*syncPipeline, error) {
-		if pipeline != nil {
-			return pipeline, nil
-		}
 		if err := readiness.checkReady(); err != nil {
 			return nil, err
 		}
 		if err := vecReadiness.checkReady(); err != nil {
 			return nil, err
+		}
+		pipelineMu.Lock()
+		defer pipelineMu.Unlock()
+		if pipeline != nil {
+			return pipeline, nil
 		}
 		embedder, err := buildEmbedder(cfg, badgerStore)
 		if err != nil {
@@ -153,7 +165,7 @@ func RunSync(ctx context.Context, store *bboltstore.Store, badgerStore *badgerst
 	// named dependency's SYNC_VERSION action to the very front of
 	// whatever's left, ahead of any other action kind too — "prioritize"
 	// means it runs next, not just next among other syncs.
-	var queue []planner.Action
+	var actions []planner.Action
 	for _, pp := range plans {
 		if pp.Warning != "" {
 			fmt.Fprintf(out, "%s: %s\n", pp.Project.Root, pp.Warning)
@@ -163,55 +175,155 @@ func RunSync(ctx context.Context, store *bboltstore.Store, badgerStore *badgerst
 			if dependency != "" && action.Dependency.Dependency.Name != dependency {
 				continue
 			}
-			queue = append(queue, action)
+			actions = append(actions, action)
 		}
 	}
 
-	for len(queue) > 0 {
-		for _, dep := range priority.Drain() {
-			queue = bumpActionToFront(queue, dep)
-		}
-		action := queue[0]
-		queue = queue[1:]
-
-		switch action.Kind {
-		case planner.ActionSyncVersion:
-			if offline {
-				fmt.Fprintf(out, "SKIP (offline)  %s %s\n", action.Dependency.Dependency.Name, action.Dependency.Version)
-				skipped++
-				continue
-			}
-			p, perr := getPipeline()
-			if perr != nil {
-				fmt.Fprintf(out, "FAIL  %s %s: %v\n", action.Dependency.Dependency.Name, action.Dependency.Version, perr)
-				failed++
-				continue
-			}
-			if err := syncVersion(ctx, store, badgerStore, p.gitCache, p.embedder, p.vb, p.ns, reg, action, force); err != nil {
-				fmt.Fprintf(out, "FAIL  %s %s: %v\n", action.Dependency.Dependency.Name, action.Dependency.Version, err)
-				failed++
-				continue
-			}
-			fmt.Fprintf(out, "OK    %s %s\n", action.Dependency.Dependency.Name, action.Dependency.Version)
-			synced++
-
-		case planner.ActionAddReference:
-			if err := addReference(ctx, store, action); err != nil {
-				fmt.Fprintf(out, "FAIL  reference %s %s: %v\n", action.Dependency.Dependency.Name, action.Dependency.Version, err)
-				failed++
-			}
-
-		case planner.ActionDropReference:
-			dep := action.Dependency.Dependency
-			if err := retention.DropReference(ctx, store, dep.Ecosystem, dep.Name, action.Dependency.Version, action.ProjectID); err != nil {
-				fmt.Fprintf(out, "FAIL  drop reference %s: %v\n", action.Dependency.Dependency.Name, err)
-				failed++
-			}
-		}
+	// N workers pull from the same queue concurrently (epic 53/
+	// COORD-003) — bounded by cfg.Sync.MaxConcurrency, defaulting to 2
+	// for a config predating this field (0 unmarshals as "unset", never
+	// rejected by Validate — see SyncConfig's own doc comment for why
+	// this default was chosen conservatively rather than measured to be
+	// optimal). A single-action JIT sync (len(actions) <= 1) never
+	// benefits from more than one worker regardless of this setting.
+	n := cfg.Sync.MaxConcurrency
+	if n < 1 {
+		n = 2
+	}
+	if n > len(actions) {
+		n = max(len(actions), 1)
 	}
 
-	fmt.Fprintf(out, "\n%d synced, %d failed, %d skipped\n", synced, failed, skipped)
+	queue := newSyncQueue(actions)
+	var mu, outMu sync.Mutex
+	writeLine := func(format string, args ...any) {
+		outMu.Lock()
+		defer outMu.Unlock()
+		fmt.Fprintf(out, format, args...)
+	}
+
+	var wg sync.WaitGroup
+	for range n {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				action, ok := queue.next(priority)
+				if !ok {
+					return
+				}
+				s, f, sk := runSyncAction(ctx, coordinator, store, badgerStore, reg, getPipeline, action, offline, force, writeLine)
+				mu.Lock()
+				synced += s
+				failed += f
+				skipped += sk
+				mu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+
+	writeLine("\n%d synced, %d failed, %d skipped\n", synced, failed, skipped)
 	return synced, failed, skipped, nil
+}
+
+// syncQueue is a priority-bumpable action queue safe for concurrent
+// workers to pop from — the same WATCH-020 bump-to-front reordering
+// RunSync's previous single-consumer loop had, just synchronized now
+// that more than one goroutine drains it (epic 53/COORD-003).
+type syncQueue struct {
+	mu      sync.Mutex
+	actions []planner.Action
+}
+
+func newSyncQueue(actions []planner.Action) *syncQueue {
+	return &syncQueue{actions: actions}
+}
+
+// next drains any pending priority bumps, then pops the front action.
+// Reports false once the queue is empty — a worker's signal to exit.
+func (q *syncQueue) next(priority *daemon.SyncPriority) (planner.Action, bool) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	for _, dep := range priority.Drain() {
+		q.actions = bumpActionToFront(q.actions, dep)
+	}
+	if len(q.actions) == 0 {
+		return planner.Action{}, false
+	}
+	action := q.actions[0]
+	q.actions = q.actions[1:]
+	return action, true
+}
+
+// dependencySyncTimeout bounds one SYNC_VERSION action's own real work —
+// replacing the old whole-batch maxActionDuration ceiling as the thing
+// that actually bounds a single dependency (STRESS-005/epic 51's own
+// finding: a single huge dependency, alibaba-cloud-sdk-go-shaped,
+// shouldn't be able to starve every other worker sharing one aggregate
+// deadline). Each worker gets its own budget, independent of how long
+// the rest of the batch takes or how many other workers are running. A
+// var, not a const, so a test can shorten it (matches maxActionDuration's
+// own convention in internal/daemon/scheduler.go).
+var dependencySyncTimeout = 10 * time.Minute
+
+// runSyncAction runs one action to completion (never returning an error
+// itself — every outcome is written to out and reflected in its
+// synced/failed/skipped return, so one worker's failure can never
+// propagate into cancelling another's unrelated in-flight work, unlike
+// errgroup's default cancel-on-first-error behavior).
+func runSyncAction(ctx context.Context, coordinator *daemon.BuildCoordinator, store *bboltstore.Store, badgerStore *badgerstore.Store, reg *registry.Registry, getPipeline func() (*syncPipeline, error), action planner.Action, offline, force bool, writeLine func(string, ...any)) (synced, failed, skipped int) {
+	switch action.Kind {
+	case planner.ActionSyncVersion:
+		if offline {
+			writeLine("SKIP (offline)  %s %s\n", action.Dependency.Dependency.Name, action.Dependency.Version)
+			return 0, 0, 1
+		}
+		p, perr := getPipeline()
+		if perr != nil {
+			writeLine("FAIL  %s %s: %v\n", action.Dependency.Dependency.Name, action.Dependency.Version, perr)
+			return 0, 1, 0
+		}
+		actionCtx, cancel := context.WithTimeout(ctx, dependencySyncTimeout)
+		defer cancel()
+		// coordinator.Build both excludes concurrent GC and coalesces
+		// any other concurrent request for this identical generation
+		// into this one real build (epic 53/COORD-001..002).
+		buildErr := coordinator.Build(action.Dependency, func() error {
+			return syncVersion(actionCtx, store, badgerStore, p.gitCache, p.embedder, p.vb, p.ns, reg, action, force)
+		})
+		if buildErr != nil {
+			writeLine("FAIL  %s %s: %v\n", action.Dependency.Dependency.Name, action.Dependency.Version, buildErr)
+			return 0, 1, 0
+		}
+		writeLine("OK    %s %s\n", action.Dependency.Dependency.Name, action.Dependency.Version)
+		return 1, 0, 0
+
+	case planner.ActionAddReference:
+		// PlanGC reads the references bucket directly, so this write
+		// needs the same GC exclusion a real build gets, even though
+		// there's no build identity here to coalesce.
+		refErr := coordinator.ProtectFromGC(func() error {
+			return addReference(ctx, store, action)
+		})
+		if refErr != nil {
+			writeLine("FAIL  reference %s %s: %v\n", action.Dependency.Dependency.Name, action.Dependency.Version, refErr)
+			return 0, 1, 0
+		}
+		return 0, 0, 0
+
+	case planner.ActionDropReference:
+		dep := action.Dependency.Dependency
+		dropErr := coordinator.ProtectFromGC(func() error {
+			return retention.DropReference(ctx, store, dep.Ecosystem, dep.Name, action.Dependency.Version, action.ProjectID)
+		})
+		if dropErr != nil {
+			writeLine("FAIL  drop reference %s: %v\n", action.Dependency.Dependency.Name, dropErr)
+			return 0, 1, 0
+		}
+		return 0, 0, 0
+	}
+	return 0, 0, 0
 }
 
 // bumpActionToFront moves the first SYNC_VERSION action for dependency
@@ -357,10 +469,34 @@ func resolveVanityImport(ctx context.Context, modulePath string) (string, bool) 
 	return "", false
 }
 
+// SyncPhaseTimings is syncVersion's own duration breakdown: build
+// (acquisition+normalize+chunk), replicate (embed+upsert), validate, and
+// promote — the phase-level counterpart to BuildCoordinator's own
+// GateWait/Work split (epic 53/COORD-002). Only phases that actually ran
+// before a failure or early return are non-zero.
+type SyncPhaseTimings struct {
+	Build     time.Duration
+	Replicate time.Duration
+	Validate  time.Duration
+	Promote   time.Duration
+}
+
+// onSyncPhaseTimings, if set, is called after every syncVersion call
+// completes (success or failure) with its phase breakdown. A var, not a
+// parameter, so every existing caller/test stays unaffected unless
+// something wants to observe it — matches vanityImportHTTPClient's own
+// test-injectable-var convention in this file. Tests that set this must
+// restore the original value (e.g. via t.Cleanup), since it's shared
+// package state.
+var onSyncPhaseTimings = func(dep domain.DependencyVersion, t SyncPhaseTimings) {}
+
 // syncVersion drives the full build->replicate->validate->promote
 // pipeline for one SYNC_VERSION action.
 func syncVersion(ctx context.Context, store *bboltstore.Store, badgerStore *badgerstore.Store, gitCache *git.Cache, embedder embedding.Embedder, vb backend.VectorBackend, ns backend.Namespace, reg *registry.Registry, action planner.Action, force bool) error {
 	dep := action.Dependency
+	var timings SyncPhaseTimings
+	defer func() { onSyncPhaseTimings(dep, timings) }()
+
 	manifest, ok := reg.Match(dep.Dependency.Ecosystem, dep.Dependency.Name)
 	if !ok {
 		manifest, ok = fallbackManifest(ctx, dep.Dependency)
@@ -373,11 +509,19 @@ func syncVersion(ctx context.Context, store *bboltstore.Store, badgerStore *badg
 	if err != nil {
 		return fmt.Errorf("create generation: %w", err)
 	}
-	if err := generation.Build(ctx, gen, manifest.Sources, gitCache, store, badgerStore); err != nil {
-		return fmt.Errorf("build: %w", err)
+
+	buildStart := time.Now()
+	buildErr := generation.Build(ctx, gen, manifest.Sources, gitCache, store, badgerStore)
+	timings.Build = time.Since(buildStart)
+	if buildErr != nil {
+		return fmt.Errorf("build: %w", buildErr)
 	}
-	if err := generation.Replicate(ctx, gen, manifest.Sources, embedder, vb, ns, store, badgerStore); err != nil {
-		return fmt.Errorf("replicate: %w", err)
+
+	replicateStart := time.Now()
+	replicateErr := generation.Replicate(ctx, gen, manifest.Sources, embedder, vb, ns, store, badgerStore)
+	timings.Replicate = time.Since(replicateStart)
+	if replicateErr != nil {
+		return fmt.Errorf("replicate: %w", replicateErr)
 	}
 
 	genManifest, err := readGenerationManifest(ctx, badgerStore, gen.ID)
@@ -398,7 +542,9 @@ func syncVersion(ctx context.Context, store *bboltstore.Store, badgerStore *badg
 		}
 	}
 
+	validateStart := time.Now()
 	gen, report, err := validate.Run(ctx, gen, genManifest, replica, prior, priorManifest, validate.DefaultSanityConfig(), embedder, vb, ns, store, badgerStore)
+	timings.Validate = time.Since(validateStart)
 	if err != nil {
 		return fmt.Errorf("validate: %w", err)
 	}
@@ -414,7 +560,10 @@ func syncVersion(ctx context.Context, store *bboltstore.Store, badgerStore *badg
 		return fmt.Errorf("validation failed: %v", append(append(report.Structural.Failures, sanity.Failures...), report.VersionCorrectness.Failures...))
 	}
 
-	return promote.Promote(ctx, store, gen, vb.Name(), report.Structural, sanity, report.VersionCorrectness)
+	promoteStart := time.Now()
+	promoteErr := promote.Promote(ctx, store, gen, vb.Name(), report.Structural, sanity, report.VersionCorrectness)
+	timings.Promote = time.Since(promoteStart)
+	return promoteErr
 }
 
 func readGenerationManifest(ctx context.Context, badgerStore *badgerstore.Store, generationID string) (generation.Manifest, error) {

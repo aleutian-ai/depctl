@@ -136,7 +136,7 @@ func TestEngineSyncResolvesFirstWhenAsked(t *testing.T) {
 
 	e := testEngine(t)
 	var out bytes.Buffer
-	if _, err := e.Sync(context.Background(), id, daemon.SyncOptions{Resolve: true}, &out); err != nil {
+	if _, err := e.Sync(context.Background(), daemon.NewBuildCoordinator(), id, daemon.SyncOptions{Resolve: true}, &out); err != nil {
 		t.Fatalf("Sync: %v\n%s", err, out.String())
 	}
 

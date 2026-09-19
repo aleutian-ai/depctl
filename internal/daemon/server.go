@@ -38,7 +38,7 @@ type Engine interface {
 	Status(ctx context.Context) (api.Status, error)
 	Projects(ctx context.Context) ([]watch.Project, error)
 	ProjectIDs(ctx context.Context) ([]string, error)
-	Sync(ctx context.Context, projectID string, opts SyncOptions, out io.Writer) (api.SyncResult, error)
+	Sync(ctx context.Context, coordinator *BuildCoordinator, projectID string, opts SyncOptions, out io.Writer) (api.SyncResult, error)
 	// Scan discovers projects under root and persists each one's
 	// registration and resolution. lockProject must be held around one
 	// project's persist step (see Scheduler.LockProject) so two
