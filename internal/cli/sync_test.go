@@ -5,8 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -18,6 +20,7 @@ import (
 
 func TestSyncDryRunPerformsNoWrites(t *testing.T) {
 	isolateEnv(t)
+	noAmbientSync(t)
 	requireGo(t)
 	runInitForTest(t)
 	useRealRagctlBinary(t)
@@ -54,6 +57,7 @@ func TestSyncDryRunPerformsNoWrites(t *testing.T) {
 
 func TestSyncOfflineSkipsSyncVersionButRecordsReference(t *testing.T) {
 	isolateEnv(t)
+	noAmbientSync(t)
 	requireGo(t)
 	runInitForTest(t)
 	useRealRagctlBinary(t)
@@ -495,4 +499,67 @@ func actionNames(actions []planner.Action) []string {
 		names[i] = a.Dependency.Dependency.Name
 	}
 	return names
+}
+
+// TestFallbackManifestScopesMonorepoModuleToItsSubdir is the POINT-002
+// regression: a module inside a monorepo (cloud.google.com/go/billing,
+// root cloud.google.com/go) must index only its own directory, not the
+// repo root shared by every sibling module.
+func TestFallbackManifestScopesMonorepoModuleToItsSubdir(t *testing.T) {
+	srv := fakeVanityImportServer(t, `<meta name="go-import" content="example.vanity/mono git https://github.com/example/mono">`)
+	redirectVanityImportClient(t, srv)
+
+	cases := map[string]string{
+		"example.vanity/mono":            "",
+		"example.vanity/mono/billing":    "billing",
+		"example.vanity/mono/a/b/v3":     "a/b",
+		"example.vanity/mono/v2":         "",
+		"github.com/org/repo":            "",
+		"github.com/org/repo/v4":         "",
+		"github.com/org/repo/sub/pkg/v2": "sub/pkg",
+	}
+	for name, want := range cases {
+		m, ok := fallbackManifest(context.Background(), domain.Dependency{Ecosystem: domain.EcosystemGo, Name: name})
+		if !ok {
+			t.Fatalf("%s: fallbackManifest = false", name)
+		}
+		if got := m.Sources[0].Subdir; got != want {
+			t.Errorf("%s: Subdir = %q, want %q", name, got, want)
+		}
+	}
+}
+
+func planActionsFor(names ...string) []planner.Action {
+	var actions []planner.Action
+	for _, n := range names {
+		actions = append(actions, planner.Action{
+			Kind:       planner.ActionSyncVersion,
+			Dependency: domain.DependencyVersion{Dependency: domain.Dependency{Ecosystem: domain.EcosystemGo, Name: n}, Version: "v1.0.0"},
+		})
+	}
+	return actions
+}
+
+// TestFlattenActionsFiltersToTheRequestedSet is SCOPE-003's RunSync-side
+// check: a set of names keeps exactly those dependencies, in plan order;
+// an empty set keeps everything; unknown names are a quiet no-op.
+func TestFlattenActionsFiltersToTheRequestedSet(t *testing.T) {
+	plans := []projectPlan{{Actions: planActionsFor("a", "b", "c", "d")}}
+	names := func(actions []planner.Action) []string {
+		var out []string
+		for _, a := range actions {
+			out = append(out, a.Dependency.Dependency.Name)
+		}
+		return out
+	}
+
+	if got := names(flattenActions(plans, []string{"c", "a"}, io.Discard)); !reflect.DeepEqual(got, []string{"a", "c"}) {
+		t.Errorf("set {c,a} kept %v, want [a c] in plan order", got)
+	}
+	if got := names(flattenActions(plans, nil, io.Discard)); len(got) != 4 {
+		t.Errorf("empty set kept %v, want everything", got)
+	}
+	if got := flattenActions(plans, []string{"nope"}, io.Discard); len(got) != 0 {
+		t.Errorf("unknown name kept %d actions, want none", len(got))
+	}
 }

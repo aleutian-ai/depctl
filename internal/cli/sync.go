@@ -31,25 +31,26 @@ import (
 )
 
 func newSyncCmd() *cobra.Command {
-	var projectID, dependency string
+	var projectID string
+	var dependencies []string
 	var dryRun, offline, force bool
 
 	cmd := &cobra.Command{
 		Use:   "sync",
 		Short: "Execute the sync plan",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runSync(cmd, projectID, dependency, dryRun, offline, force)
+			return runSync(cmd, projectID, dependencies, dryRun, offline, force)
 		},
 	}
 	cmd.Flags().StringVar(&projectID, "project", "", "limit to one project ID")
-	cmd.Flags().StringVar(&dependency, "dependency", "", "limit to one dependency name")
+	cmd.Flags().StringArrayVar(&dependencies, "dependency", nil, "limit to a dependency name (repeatable)")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "print the plan and exit without executing")
 	cmd.Flags().BoolVar(&offline, "offline", false, "skip actions that require network access")
 	cmd.Flags().BoolVar(&force, "force", false, "promote a candidate even if VAL-002 sanity thresholds fail (structural/version-correctness failures are never forceable)")
 	return cmd
 }
 
-func runSync(cmd *cobra.Command, projectID, dependency string, dryRun, offline, force bool) error {
+func runSync(cmd *cobra.Command, projectID string, dependencies []string, dryRun, offline, force bool) error {
 	c, err := ensureDaemon(cmd.Context())
 	if err != nil {
 		return err
@@ -64,7 +65,7 @@ func runSync(cmd *cobra.Command, projectID, dependency string, dryRun, offline, 
 		return nil
 	}
 
-	req := api.SyncRequest{ProjectID: projectID, Dependency: dependency, Offline: offline, Force: force}
+	req := api.SyncRequest{ProjectID: projectID, Dependencies: dependencies, Offline: offline, Force: force}
 	resp, err := c.Sync(cmd.Context(), req, cmd.OutOrStdout())
 	if err != nil {
 		return err
@@ -94,7 +95,7 @@ func runSync(cmd *cobra.Command, projectID, dependency string, dryRun, offline, 
 // and every reference-state mutation (ActionAddReference/DropReference)
 // against concurrent GC and against duplicate builds of the identical
 // generation — see daemon.BuildCoordinator and epic 53/COORD-001..002.
-func RunSync(ctx context.Context, coordinator *daemon.BuildCoordinator, store *bboltstore.Store, badgerStore *badgerstore.Store, cfg config.Config, projectID, dependency string, offline, force bool, out io.Writer, readiness *embeddingReadiness, vecReadiness *vectorReadiness, priority *daemon.SyncPriority) (synced, failed, skipped int, err error) {
+func RunSync(ctx context.Context, coordinator *daemon.BuildCoordinator, store *bboltstore.Store, badgerStore *badgerstore.Store, cfg config.Config, projectID string, dependencies []string, offline, force bool, out io.Writer, readiness *embeddingReadiness, vecReadiness *vectorReadiness, priority *daemon.SyncPriority, progress *daemon.SyncProgress) (synced, failed, skipped int, err error) {
 	plans, err := computePlans(ctx, store, cfg.Vector.Backend, projectID)
 	if err != nil {
 		return 0, 0, 0, err
@@ -165,19 +166,8 @@ func RunSync(ctx context.Context, coordinator *daemon.BuildCoordinator, store *b
 	// named dependency's SYNC_VERSION action to the very front of
 	// whatever's left, ahead of any other action kind too — "prioritize"
 	// means it runs next, not just next among other syncs.
-	var actions []planner.Action
-	for _, pp := range plans {
-		if pp.Warning != "" {
-			fmt.Fprintf(out, "%s: %s\n", pp.Project.Root, pp.Warning)
-			continue
-		}
-		for _, action := range pp.Actions {
-			if dependency != "" && action.Dependency.Dependency.Name != dependency {
-				continue
-			}
-			actions = append(actions, action)
-		}
-	}
+	actions := flattenActions(plans, dependencies, out)
+	progress.SetTotal(len(actions))
 
 	// N workers pull from the same queue concurrently (epic 53/
 	// COORD-003) — bounded by cfg.Sync.MaxConcurrency, defaulting to 2
@@ -212,7 +202,7 @@ func RunSync(ctx context.Context, coordinator *daemon.BuildCoordinator, store *b
 				if !ok {
 					return
 				}
-				s, f, sk := runSyncAction(ctx, coordinator, store, badgerStore, reg, getPipeline, action, offline, force, writeLine)
+				s, f, sk := runSyncAction(ctx, coordinator, store, badgerStore, reg, getPipeline, action, offline, force, progress, writeLine)
 				mu.Lock()
 				synced += s
 				failed += f
@@ -256,6 +246,31 @@ func (q *syncQueue) next(priority *daemon.SyncPriority) (planner.Action, bool) {
 	return action, true
 }
 
+// flattenActions orders every project's planned actions into one queue,
+// project by project, keeping only actions for the named dependencies
+// (all of them when dependencies is empty). A project with a warning
+// contributes the warning, not actions.
+func flattenActions(plans []projectPlan, dependencies []string, out io.Writer) []planner.Action {
+	wanted := make(map[string]bool, len(dependencies))
+	for _, name := range dependencies {
+		wanted[name] = true
+	}
+	var actions []planner.Action
+	for _, pp := range plans {
+		if pp.Warning != "" {
+			fmt.Fprintf(out, "%s: %s\n", pp.Project.Root, pp.Warning)
+			continue
+		}
+		for _, action := range pp.Actions {
+			if len(wanted) > 0 && !wanted[action.Dependency.Dependency.Name] {
+				continue
+			}
+			actions = append(actions, action)
+		}
+	}
+	return actions
+}
+
 // dependencySyncTimeout bounds one SYNC_VERSION action's own real work —
 // replacing the old whole-batch maxActionDuration ceiling as the thing
 // that actually bounds a single dependency (STRESS-005/epic 51's own
@@ -272,7 +287,14 @@ var dependencySyncTimeout = 10 * time.Minute
 // synced/failed/skipped return, so one worker's failure can never
 // propagate into cancelling another's unrelated in-flight work, unlike
 // errgroup's default cancel-on-first-error behavior).
-func runSyncAction(ctx context.Context, coordinator *daemon.BuildCoordinator, store *bboltstore.Store, badgerStore *badgerstore.Store, reg *registry.Registry, getPipeline func() (*syncPipeline, error), action planner.Action, offline, force bool, writeLine func(string, ...any)) (synced, failed, skipped int) {
+func runSyncAction(ctx context.Context, coordinator *daemon.BuildCoordinator, store *bboltstore.Store, badgerStore *badgerstore.Store, reg *registry.Registry, getPipeline func() (*syncPipeline, error), action planner.Action, offline, force bool, progress *daemon.SyncProgress, writeLine func(string, ...any)) (synced, failed, skipped int) {
+	name := action.Dependency.Dependency.Name
+	if action.Kind == planner.ActionSyncVersion {
+		progress.Begin(name)
+		ctx = generation.WithProgress(ctx, func(done, total int) { progress.SetChunks(name, done, total) })
+	}
+	defer func() { progress.Finish(name, failed > 0) }()
+
 	switch action.Kind {
 	case planner.ActionSyncVersion:
 		if offline {
@@ -390,9 +412,9 @@ func fallbackManifest(ctx context.Context, dep domain.Dependency) (registry.Mani
 	if dep.Ecosystem != domain.EcosystemGo {
 		return registry.Manifest{}, false
 	}
-	url, ok := githubModuleURL(dep.Name)
+	root, url, ok := githubModuleURL(dep.Name)
 	if !ok {
-		url, ok = resolveVanityImport(ctx, dep.Name)
+		root, url, ok = resolveVanityImport(ctx, dep.Name)
 	}
 	if !ok {
 		return registry.Manifest{}, false
@@ -401,18 +423,31 @@ func fallbackManifest(ctx context.Context, dep domain.Dependency) (registry.Mani
 		Metadata: registry.Metadata{Name: dep.Name},
 		Match:    registry.Match{Ecosystems: []domain.Ecosystem{dep.Ecosystem}, Packages: []string{dep.Name}},
 		Version:  registry.VersionStrategy{Strategy: "none"},
-		Sources:  []registry.Source{{ID: "repository", Type: "git", URL: url, Ref: "HEAD", Authority: 0}},
+		Sources:  []registry.Source{{ID: "repository", Type: "git", URL: url, Ref: "HEAD", Subdir: moduleSubdir(dep.Name, root), Authority: 0}},
 	}, true
+}
+
+// majorVersionSuffix matches a Go module path's trailing /vN major-version
+// element (N >= 2), which is part of the import path, not a directory.
+var majorVersionSuffix = regexp.MustCompile(`/v([2-9]|[1-9][0-9]+)$`)
+
+// moduleSubdir is where a module lives inside its repository: its path
+// below the repo's import root, minus any /vN major-version suffix. A
+// monorepo module such as cloud.google.com/go/billing (root
+// cloud.google.com/go) owns only "billing/"; a repo-root module owns "".
+func moduleSubdir(modulePath, root string) string {
+	rest := strings.TrimPrefix(strings.TrimPrefix(modulePath, root), "/")
+	return strings.TrimPrefix(majorVersionSuffix.ReplaceAllString("/"+rest, ""), "/")
 }
 
 // githubModuleURL is the fast path: a Go module path already directly
 // shaped like github.com/<org>/<repo>[/...] needs no lookup at all.
-func githubModuleURL(modulePath string) (string, bool) {
+func githubModuleURL(modulePath string) (root, url string, ok bool) {
 	segments := strings.Split(modulePath, "/")
 	if len(segments) < 3 || segments[0] != "github.com" {
-		return "", false
+		return "", "", false
 	}
-	return "https://github.com/" + segments[1] + "/" + segments[2], true
+	return strings.Join(segments[:3], "/"), "https://github.com/" + segments[1] + "/" + segments[2], true
 }
 
 // vanityImportTimeout bounds the go-import meta-tag HTTP lookup so a
@@ -432,25 +467,25 @@ var vanityImportHTTPClient = http.DefaultClient
 // module path with no known VCS host: GET .../<path>?go-get=1 and parse
 // the go-import meta tag out of the response. Only a git-VCS result is
 // usable — nothing else in ragctl can acquire from a source.
-func resolveVanityImport(ctx context.Context, modulePath string) (string, bool) {
+func resolveVanityImport(ctx context.Context, modulePath string) (root, repoURL string, ok bool) {
 	ctx, cancel := context.WithTimeout(ctx, vanityImportTimeout)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://"+modulePath+"?go-get=1", nil)
 	if err != nil {
-		return "", false
+		return "", "", false
 	}
 	resp, err := vanityImportHTTPClient.Do(req)
 	if err != nil {
-		return "", false
+		return "", "", false
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return "", false
+		return "", "", false
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
-		return "", false
+		return "", "", false
 	}
 
 	for _, m := range goImportMetaTag.FindAllStringSubmatch(string(body), -1) {
@@ -458,15 +493,15 @@ func resolveVanityImport(ctx context.Context, modulePath string) (string, bool) 
 		if len(fields) != 3 {
 			continue
 		}
-		root, vcs, repoURL := fields[0], fields[1], fields[2]
+		importRoot, vcs, url := fields[0], fields[1], fields[2]
 		if vcs != "git" {
 			continue
 		}
-		if modulePath == root || strings.HasPrefix(modulePath, root+"/") {
-			return repoURL, true
+		if modulePath == importRoot || strings.HasPrefix(modulePath, importRoot+"/") {
+			return importRoot, url, true
 		}
 	}
-	return "", false
+	return "", "", false
 }
 
 // SyncPhaseTimings is syncVersion's own duration breakdown: build

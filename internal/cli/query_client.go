@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"aleutian-ai/ragctl/internal/mcp"
 	"bytes"
 	"context"
 	"errors"
@@ -197,8 +198,8 @@ type daemonSyncTrigger struct {
 	c *client.Client
 }
 
-func (t *daemonSyncTrigger) SyncProject(ctx context.Context, projectID, dependency string, progress func(line string)) (synced, failed, skipped int, err error) {
-	resp, err := t.c.Sync(ctx, api.SyncRequest{ProjectID: projectID, Dependency: dependency}, lineWriter(progress))
+func (t *daemonSyncTrigger) SyncProject(ctx context.Context, projectID string, dependencies []string, progress func(line string)) (synced, failed, skipped int, err error) {
+	resp, err := t.c.Sync(ctx, api.SyncRequest{ProjectID: projectID, Dependencies: dependencies}, lineWriter(progress))
 	if err != nil {
 		return 0, 0, 0, err
 	}
@@ -219,6 +220,24 @@ type daemonPriorityBumper struct {
 
 func (b *daemonPriorityBumper) BumpSyncPriority(ctx context.Context, projectID, dependency string) (bool, error) {
 	return b.c.BumpSyncPriority(ctx, projectID, dependency)
+}
+
+// daemonProgressReader implements mcp.SyncProgressReader over the
+// daemon's HTTP API (SCOPE-001).
+type daemonProgressReader struct {
+	c *client.Client
+}
+
+func (r *daemonProgressReader) SyncProgress(ctx context.Context, projectID string) (mcp.SyncProgressOut, error) {
+	p, err := r.c.SyncProgress(ctx, projectID)
+	if err != nil {
+		return mcp.SyncProgressOut{}, err
+	}
+	out := mcp.SyncProgressOut{Syncing: p.Syncing, Done: p.Done, Failed: p.Failed, Total: p.Total}
+	for _, d := range p.InFlight {
+		out.InFlight = append(out.InFlight, mcp.InFlightDependencyOut{Name: d.Name, ChunksDone: d.ChunksDone, ChunksTotal: d.ChunksTotal})
+	}
+	return out, nil
 }
 
 // daemonScanTrigger implements mcp.ScanTrigger over the daemon's HTTP

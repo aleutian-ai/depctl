@@ -18,3 +18,6 @@ This requires three things that don't fully exist yet, found by enumerating ever
 - No multi-ecosystem import parsing in the first pass — Go only, matching ragctl's own established one-ecosystem-at-a-time convention (see epics 20/21 in backlog for Python/Node, unbuilt). `prioritize_file` degrades to "no matched imports, nothing to prioritize" for a non-Go file, not an error.
 - No package/directory-level prioritization (enumeration item #4 — several related files at once) in this epic's first pass — file-level (SCOPE-004) is the concrete, scoped unit; a directory-level version is a natural, separate follow-up once file-level is proven, not assumed necessary yet.
 - No change to `sync_project`'s existing single-dependency behavior or its bounded-wait/still-running contract — SCOPE-003/004 add a new *set*-shaped path alongside it, they don't replace what's already correct.
+
+## Status
+SCOPE-001..004 are implemented and unit/integration tested (see each ticket's post-implementation notes, including two deliberate deviations: a `sync_progress` tool rather than a resource, and a `sync.disable_ambient` opt-out). The epic stays in `planned/` until it is verified against a real daemon and a real agent client — none of the four has been exercised live yet.

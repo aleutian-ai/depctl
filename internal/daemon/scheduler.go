@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sort"
 	"sync"
 	"time"
 
@@ -28,10 +29,12 @@ var maxActionDuration = 30 * time.Minute
 // watch-triggered requests, which re-resolve the project first; a plain
 // `ragctl sync` leaves it false and syncs the stored resolution.
 type SyncOptions struct {
-	Dependency string
-	Offline    bool
-	Force      bool
-	Resolve    bool
+	// Dependencies limits the run to exactly these dependency names; empty
+	// or nil means everything.
+	Dependencies []string
+	Offline      bool
+	Force        bool
+	Resolve      bool
 	// Priority is set by Scheduler.start for every run it launches
 	// (never by a caller of Request) — RunSync consults it between
 	// actions to let a concurrent BumpPriority call reorder this run's
@@ -40,6 +43,10 @@ type SyncOptions struct {
 	// (tests, and any future caller that bypasses the Scheduler) — a
 	// nil *SyncPriority is a valid, always-empty no-op.
 	Priority *SyncPriority
+	// Progress is set by Scheduler.start alongside Priority, for the same
+	// reason: RunSync updates it as actions finish and SyncProgress reads
+	// it back (SCOPE-001). Nil for anything constructed directly.
+	Progress *SyncProgress
 }
 
 // SyncPriority is a small FIFO of dependency names a concurrent caller
@@ -167,6 +174,9 @@ type projectState struct {
 	// start and cleared by finish — nil whenever no sync is running for
 	// this project, which is exactly what BumpPriority checks.
 	priority *SyncPriority
+	// progress is the current run's counters, kept after the run ends so
+	// SyncProgress can report the last run's outcome.
+	progress *SyncProgress
 }
 
 // waiter is one caller's interest in the next run for a project: where
@@ -385,10 +395,13 @@ func (s *Scheduler) Wait() { s.inFlight.Wait() }
 // so setting st.priority here is safe without a separate lock.
 func (s *Scheduler) start(projectID string, opts SyncOptions, waiters []*waiter) {
 	priority := &SyncPriority{}
+	progress := &SyncProgress{}
 	if st := s.projects[projectID]; st != nil {
 		st.priority = priority
+		st.progress = progress
 	}
 	opts.Priority = priority
+	opts.Progress = progress
 
 	s.inFlight.Add(1)
 	go func() {
@@ -397,6 +410,45 @@ func (s *Scheduler) start(projectID string, opts SyncOptions, waiters []*waiter)
 		deliver(waiters, result)
 		s.finish(projectID)
 	}()
+}
+
+// SyncingProjects returns the progress of every project with a sync in
+// flight right now, keyed by project ID.
+func (s *Scheduler) SyncingProjects() map[string]api.SyncProgress {
+	s.mu.Lock()
+	running := map[string]*SyncProgress{}
+	for id, st := range s.projects {
+		if st.syncing {
+			running[id] = st.progress
+		}
+	}
+	s.mu.Unlock()
+
+	out := make(map[string]api.SyncProgress, len(running))
+	for id, p := range running {
+		snap := p.Snapshot()
+		snap.Syncing = true
+		out[id] = snap
+	}
+	return out
+}
+
+// SyncProgress reports projectID's in-flight sync — or, when none is
+// running, its last run's final counters (all zero if it never synced).
+// A cheap read with no side effects.
+func (s *Scheduler) SyncProgress(projectID string) api.SyncProgress {
+	s.mu.Lock()
+	st := s.projects[projectID]
+	var progress *SyncProgress
+	syncing := false
+	if st != nil {
+		progress, syncing = st.progress, st.syncing
+	}
+	s.mu.Unlock()
+
+	snap := progress.Snapshot()
+	snap.Syncing = syncing
+	return snap
 }
 
 // BumpPriority asks the currently-running sync for projectID, if any,
@@ -544,18 +596,32 @@ func (s *Scheduler) finishGC() {
 
 // mergeOptions folds a request into the pending follow-up: anything one
 // caller asked to force or re-resolve happens, offline only survives if
-// every caller wanted it, and a dependency filter survives only while
-// every caller named the same one.
+// every caller wanted it, and dependency filters union — but a caller
+// with no filter wants everything, which absorbs any named set.
 func mergeOptions(pending, next SyncOptions) SyncOptions {
 	merged := SyncOptions{
 		Offline: pending.Offline && next.Offline,
 		Force:   pending.Force || next.Force,
 		Resolve: pending.Resolve || next.Resolve,
 	}
-	if pending.Dependency == next.Dependency {
-		merged.Dependency = pending.Dependency
+	if len(pending.Dependencies) > 0 && len(next.Dependencies) > 0 {
+		merged.Dependencies = unionNames(pending.Dependencies, next.Dependencies)
 	}
 	return merged
+}
+
+// unionNames returns the sorted, de-duplicated union of a and b.
+func unionNames(a, b []string) []string {
+	seen := make(map[string]bool, len(a)+len(b))
+	var out []string
+	for _, name := range append(append([]string{}, a...), b...) {
+		if !seen[name] {
+			seen[name] = true
+			out = append(out, name)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 func deliver(waiters []*waiter, r Result) {

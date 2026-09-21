@@ -91,7 +91,10 @@ func TestProjectShowNotFound(t *testing.T) {
 }
 
 // runInitForTest runs `ragctl init` against the already-isolated
-// environment, failing the test on error.
+// environment, failing the test on error. It then turns ambient sync off
+// (see writeTestConfig): tests that scan a fixture and then drive their
+// own syncs or just-in-time searches must not have a full sync started
+// behind them by first registration (SCOPE-002).
 func runInitForTest(t *testing.T) {
 	t.Helper()
 	cmd := NewRootCmd()
@@ -99,4 +102,5 @@ func runInitForTest(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("init: %v", err)
 	}
+	noAmbientSync(t)
 }

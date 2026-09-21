@@ -1,7 +1,7 @@
 # SCOPE-004: `prioritize_file` tool and `explain_call_site` JIT wiring
 
 **Epic:** Ambient Sync and Scoped Priority
-**Status:** planned
+**Status:** done
 **Depends on:** SCOPE-003 (needs the multi-dependency set, not a single string, to express "these N imports" precisely)
 **Estimated size:** medium
 
@@ -38,6 +38,15 @@ Close the two real gaps the tool-surface enumeration found: no tool prioritizes 
 - Both tools' bounded-response behavior under a slow/large dependency set matches `sync_project`'s own proven contract (reuse its existing test shape).
 
 ## Acceptance criteria
-- [ ] `prioritize_file` correctly parses a real Go file's imports and prioritizes/syncs exactly the matched dependency set.
-- [ ] `explain_call_site` no longer dead-ends on an unsynced dependency — it triggers a JIT sync and returns real evidence, bounded the same way `sync_project` already is.
-- [ ] A non-Go or import-free file is a cheap, correct no-op, not an error.
+- [x] `prioritize_file` correctly parses a real Go file's imports and prioritizes/syncs exactly the matched dependency set.
+- [x] `explain_call_site` no longer dead-ends on an unsynced dependency — it triggers a JIT sync and returns real evidence, bounded the same way `sync_project` already is.
+- [x] A non-Go or import-free file is a cheap, correct no-op, not an error.
+
+## Post-implementation notes
+- `prioritize_file` (`internal/mcp/prioritize.go`) reads only the file's import block with `go/parser` (`ImportsOnly`, so a body that doesn't compile is irrelevant), matches each import to the project's resolved Go dependency by **longest module-path prefix** (`cloud.google.com/go/billing/apiv1` belongs to `.../go/billing`, not the shorter root module; `.../goblin` is not a sub-path of `.../go`), and requests exactly the not-yet-synced ones as one set.
+- Shared helper `ensureDependencies`: if a sync is already running for the project every name is bumped to the front of its queue; otherwise one scoped multi-dependency sync starts (detached, so it keeps running if the wait ends). Waits at most `mcpSyncWaitBound` polling readiness; `still_building: true` is a normal outcome, not a failure. A failed sync surfaces as an error.
+- `explain_call_site` now catches `symbolgraph.NotSyncedError` (a new typed error that carries the dependency name and unwraps to `query.ErrNoActiveGeneration`, so existing `errors.Is` checks still match), builds that one dependency next, and retries once. Still-building returns `still_building: true`; a failed sync falls back to the original error, matching `search_dependency_docs`' precedent.
+- `SyncTrigger.SyncProject` now takes `[]string` instead of one name (needed for the set); the seven call sites and fakes were updated.
+- Gated by `enable_sync_tool` (it triggers builds), like `sync_project`; with it off, a file that needs builds says so instead of silently doing nothing.
+- Not changed: `search_dependency_docs`' own JIT path still waits on its sync without the `mcpSyncWaitBound` cap (it was left as is; a long dependency there can block up to its own wait). Worth a follow-up so all three JIT paths share `ensureDependencies`.
+- Tested: matching (longest prefix, Go only, stdlib and own packages excluded), import parsing tolerant of a broken body, the one-call exact-set build, the bump-instead-of-second-sync path, the bounded still-building path, already-synced no-op, quiet no-ops and real errors, all four `explain_call_site` outcomes, and the tool over a real in-memory MCP client, all under `-race`. **Not verified live** against a real daemon and a real agent client.

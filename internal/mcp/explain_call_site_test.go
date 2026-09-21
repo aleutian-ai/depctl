@@ -34,7 +34,7 @@ func TestExplainCallSiteHandlerReturnsSymbolAndEvidence(t *testing.T) {
 			Result:     query.SearchResult{Chunks: []query.ResultChunk{{ChunkID: "chunk_1", Content: "Bucket returns..."}}},
 		},
 	}
-	handler := explainCallSiteHandler(resolver)
+	handler := explainCallSiteHandler(resolver, jitDeps{})
 
 	_, out, err := handler(context.Background(), nil, ExplainCallSiteIn{ProjectID: "proj_1", File: "client.go", Line: 12, Column: 9})
 	if err != nil {
@@ -59,7 +59,7 @@ func TestExplainCallSiteHandlerReturnsSymbolAndEvidence(t *testing.T) {
 
 func TestExplainCallSiteHandlerInternalCallSiteReturnsNote(t *testing.T) {
 	resolver := &fakeCallSiteResolver{bundle: nil}
-	handler := explainCallSiteHandler(resolver)
+	handler := explainCallSiteHandler(resolver, jitDeps{})
 
 	_, out, err := handler(context.Background(), nil, ExplainCallSiteIn{ProjectID: "proj_1", File: "main.go", Line: 5, Column: 2})
 	if err != nil {
@@ -74,7 +74,7 @@ func TestExplainCallSiteHandlerInternalCallSiteReturnsNote(t *testing.T) {
 }
 
 func TestExplainCallSiteHandlerNilResolverReportsNotConfigured(t *testing.T) {
-	handler := explainCallSiteHandler(nil)
+	handler := explainCallSiteHandler(nil, jitDeps{})
 
 	_, _, err := handler(context.Background(), nil, ExplainCallSiteIn{ProjectID: "proj_1", File: "client.go", Line: 1, Column: 1})
 	if err == nil {
@@ -84,7 +84,7 @@ func TestExplainCallSiteHandlerNilResolverReportsNotConfigured(t *testing.T) {
 
 func TestExplainCallSiteHandlerMapsDependencyNotResolvedError(t *testing.T) {
 	resolver := &fakeCallSiteResolver{err: symbolgraph.ErrDependencyNotResolved}
-	handler := explainCallSiteHandler(resolver)
+	handler := explainCallSiteHandler(resolver, jitDeps{})
 
 	_, _, err := handler(context.Background(), nil, ExplainCallSiteIn{ProjectID: "proj_1", File: "client.go", Line: 1, Column: 1})
 	if !errors.Is(err, symbolgraph.ErrDependencyNotResolved) {
@@ -134,7 +134,7 @@ func TestExplainCallSiteHandlerEndToEndWithRealGoPackagesProvider(t *testing.T) 
 	queries := &e2eQueryService{result: query.SearchResult{Chunks: []query.ResultChunk{{ChunkID: "chunk_1", Content: "Greet returns a greeting"}}}}
 	resolver := symbolgraph.New(provider, control, queries)
 
-	handler := explainCallSiteHandler(resolver)
+	handler := explainCallSiteHandler(resolver, jitDeps{})
 	_, out, err := handler(context.Background(), nil, ExplainCallSiteIn{ProjectID: "proj_1", File: "main.go", Line: 6, Column: 6})
 	if err != nil {
 		t.Fatalf("handler: %v", err)
@@ -165,7 +165,7 @@ func mustWriteFile(t *testing.T, path, content string) {
 
 func TestExplainCallSiteHandlerPassesQueryTextThrough(t *testing.T) {
 	resolver := &fakeCallSiteResolver{bundle: &symbolgraph.EvidenceBundle{}}
-	handler := explainCallSiteHandler(resolver)
+	handler := explainCallSiteHandler(resolver, jitDeps{})
 
 	_, _, err := handler(context.Background(), nil, ExplainCallSiteIn{ProjectID: "proj_1", File: "client.go", Line: 1, Column: 1, Query: "how do transactions work"})
 	if err != nil {

@@ -72,6 +72,7 @@ func Replicate(ctx context.Context, gen domain.Generation, sources []registry.So
 		return failReplica(ctx, store, &replica, &gen, fmt.Errorf("%w: list chunks for %s: %v", ErrReplication, gen.ID, err))
 	}
 
+	reportProgress(ctx, 0, len(chunks))
 	objectCache := map[string]domain.KnowledgeObject{}
 	for start := 0; start < len(chunks); start += defaultReplicateBatchSize {
 		end := min(start+defaultReplicateBatchSize, len(chunks))
@@ -86,6 +87,7 @@ func Replicate(ctx context.Context, gen domain.Generation, sources []registry.So
 			return failReplica(ctx, store, &replica, &gen, fmt.Errorf("%w: upsert batch: %v", ErrReplication, err))
 		}
 
+		reportProgress(ctx, end, len(chunks))
 		replica.PointCount += len(points)
 		replica.UpdatedAt = time.Now()
 		if err := store.PutBackendReplica(ctx, replica); err != nil {

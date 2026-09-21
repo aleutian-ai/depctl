@@ -324,7 +324,7 @@ func TestSyncVersionPhaseTimingsReflectRealDelay(t *testing.T) {
 	}
 	action := planner.Action{Kind: planner.ActionSyncVersion, ProjectID: "proj_timing", Dependency: dep}
 
-	const delay = 150 * time.Millisecond
+	const delay = 1500 * time.Millisecond
 	slow := &delayedEmbedder{atomicPromotionFakeEmbedder: atomicPromotionFakeEmbedder{dims: 4}, delay: delay}
 
 	var mu sync.Mutex

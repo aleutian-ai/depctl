@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"aleutian-ai/ragctl/internal/daemon/api"
 	"context"
 	"fmt"
 	"strings"
@@ -122,7 +123,7 @@ func TestWorkerPoolProcessesActionsConcurrently(t *testing.T) {
 				if !ok {
 					return
 				}
-				s, fl, _ := runSyncAction(context.Background(), coordinator, f.store, f.badgerStore, reg, getPipeline, action, false, false, noopWriteLine)
+				s, fl, _ := runSyncAction(context.Background(), coordinator, f.store, f.badgerStore, reg, getPipeline, action, false, false, nil, noopWriteLine)
 				if fl != 0 {
 					t.Errorf("action for %s failed unexpectedly (synced=%d failed=%d)", action.Dependency.Dependency.Name, s, fl)
 				}
@@ -169,7 +170,7 @@ func TestWorkerPoolIsolatesOneFailureFromOthers(t *testing.T) {
 				if !ok {
 					return
 				}
-				_, fl, _ := runSyncAction(context.Background(), coordinator, f.store, f.badgerStore, reg, getPipeline, action, false, false, noopWriteLine)
+				_, fl, _ := runSyncAction(context.Background(), coordinator, f.store, f.badgerStore, reg, getPipeline, action, false, false, nil, noopWriteLine)
 				mu.Lock()
 				results[action.Dependency.Dependency.Name] = fl
 				mu.Unlock()
@@ -299,7 +300,7 @@ func TestRunSyncDependencyTimeoutDoesNotWedgeOtherWorkers(t *testing.T) {
 				if action.Dependency.Dependency.Name == "example.com/widget" {
 					gp = getPipeline
 				}
-				_, fl, _ := runSyncAction(context.Background(), coordinator, f.store, f.badgerStore, reg, gp, action, false, false, noopWriteLine)
+				_, fl, _ := runSyncAction(context.Background(), coordinator, f.store, f.badgerStore, reg, gp, action, false, false, nil, noopWriteLine)
 				mu.Lock()
 				results[action.Dependency.Dependency.Name] = fl
 				mu.Unlock()
@@ -320,5 +321,96 @@ func TestRunSyncDependencyTimeoutDoesNotWedgeOtherWorkers(t *testing.T) {
 	}
 	if results["example.com/gadget"] != 0 {
 		t.Errorf("example.com/gadget failed = %d, want 0 (widget's hang must never affect it)", results["example.com/gadget"])
+	}
+}
+
+// snapshottingEmbedder records the tracker's view from inside each Embed
+// call — i.e. mid-replicate, while a dependency is genuinely in flight.
+type snapshottingEmbedder struct {
+	atomicPromotionFakeEmbedder
+	progress *daemon.SyncProgress
+	mu       sync.Mutex
+	seen     []api.InFlightDependency
+}
+
+func (e *snapshottingEmbedder) Embed(ctx context.Context, texts []string) ([][]float32, error) {
+	snap := e.progress.Snapshot()
+	e.mu.Lock()
+	e.seen = append(e.seen, snap.InFlight...)
+	e.mu.Unlock()
+	return e.atomicPromotionFakeEmbedder.Embed(ctx, texts)
+}
+
+// TestWorkerPoolReportsProgressAcrossConcurrentWorkers is SCOPE-001's
+// check against the real pool and real Replicate: every action is
+// counted done exactly once, nothing is left in flight, and while a
+// dependency was being embedded the tracker showed it with a known chunk
+// total — the coarse "43 of 560" counter alone would have looked frozen.
+func TestWorkerPoolReportsProgressAcrossConcurrentWorkers(t *testing.T) {
+	f, queue, reg := twoDependencyQueueFixture(t)
+	coordinator := daemon.NewBuildCoordinator()
+	progress := &daemon.SyncProgress{}
+	progress.SetTotal(2)
+
+	emb := &snapshottingEmbedder{atomicPromotionFakeEmbedder: atomicPromotionFakeEmbedder{dims: 4}, progress: progress}
+	getPipeline := func() (*syncPipeline, error) {
+		return &syncPipeline{embedder: emb, vb: f.vb, gitCache: f.gitCache, ns: f.ns}, nil
+	}
+
+	var wg sync.WaitGroup
+	for range 2 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				action, ok := queue.next(nil)
+				if !ok {
+					return
+				}
+				runSyncAction(context.Background(), coordinator, f.store, f.badgerStore, reg, getPipeline, action, false, false, progress, noopWriteLine)
+			}
+		}()
+	}
+	wg.Wait()
+
+	snap := progress.Snapshot()
+	if snap.Done != 2 || snap.Failed != 0 || snap.Total != 2 || len(snap.InFlight) != 0 {
+		t.Errorf("final progress = %+v, want 2 of 2 done, none failed, nothing in flight", snap)
+	}
+
+	emb.mu.Lock()
+	defer emb.mu.Unlock()
+	var sawChunkTotal bool
+	for _, d := range emb.seen {
+		if d.ChunksTotal > 0 {
+			sawChunkTotal = true
+		}
+	}
+	if !sawChunkTotal {
+		t.Errorf("no in-flight snapshot during embedding had a chunk total: %+v", emb.seen)
+	}
+}
+
+// TestWorkerPoolProgressCountsFailures: a failed action is still done,
+// and counted failed — the numbers reach total even when some fail.
+func TestWorkerPoolProgressCountsFailures(t *testing.T) {
+	f, queue, reg := twoDependencyQueueFixture(t)
+	coordinator := daemon.NewBuildCoordinator()
+	progress := &daemon.SyncProgress{}
+
+	failing := &atomicPromotionFakeEmbedder{dims: 4, failAfter: 1}
+	ok := &atomicPromotionFakeEmbedder{dims: 4}
+	getPipeline := func() (*syncPipeline, error) {
+		return &syncPipeline{embedder: &routingEmbedder{failing: failing, ok: ok}, vb: f.vb, gitCache: f.gitCache, ns: f.ns}, nil
+	}
+	for {
+		action, more := queue.next(nil)
+		if !more {
+			break
+		}
+		runSyncAction(context.Background(), coordinator, f.store, f.badgerStore, reg, getPipeline, action, false, false, progress, noopWriteLine)
+	}
+	if snap := progress.Snapshot(); snap.Done != 2 || snap.Failed != 1 {
+		t.Errorf("progress = %+v, want 2 done, 1 failed", snap)
 	}
 }

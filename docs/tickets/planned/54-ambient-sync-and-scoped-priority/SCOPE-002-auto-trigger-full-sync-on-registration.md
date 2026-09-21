@@ -1,7 +1,7 @@
 # SCOPE-002: Auto-trigger full sync on registration
 
 **Epic:** Ambient Sync and Scoped Priority
-**Status:** planned
+**Status:** done
 **Depends on:** none (independent of SCOPE-001/003/004, but SCOPE-001's progress query is what makes this actually observable rather than an invisible background surprise)
 **Estimated size:** small
 
@@ -30,6 +30,14 @@ Make a full, untargeted sync start automatically the first time a project is reg
 - A JIT request for a specific dependency, issued while the ambient full sync is still running, is provably faster than waiting for the full batch (reuse COORD-002's own cross-project regression test shape, adapted to same-project priority instead of cross-project isolation).
 
 ## Acceptance criteria
-- [ ] A newly-scanned project starts syncing automatically, with no separate `ragctl sync` invocation.
-- [ ] Re-registering an already-known project never fires a duplicate ambient trigger.
-- [ ] An agent's JIT ask during an in-flight ambient sync is still fast, not queued behind the whole batch.
+- [x] A newly-scanned project starts syncing automatically, with no separate `ragctl sync` invocation.
+- [x] Re-registering an already-known project never fires a duplicate ambient trigger.
+- [x] An agent's JIT ask during an in-flight ambient sync is still fast, not queued behind the whole batch.
+
+## Post-implementation notes
+- `refreshProjects` fires `Request(id, SyncOptions{Resolve: true}, ...)` for a project first seen *after* the daemon's initial project-list load. The initial load only seeds the watched set: at startup every registered project is new to the watcher, and re-syncing the whole fleet on each daemon restart is not "first registration" (`watchSeeded`). `Resolve: true` is kept deliberately: a project can be visible to the refresh before its resolution is persisted, and syncing an unresolved project silently does nothing.
+- **Deviation from the ticket's non-goal (no opt-out): `sync.disable_ambient` (config) / `Options.DisableAmbientSync`.** The need turned out to be real immediately, not speculative: ten existing CLI tests scan a fixture and then assert on their own sync ("dry run writes nothing", "sync already running" output), and an automatic sync behind them changed the outcomes; benchmark scripts want the same control. Default is on; the test harness's `writeTestConfig` sets it off, and tests of the ambient behavior itself run with it on.
+- Third acceptance criterion (a JIT ask still jumps the queue during an ambient sync) rests on the existing `TestWorkerPoolHonorsPriorityBump` rather than a new duplicate test: an ambient run is an ordinary scheduler-launched `RunSync`, so nothing about it differs.
+- **Risk worth its own ticket:** the trigger fires per project, and each project's sync has its own `MaxConcurrency` workers. Scanning a directory that registers many projects (terraform: 11) starts that many syncs at once, so total concurrency is projects x workers, not one bound. Cross-project builds of the *same* dependency coalesce, but distinct ones don't. A daemon-wide cap is the natural fix; not built.
+- Projects registered before this shipped, and never synced, are not swept up — only new registrations trigger.
+- Tested with a fake engine driving `refreshProjects` (startup load does not sync; a new registration syncs exactly that project, with resolve, unscoped; re-seeing known projects does not re-sync; the opt-out suppresses it). **Not verified live** against a real `ragctl scan`.

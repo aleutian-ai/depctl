@@ -16,6 +16,8 @@ Related package docs: [mcp](../internal/mcp.md), [query](../internal/query.md), 
 | `get_release_changes` | `GetReleaseChanges` | bbolt + Badger (release-note chunks between two versions) |
 | `knowledge_status` | `Status` | bbolt (fleet-wide summary; lists every project's real ID + root, since an agent has no other way to discover a `project_id`) |
 | `sync_project` | *(none — calls `SyncTrigger.SyncProject`)* | triggers the [sync](sync.md) pipeline; enabled by default (`server.mcp.enable_sync_tool: false` to disable) |
+| `prioritize_file` | `project_id`, `file` | tells ragctl which Go file you're working on: its imports are matched to the project's dependencies and the unsynced ones are built next, ahead of the background sync. Bounded wait (`still_building: true` isn't a failure); a non-Go or dependency-free file is a no-op. Needs `enable_sync_tool`. |
+| `sync_progress` | `project_id` | read-only, instant: how far a project's background sync is — actions done/failed/total and each dependency currently being built with its chunk progress. Progress, not an ETA. Call it after `sync_project` returns `still_running`. |
 | `scan_project` | *(none — calls `ScanTrigger.ScanProject`)* | discovers/registers the project(s) under a directory (default: the MCP server's own working directory) — no enable/disable gate, unlike `sync_project`, since it's the fix for a fresh agent session having no `project_id` to work with at all |
 | `explain_call_site` | *(none — calls `CallSiteResolver.ResolveEvidence`)* | resolves a file/line/column call site to an external symbol (real Go source, not bbolt/Badger), matches it against bbolt's stored resolution, then `SearchKnowledge`s the matched dependency (GRAPH-002/003/004) |
 

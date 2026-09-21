@@ -19,14 +19,14 @@ import (
 
 // registeredToolNames mirrors registerTools' own tool list
 // (internal/mcp/tools.go) — kept as a literal here so a forgotten doc
-// update shows up as a test failure. Adding a ninth tool means adding
+// update shows up as a test failure. Adding another tool means adding
 // its name here too; this test can't derive the list itself without
 // real added complexity (reflecting over the SDK's tool registry) for a
 // small marginal gain over one more literal string.
 var registeredToolNames = []string{
 	"search_dependency_docs", "get_dependency_version", "list_project_dependencies",
 	"get_release_changes", "knowledge_status", "sync_project", "scan_project",
-	"explain_call_site",
+	"explain_call_site", "sync_progress", "prioritize_file",
 }
 
 // docsCheckedForToolSurface are the docs whose actual job is to be an

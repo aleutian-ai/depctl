@@ -1,7 +1,7 @@
 # SCOPE-003: Multi-dependency scoped sync
 
 **Epic:** Ambient Sync and Scoped Priority
-**Status:** planned
+**Status:** done
 **Depends on:** none
 **Estimated size:** medium
 
@@ -43,6 +43,13 @@ Two *different* single-dependency requests for the same project, arriving close 
 - The CLI's single `--dependency` flag still works unchanged end-to-end.
 
 ## Acceptance criteria
-- [ ] `mergeOptions` unions dependency sets instead of collapsing to "everything" on any mismatch.
-- [ ] A direct regression test proves two colliding single-dependency requests no longer accidentally trigger a full sync.
-- [ ] `ragctl sync --dependency` and the existing single-dependency JIT path (`search_dependency_docs`) are both unaffected by the internal shape change — verified by re-running COORD-002's own cross-project regression tests unmodified.
+- [x] `mergeOptions` unions dependency sets instead of collapsing to "everything" on any mismatch.
+- [x] A direct regression test proves two colliding single-dependency requests no longer accidentally trigger a full sync.
+- [x] `ragctl sync --dependency` and the existing single-dependency JIT path (`search_dependency_docs`) are both unaffected by the internal shape change — verified by re-running COORD-002's own cross-project regression tests unmodified.
+
+## Post-implementation notes
+- `SyncOptions.Dependency string` is now `Dependencies []string`; `mergeOptions` unions the sets (sorted, de-duplicated). An empty set on either side still means "everything" and absorbs a named one, so a named request can never narrow someone else's full sync.
+- Wire compatibility: `api.SyncRequest` keeps the legacy `dependency` field and gains `dependencies`; `DependencySet()` combines both, so existing clients (including the MCP JIT path's single-name request) are unchanged. `ragctl sync --dependency` is now repeatable.
+- `RunSync`'s filtering moved into `flattenActions`, extracted so the set filter is unit-testable (no test called `RunSync` end to end).
+- The old `TestSchedulerMergesFollowUpOptions` asserted the imprecise behavior ("dependency: differed" collapsing to everything); it now asserts the union. `TestMergeOptionsUnionsDependencySets` is the direct regression for the bug.
+- Not verified live: COORD-002's cross-project regression tests pass unmodified, but this was not exercised against a real daemon.

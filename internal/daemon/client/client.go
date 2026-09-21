@@ -147,6 +147,16 @@ func (c *Client) Sync(ctx context.Context, req api.SyncRequest, out io.Writer) (
 	return res, err
 }
 
+// SyncProgress returns projectID's sync progress: live counters while a
+// run is in flight, the last run's afterwards (all zero if it never ran).
+func (c *Client) SyncProgress(ctx context.Context, projectID string) (api.SyncProgress, error) {
+	ctx, cancel := context.WithTimeout(ctx, defaultRequestTimeout)
+	defer cancel()
+	var res api.SyncProgress
+	err := c.do(ctx, http.MethodPost, api.PathSyncProgress, api.SyncProgressRequest{ProjectID: projectID}, &res)
+	return res, err
+}
+
 // BumpSyncPriority asks the currently-running sync for projectID, if
 // any, to prioritize dependency next (WATCH-020). The returned bool
 // reports whether a sync was actually running to bump — false means the

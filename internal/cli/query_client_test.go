@@ -86,6 +86,7 @@ func TestDaemonQueryServiceRoundTripsThroughRealDaemon(t *testing.T) {
 // opened itself.
 func TestDaemonSyncTriggerRoundTripsThroughRealDaemon(t *testing.T) {
 	isolateEnv(t)
+	noAmbientSync(t)
 	requireGo(t)
 	runInitForTest(t)
 	useRealRagctlBinary(t)
@@ -112,7 +113,7 @@ func TestDaemonSyncTriggerRoundTripsThroughRealDaemon(t *testing.T) {
 	// would surface as err != nil here, not a per-item failed count).
 	trigger := &daemonSyncTrigger{c: c}
 	var lines []string
-	synced, failed, skipped, err := trigger.SyncProject(ctx, st.Projects[0].ID, "", func(line string) {
+	synced, failed, skipped, err := trigger.SyncProject(ctx, st.Projects[0].ID, nil, func(line string) {
 		lines = append(lines, line)
 	})
 	if err != nil {
@@ -154,7 +155,7 @@ func TestDaemonSyncTriggerDependencyFilterReachesRealSyncOptions(t *testing.T) {
 	}
 
 	trigger := &daemonSyncTrigger{c: c}
-	synced, failed, skipped, err := trigger.SyncProject(ctx, st.Projects[0].ID, "does-not-exist", func(string) {})
+	synced, failed, skipped, err := trigger.SyncProject(ctx, st.Projects[0].ID, []string{"does-not-exist"}, func(string) {})
 	if err != nil {
 		t.Fatalf("SyncProject: %v", err)
 	}
@@ -204,6 +205,7 @@ func TestLineWriterNilCallbackDiscardsSilently(t *testing.T) {
 // to observe true.
 func TestDaemonPriorityBumperRoundTripsThroughRealDaemon(t *testing.T) {
 	isolateEnv(t)
+	noAmbientSync(t)
 	requireGo(t)
 	runInitForTest(t)
 	useRealRagctlBinary(t)

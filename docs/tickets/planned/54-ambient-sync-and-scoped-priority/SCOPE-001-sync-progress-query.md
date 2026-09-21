@@ -1,7 +1,7 @@
 # SCOPE-001: Sync progress query
 
 **Epic:** Ambient Sync and Scoped Priority
-**Status:** planned
+**Status:** done
 **Depends on:** none
 **Estimated size:** small
 
@@ -15,7 +15,10 @@ Let any caller — `ragctl status`, a new MCP resource/tool, a separate session 
 ## Simplicity constraints
 - Reuse what already tracks this shape internally: `Scheduler.projects[id].syncing`/`dirty` already exists; the missing piece is a numeric done/total counter, not a new state machine.
 
-## Design
+## Design (amended after measuring)
+STRESS-005's phase timings showed 97.8% of a sync's time is in one phase (replicate: embed + upsert), and a single large dependency can spend 10 minutes there — so a dependencies-done counter alone would sit still for minutes and look hung. The progress therefore has two levels: actions done/failed/total, **and** each in-flight dependency's chunks embedded/total. The chunk numbers come from `Replicate` itself, which reports after every batch through a context-carried callback (`generation.WithProgress`); nothing new is stored. Deliberately no ETA: the p90 dependency takes ~4x the median, so any estimate would be wrong most of the time.
+
+Original design:
 1. Add a small progress counter to the per-project state the scheduler already tracks (`projectState`, `internal/daemon/scheduler.go`) — `done, total int`, updated as `RunSync`'s workers complete actions (reuse the same `writeLine`/counter-increment path already wired for `synced`/`failed`/`skipped`, just also updating a value the scheduler can read back).
 2. New `Scheduler.SyncProgress(projectID string) (done, total int, syncing bool)` — a cheap, lock-protected read, no side effects.
 3. Expose it two ways:
@@ -35,6 +38,13 @@ Let any caller — `ragctl status`, a new MCP resource/tool, a separate session 
 - The MCP resource and `ragctl status` report the same numbers for the same in-flight sync (no drift between the two surfaces).
 
 ## Acceptance criteria
-- [ ] `ragctl status` shows live done/total for any project with an in-flight sync.
-- [ ] A new MCP resource reports the same, queryable independent of whatever call originally triggered the sync.
-- [ ] Progress numbers are accurate under real concurrent workers, not just the old sequential loop.
+- [x] `ragctl status` shows live done/total for any project with an in-flight sync.
+- [x] A new MCP tool (`sync_progress` — see the notes for why not a resource) reports the same, queryable independent of whatever call originally triggered the sync.
+- [x] Progress numbers are accurate under real concurrent workers, not just the old sequential loop.
+
+## Post-implementation notes
+- `daemon.SyncProgress` (nil-receiver-safe, like `SyncPriority`) is created per run by `Scheduler.start` and kept afterwards so `Scheduler.SyncProgress(id)` reports the last run once it ends (`syncing: false`, never a stale "still syncing"). `SyncingProjects()` lists every in-flight run.
+- Surfaces: `ragctl status` (a `syncs:` block naming each project by root with its in-flight dependencies), the daemon endpoint `POST /v1/sync/progress`, and the MCP tool `sync_progress`.
+- **Deviation from the ticket: a tool, not an MCP resource.** No resource is registered anywhere in this server today, and I have not verified that opencode (the client the bounded-wait calibration was measured against) reads MCP resources at all; agents reliably call tools. `sync_project`'s still-running note now points at it. If a resource is wanted too, it can wrap the same `SyncProgressReader`.
+- Counters count planned *actions* (nearly one per dependency version), including reference add/drop actions.
+- Tested: tracker (incl. concurrent workers under `-race`), scheduler live-then-last-run, the real worker pool with real `Replicate` (an in-flight snapshot taken mid-embed had a chunk total), the status overlay and text rendering, the endpoint, and the tool over a real in-memory MCP client/server. **Not verified live** against a real daemon and a real long sync — the verification run in progress predates this code.

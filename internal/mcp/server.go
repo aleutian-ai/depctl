@@ -48,11 +48,12 @@ const securityNote = "retrieved content is authoritative reference material for 
 // different from that service's read-only search methods.
 // progress, when non-nil, is called once per line of the operation's
 // existing streamed output (see WATCH-013) — implementations relay it,
-// they don't interpret it. dependency, when non-empty, scopes the sync
-// to just that package (WATCH-019, mirroring SyncOptions.Dependency/
-// `ragctl sync --dependency`) — empty means the whole project.
+// they don't interpret it. dependencies, when non-empty, scopes the sync
+// to exactly those packages (WATCH-019/SCOPE-003, mirroring
+// SyncOptions.Dependencies/`ragctl sync --dependency`) — empty means the
+// whole project.
 type SyncTrigger interface {
-	SyncProject(ctx context.Context, projectID, dependency string, progress func(line string)) (synced, failed, skipped int, err error)
+	SyncProject(ctx context.Context, projectID string, dependencies []string, progress func(line string)) (synced, failed, skipped int, err error)
 }
 
 // ScanTrigger is the narrow capability the scan_project tool needs —
@@ -66,6 +67,14 @@ type SyncTrigger interface {
 // resource-cost surprise.
 type ScanTrigger interface {
 	ScanProject(ctx context.Context, root string, progress func(line string)) (projectIDs []string, summary string, err error)
+}
+
+// SyncProgressReader is the narrow capability the sync_progress tool
+// needs (SCOPE-001): a project's current sync progress, without holding
+// open the call that started the sync. Consumer-side, implemented in
+// internal/cli over the daemon's HTTP API.
+type SyncProgressReader interface {
+	SyncProgress(ctx context.Context, projectID string) (SyncProgressOut, error)
 }
 
 // QueryService is the read-only surface every tool but sync_project
@@ -107,6 +116,9 @@ type Deps struct {
 	// then always falls back to SyncTrigger's plain JIT-sync path
 	// (WATCH-019), same as if BumpSyncPriority always returned false.
 	Priority PriorityBumper
+	// Progress may be nil — sync_progress is still registered but reports
+	// "not configured", matching Symbols' precedent below.
+	Progress SyncProgressReader
 	// Symbols may be nil — explain_call_site is still registered, but
 	// always reports "not configured" rather than being conditionally
 	// absent, matching sync_project's existing disabled-by-config

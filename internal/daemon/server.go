@@ -92,14 +92,17 @@ type Engine interface {
 
 // Options configures a Server. Socket and Engine are required.
 type Options struct {
-	Engine         Engine
-	Socket         string
-	ControlPath    string
-	Version        string
-	WatchEnabled   bool
-	Debounce       time.Duration
-	MCPEnabled     bool
-	EnableSyncTool bool
+	// DisableAmbientSync turns off the full sync a newly registered
+	// project otherwise starts automatically (SCOPE-002).
+	DisableAmbientSync bool
+	Engine             Engine
+	Socket             string
+	ControlPath        string
+	Version            string
+	WatchEnabled       bool
+	Debounce           time.Duration
+	MCPEnabled         bool
+	EnableSyncTool     bool
 	// ConfigFingerprint is config.Config.Fingerprint() for the config
 	// this daemon loaded at startup — see api.Health.ConfigFingerprint.
 	ConfigFingerprint string
@@ -120,6 +123,10 @@ type Server struct {
 	watcher   *watch.Watcher
 	watchedMu sync.Mutex
 	watched   map[string]watch.Project
+	// watchSeeded is false until the first project-list load completes,
+	// so projects already registered at startup aren't mistaken for new
+	// registrations (SCOPE-002).
+	watchSeeded bool
 }
 
 // New returns a Server ready to Serve. It binds nothing yet.
@@ -214,6 +221,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST "+api.PathPlan, s.handlePlan)
 	mux.HandleFunc("POST "+api.PathSync, s.handleSync)
 	mux.HandleFunc("POST "+api.PathSyncPriority, s.handleSyncPriority)
+	mux.HandleFunc("POST "+api.PathSyncProgress, s.handleSyncProgress)
 	mux.HandleFunc("POST "+api.PathGC, s.handleGC)
 	mux.HandleFunc("POST "+api.PathSearch, s.handleSearch)
 	mux.HandleFunc("POST "+api.PathProjectDependencies, s.handleProjectDependencies)
@@ -254,6 +262,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	st.GCRunning = s.gcBusy()
+	st.Syncs = s.syncActivity(r.Context())
 	writeJSON(w, http.StatusOK, st)
 }
 

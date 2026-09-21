@@ -89,12 +89,30 @@ func (r *Resolver) ResolveEvidence(ctx context.Context, projectID string, site C
 		Text:       queryText,
 		Mode:       query.ModeProject,
 	})
+	if errors.Is(err, query.ErrNoActiveGeneration) {
+		return nil, &NotSyncedError{Dependency: matched.Dependency.Name, Err: err}
+	}
 	if err != nil {
 		return nil, err
 	}
 
 	return &EvidenceBundle{Symbol: ref, Dependency: matched, Result: result}, nil
 }
+
+// NotSyncedError reports that the dependency a call site resolved to has
+// no synced knowledge yet, carrying its name so a caller can build it
+// (SCOPE-004) instead of parsing an error message. It unwraps to
+// query.ErrNoActiveGeneration, so existing errors.Is checks still match.
+type NotSyncedError struct {
+	Dependency string
+	Err        error
+}
+
+func (e *NotSyncedError) Error() string {
+	return fmt.Sprintf("dependency %s has not been synced yet: %v", e.Dependency, e.Err)
+}
+
+func (e *NotSyncedError) Unwrap() error { return e.Err }
 
 // matchDependency finds the DependencyVersion in resolution whose name
 // (and, when the symbol's ecosystem is known, ecosystem) matches ref —

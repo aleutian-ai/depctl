@@ -88,6 +88,11 @@ type SyncConfig struct {
 	// time this shipped — see epic 53/COORD-003's own benchmark note
 	// for the real numbers this default was chosen from.
 	MaxConcurrency int `yaml:"max_concurrency"`
+	// DisableAmbient stops the daemon starting a full sync automatically
+	// when a project is first registered (SCOPE-002). Off by default — the
+	// full sync is the deliberate default — for contexts that want only
+	// explicit or just-in-time syncs, such as CI and tests.
+	DisableAmbient bool `yaml:"disable_ambient"`
 }
 
 type WatchConfig struct {

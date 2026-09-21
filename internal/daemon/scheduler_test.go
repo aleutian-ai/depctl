@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"reflect"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -260,10 +261,10 @@ func TestSchedulerMergesFollowUpOptions(t *testing.T) {
 	f := newFakeSync()
 	s := NewScheduler(context.Background(), f.run, noGC, nil)
 
-	first := s.Request("proj_a", SyncOptions{Offline: true, Dependency: "example.com/a"}, nil)
+	first := s.Request("proj_a", SyncOptions{Offline: true, Dependencies: []string{"example.com/a"}}, nil)
 	f.awaitStart(t)
-	s.Request("proj_a", SyncOptions{Offline: true, Force: true, Dependency: "example.com/a"}, nil)
-	last := s.Request("proj_a", SyncOptions{Resolve: true, Dependency: "example.com/b"}, nil)
+	s.Request("proj_a", SyncOptions{Offline: true, Force: true, Dependencies: []string{"example.com/a"}}, nil)
+	last := s.Request("proj_a", SyncOptions{Resolve: true, Dependencies: []string{"example.com/b"}}, nil)
 
 	close(f.release)
 	awaitResult(t, first)
@@ -281,10 +282,15 @@ func TestSchedulerMergesFollowUpOptions(t *testing.T) {
 	if calls[1].opts.Priority == nil {
 		t.Error("follow-up run's SyncOptions.Priority is nil, want a live queue every scheduler-launched run gets")
 	}
+	if calls[1].opts.Progress == nil {
+		t.Error("follow-up run's SyncOptions.Progress is nil, want live counters every scheduler-launched run gets (SCOPE-001)")
+	}
 	got := calls[1].opts
 	got.Priority = nil
-	want := SyncOptions{Force: true, Resolve: true} // offline: not unanimous; dependency: differed
-	if got != want {
+	got.Progress = nil
+	// offline: not unanimous. dependencies: the union of what was asked.
+	want := SyncOptions{Force: true, Resolve: true, Dependencies: []string{"example.com/a", "example.com/b"}}
+	if !reflect.DeepEqual(got, want) {
 		t.Errorf("follow-up options = %+v, want %+v", got, want)
 	}
 }
@@ -727,4 +733,29 @@ func noSync(context.Context, *BuildCoordinator, string, SyncOptions, io.Writer) 
 
 func errorContains(err error, want string) bool {
 	return err != nil && bytes.Contains([]byte(err.Error()), []byte(want))
+}
+
+// TestMergeOptionsUnionsDependencySets is SCOPE-003's regression: two
+// different single-dependency requests used to merge into "no filter"
+// (a full untargeted sync); they must merge into exactly those two.
+func TestMergeOptionsUnionsDependencySets(t *testing.T) {
+	cases := []struct {
+		name       string
+		a, b, want []string
+	}{
+		{"different names union", []string{"x"}, []string{"y"}, []string{"x", "y"}},
+		{"overlap de-duplicated and sorted", []string{"y", "x"}, []string{"x", "z"}, []string{"x", "y", "z"}},
+		{"same name stays one", []string{"x"}, []string{"x"}, []string{"x"}},
+		{"an unfiltered request wants everything", nil, []string{"x"}, nil},
+		{"named set never narrows an unfiltered one", []string{"x"}, nil, nil},
+		{"both unfiltered stays everything", nil, nil, nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := mergeOptions(SyncOptions{Dependencies: tc.a}, SyncOptions{Dependencies: tc.b}).Dependencies
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("merged Dependencies = %v, want %v", got, tc.want)
+			}
+		})
+	}
 }

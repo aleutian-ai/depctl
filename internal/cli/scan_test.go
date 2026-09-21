@@ -236,6 +236,7 @@ func TestScanRegistersSupportedEcosystem(t *testing.T) {
 
 func TestScanRegistersPythonEcosystem(t *testing.T) {
 	isolateEnv(t)
+	noAmbientSync(t)
 	runInitForTest(t)
 	useRealRagctlBinary(t)
 

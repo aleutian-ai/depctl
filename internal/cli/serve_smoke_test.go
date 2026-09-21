@@ -67,6 +67,7 @@ func callToolExpectError(t *testing.T, ctx context.Context, session *sdkmcp.Clie
 
 func TestServeOverRealStdioTransport(t *testing.T) {
 	isolateEnv(t)
+	noAmbientSync(t) // this test exercises the just-in-time path against a never-synced dependency
 	requireGo(t)
 	runInitForTest(t)
 	useRealRagctlBinary(t)

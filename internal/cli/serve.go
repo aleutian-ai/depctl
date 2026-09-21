@@ -65,6 +65,7 @@ func runServe(cmd *cobra.Command) error {
 		EnableSyncTool: health.EnableSyncTool,
 		Scan:           &daemonScanTrigger{c: c},
 		Priority:       &daemonPriorityBumper{c: c},
+		Progress:       &daemonProgressReader{c: c},
 		Symbols:        callSiteResolver(c),
 	})
 

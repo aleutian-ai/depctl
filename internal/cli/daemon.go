@@ -453,7 +453,7 @@ func (e *engine) Sync(ctx context.Context, coordinator *daemon.BuildCoordinator,
 			return api.SyncResult{}, err
 		}
 	}
-	synced, failed, skipped, err := RunSync(ctx, coordinator, e.store, e.badgerStore, e.cfg, projectID, opts.Dependency, opts.Offline, opts.Force, out, e.embeddingReadiness, e.vectorReadiness, opts.Priority)
+	synced, failed, skipped, err := RunSync(ctx, coordinator, e.store, e.badgerStore, e.cfg, projectID, opts.Dependencies, opts.Offline, opts.Force, out, e.embeddingReadiness, e.vectorReadiness, opts.Priority, opts.Progress)
 	return api.SyncResult{ProjectID: projectID, Synced: synced, Failed: failed, Skipped: skipped}, err
 }
 
@@ -499,13 +499,30 @@ func (e *engine) Plan(ctx context.Context, projectID string) (any, error) {
 
 // GC plans and runs garbage collection.
 func (e *engine) GC(ctx context.Context, dryRun bool, out io.Writer) (api.GCResult, error) {
-	return RunGC(ctx, e.store, e.badgerStore, e.cfg, dryRun, out, e.vectorReadiness)
+	res, err := RunGC(ctx, e.store, e.badgerStore, e.cfg, dryRun, out, e.vectorReadiness)
+	e.reclaimValueLog(dryRun, out)
+	return res, err
+}
+
+// reclaimValueLog returns the disk space of just-deleted data: Badger
+// keeps large values in an append-only log that compaction doesn't
+// shrink. A failure only delays reclaiming space, so it is reported, not
+// returned.
+func (e *engine) reclaimValueLog(dryRun bool, out io.Writer) {
+	if dryRun {
+		return
+	}
+	if err := e.badgerStore.ReclaimValueLog(); err != nil {
+		fmt.Fprintf(out, "warning: %v\n", err)
+	}
 }
 
 // OrphanGC plans and runs GC-001/GC-002/GC-003's orphan-generation
 // cleanup — see RunOrphanGC.
 func (e *engine) OrphanGC(ctx context.Context, dryRun bool, out io.Writer) (api.GCResult, error) {
-	return RunOrphanGC(ctx, e.store, e.badgerStore, e.cfg, dryRun, out, e.vectorReadiness)
+	res, err := RunOrphanGC(ctx, e.store, e.badgerStore, e.cfg, dryRun, out, e.vectorReadiness)
+	e.reclaimValueLog(dryRun, out)
+	return res, err
 }
 
 // Search runs a knowledge search, the work behind the search_dependency_docs
@@ -834,17 +851,18 @@ func runDaemonRun(cmd *cobra.Command) error {
 	go checkVectorReadiness(ctx, cfg, vecReadiness, logf)
 
 	srv := daemon.New(daemon.Options{
-		Engine:            &engine{store: store, badgerStore: badgerStore, cfg: cfg, controlPath: controlPath, badgerPath: badgerPath, embeddingReadiness: readiness, vectorReadiness: vecReadiness},
-		Socket:            socket,
-		ControlPath:       controlPath,
-		Version:           ragctlVersion,
-		WatchEnabled:      cfg.Watch.Enabled,
-		Debounce:          cfg.Watch.Debounce,
-		MCPEnabled:        cfg.Server.MCP.Enabled,
-		EnableSyncTool:    cfg.Server.MCP.EnableSyncTool,
-		ConfigFingerprint: configFingerprint,
-		Logf:              logf,
-		Out:               out,
+		Engine:             &engine{store: store, badgerStore: badgerStore, cfg: cfg, controlPath: controlPath, badgerPath: badgerPath, embeddingReadiness: readiness, vectorReadiness: vecReadiness},
+		Socket:             socket,
+		ControlPath:        controlPath,
+		Version:            ragctlVersion,
+		WatchEnabled:       cfg.Watch.Enabled,
+		DisableAmbientSync: cfg.Sync.DisableAmbient,
+		Debounce:           cfg.Watch.Debounce,
+		MCPEnabled:         cfg.Server.MCP.Enabled,
+		EnableSyncTool:     cfg.Server.MCP.EnableSyncTool,
+		ConfigFingerprint:  configFingerprint,
+		Logf:               logf,
+		Out:                out,
 	})
 	if err := srv.Serve(ctx); err != nil {
 		return err
