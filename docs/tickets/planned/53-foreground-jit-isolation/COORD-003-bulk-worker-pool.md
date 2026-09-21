@@ -1,7 +1,7 @@
 # COORD-003: Bulk throughput worker pool
 
 **Epic:** Foreground JIT Isolation and Lifecycle Coordination
-**Status:** planned
+**Status:** built; default concurrency not re-measured on corrected data (see notes)
 **Depends on:** COORD-001, COORD-002
 **Estimated size:** medium
 **Priority:** P2 — conditional on measurement, not launch-blocking
@@ -38,7 +38,14 @@ Make an explicit, operator-triggered bulk sync (`ragctl sync` with no filter —
 - Re-run the real live scenario: `hashicorp/terraform`'s full untargeted sync (this epic's own established fixture) against a freshly-wiped Qdrant, at the chosen default concurrency — record real synced/failed/skipped counts and wall-clock, compared against the sequential baseline.
 
 ## Acceptance criteria
-- [ ] Bulk jobs run concurrently within the configured limit, verified by a real overlap test, not just code inspection.
-- [ ] One dependency's failure or slowness never affects another's outcome, verified explicitly.
+- [x] Bulk jobs run concurrently within the configured limit, verified by a real overlap test, not just code inspection.
+- [x] One dependency's failure or slowness never affects another's outcome, verified explicitly.
 - [ ] The worker pool is confirmed scoped per-`RunSync`-call — a live test alongside a concurrent JIT request (reusing COORD-002's own regression test shape) shows no cross-run contention.
 - [ ] Default `MaxConcurrency` is chosen from real benchmark numbers (2 vs. 3 vs. 4 against the terraform fixture), not asserted without measurement.
+
+## Post-implementation notes
+- Built: `RunSync` runs `Sync.MaxConcurrency` workers pulling from a mutex-guarded priority-aware `syncQueue`; per-dependency timeout (`dependencySyncTimeout`, 10 min) replaced the old whole-batch ceiling; per-item failure isolation (not errgroup cancel-on-error). Checked above: `TestWorkerPoolProcessesActionsConcurrently`, `TestWorkerPoolIsolatesOneFailureFromOthers`, plus `TestWorkerPoolHonorsPriorityBump` and `TestRunSyncDependencyTimeoutDoesNotWedgeOtherWorkers`.
+- Benchmark at N=3/5/7 (4-minute windows, cold): throughput plateaued from N=3 (137/145/140 dependencies done). **Those numbers are not trustworthy as a basis for the default:** the same runs carried the point-ID collision (10/18/22 validation failures, all caused by it) and indexed near-empty repo-root content for monorepo submodules, so each dependency was far cheaper than a real one. Real-content full-scale figure: N=5 finished 547 of 561 dependencies in about 75 minutes (~7 per minute).
+- The default is still 2 and is **still unmeasured against corrected data**; acceptance box 4 stays open until 2/3/5 are compared on real content. Box 3 (a live JIT request alongside a running bulk pool) also stays open: COORD-002's regression tests cover it in-process, but it was not exercised against a real daemon.
+- Client-side: `Client.Sync` has its own 4-hour `syncTimeout` (the 35-minute long-request timeout cut off the first full run at 2100s).
+- Known limit: the pool is per `RunSync` call, i.e. per project. With ambient sync (SCOPE-002) registering many projects at once, total concurrency is projects x `MaxConcurrency`; a daemon-wide cap is not built.

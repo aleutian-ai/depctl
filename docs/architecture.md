@@ -530,6 +530,41 @@ Real dogfooding against this session's own 20-repo corpus immediately paid for i
 
 Three related gaps found alongside `describe` — thin registry coverage with no automatic candidate-source discovery, a hard sync failure with no fallback when nothing's registered for a real dependency, and no first-class way to index a local git repo that isn't anyone's real ecosystem dependency (the exact workaround this session used to build the corpus in the first place) — are scoped as backlog epics rather than built now: `docs/tickets/backlog/34-registry-coverage`, `docs/tickets/backlog/35-local-corpus`, and `docs/tickets/backlog/36-describe-advanced` for `describe`'s own further-out features (liveness checks, interactive HTML, content preview, trust-composition gap-flagging).
 
+## Sync at scale: what the real-terraform stress run changed (epics 49, 53, 54, 55)
+
+STRESS-005 ran the full loop against a real, dependency-heavy project (terraform: 11 Go projects, ~580 dependency versions, real Qdrant, real Ollama, real GitHub). It found bugs no fixture had, fixed here. Everything below is shipped and unit/integration tested; what was verified live is stated per item.
+
+```mermaid
+flowchart LR
+    G["git mirror<br/>(blobless, sparse, scoped to the<br/>module's own subdir)"] --> N["normalize<br/>(godoc signatures bounded)"]
+    N --> C["chunk"]
+    C --> B[("Badger<br/>chunk/obj text, batched,<br/>values in the value log")]
+    B --> E["embed via Ollama<br/>(vectors cached as raw float32)"]
+    E --> Q[("Qdrant<br/>one point per generation+chunk")]
+    R[("bbolt<br/>active generation, state")] -.->|filters reads to active| Q
+    Q -->|chunk IDs| B
+```
+
+**Where a sync's time goes** (first 55 dependencies of the run, measured with `SyncPhaseTimings`): build 1.8%, **replicate (embed + Qdrant upsert) 97.8%**, validate 0.3%. Median dependency 50s in replicate, p90 222s, max ~10 minutes; the top five hold 41% of all replicate time. The embed-versus-upsert split inside replicate is not yet measured.
+
+**Point identity.** A chunk ID is content-derived, so identical content in two generations used to share one Qdrant point and the later upsert overwrote the earlier generation's payload — 99 of 141 "OK" dependencies had zero searchable points. Point IDs are now `blake3(generationID, chunkID)` (`internal/backend/qdrant`); deleting by chunk ID goes through the `_id` payload filter. Verified live: 0 of 167 dependencies empty at N=5.
+
+**A monorepo submodule indexes only its own directory.** The fallback manifest used to point every `cloud.google.com/go/<x>` at the repo root, so each indexed the root module's content (91% duplicate points, and the wrong docs). `registry.Source.Subdir` (derived from the module path minus the repo's import root, `/vN` dropped) scopes both the sparse checkout (`normalize.ScopeToSubdir`) and the walk. Duplicates fell to 3% early in the run and 33.9% at full scale (799k points, 529k distinct; the remainder is unexplained — the likely cause is `Ref: "HEAD"` giving every version of a fallback dependency identical content, not verified). **Known gap:** fallback sources still resolve `HEAD`, not the version's tag, so they are not version-exact, and a submodule directory absent at `HEAD` fails as `subdir not found` (11 of the run's 31 failures).
+
+**Badger tuning** (`internal/data/badger/store.go`). Profiling the run's memory showed 82% of the live heap was Badger's compaction table builders: every value (chunk text, objects, vectors) lived inside the sorted tree, which compaction rewrites level after level. Values over 1 KB now go to the value log, with smaller memtables, cache and compactor count. `ReclaimValueLog` runs after each GC pass, because value-log space is not freed by compaction. Chunk records omit their text when it is byte-identical to the parent object's (every symbol chunk) and read it back from the object; embedding-cache vectors are raw little-endian float32 (legacy JSON entries still decode); objects, chunks and cache writes are batched. Verified live: the full run finished with peak heap 3.0 GB and no OOM; the previous run was killed at 7.5 GB.
+
+**One normalizer bug caused the second OOM.** go/doc reports a whole const block as one declaration, and every name in it was given that whole declaration as its signature — N names cost N×N text (2.4 GB live in one dependency's build). A group larger than `maxSignatureBytes` (4 KB, measured from the source span) now gives each name only its own spec; smaller groups are unchanged.
+
+**Concurrent worktrees of one mirror.** `git worktree add` and `sparse-checkout init/set/disable` write the mirror's shared config, which git locks; parallel submodule builds failed with "could not lock config file". `Cache.MaterializeWorktree` now serializes just those steps under the existing per-mirror lock (the slow checkout stays unlocked).
+
+**Background sync you can see and steer** (epic 54, unit/integration tested, **not yet exercised live**):
+- `SyncOptions.Dependencies` is a set (`mergeOptions` unions two requests instead of collapsing to "everything"); `ragctl sync --dependency` is repeatable and the old single-name wire field still works.
+- `daemon.SyncProgress` counts actions done/failed/total and, per in-flight dependency, chunks embedded/total (reported by `Replicate` after each batch through a context callback). Surfaces: a `syncs:` block in `ragctl status`, `POST /v1/sync/progress`, and the MCP tool `sync_progress`. No ETA — the p90 dependency takes ~4x the median.
+- A project first registered after the daemon's initial load starts a full sync automatically (`refreshProjects`); `sync.disable_ambient` turns it off. Known risk: each project's sync has its own worker pool, so scanning a directory that registers many projects multiplies concurrency — no daemon-wide cap exists yet.
+- `prioritize_file` (Go only) matches a file's imports to resolved dependencies by longest module-path prefix and builds the unsynced ones as one set; `explain_call_site` builds its call site's dependency and retries once instead of dead-ending. Both wait at most `mcpSyncWaitBound` and report `still_building` rather than failing. `search_dependency_docs`' own JIT path is not yet bounded the same way.
+
+**Measured at full scale** (N=5, real terraform, Ollama on the host): the main project synced 547 of 561 dependency versions in about 75 minutes; the 14 failures were embedding timeouts on the largest modules, git checkout timeouts on the largest repos, and the `HEAD`/subdir gap above. Final stores: Qdrant 3.0 GB, Badger 3.6 GB (value log not yet reclaimed — nothing was deleted). These are the numbers a "typical" project should be compared against with care: terraform is an extreme case.
+
 ## Next up
 
 **Epic 17 completes v0.1's Milestone E** (per `docs/tickets/planned/README.md`): *"a coding agent can query exact dependency version docs via MCP."* The core loop (`ragctl scan` → `ragctl sync` → `ragctl gc` → `ragctl serve` → agent query) works end to end, proven offline by `TestOfflineSearchDependencyDocsAndGetDependencyVersion`. Epic 18 (`status`/`doctor`) shipped. Epic 19 (watch/daemon, `docs/tickets/planned/19-watch-mode`) is functionally done — every command is a daemon client except `doctor`'s deliberate fallback, with the concurrency-safety and enforcement work this involved going well beyond the epic's original ticket scope — but stays in `planned/` rather than moving to `completed/` because WATCH-011 itself isn't fully closed: the AST invariant test exists and passes, and one of its two remaining gaps has since been closed (`TestServeOverRealStdioTransport`, epic 47/VERIFY-001, is exactly the "single behavioral test running every command plus `serve` together against one daemon" this note used to say was missing) — but there's still no audit confirming zero leftover pre-daemon retry code remains, the natural next thing to pick up before formally closing epic 19. Epic 22 (orphan-generation GC) has since shipped (`completed/22-orphan-lifecycle-gc`, née `planned/`). What remains post-v0.1: epic 21 (structural preservation).
