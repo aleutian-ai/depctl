@@ -125,6 +125,14 @@ func singlePackage(pkgs map[string]*ast.Package) (pkg *ast.Package, ok bool) {
 	return pkgs[names[0]], true
 }
 
+// maxSignatureBytes is the largest grouped declaration (a const/var/type
+// block) whose whole text is used as one symbol's signature. go/doc
+// reports a whole const block as one declaration, so every name in it
+// would otherwise carry the entire block: a generated table of N names
+// costs N*N text (2.4 GB live in one real dependency's build). Past this
+// size a name's signature is just its own spec.
+const maxSignatureBytes = 4 << 10
+
 // symbolObject builds the KnowledgeObject for one exported symbol.
 // receiver is set only for methods, naming the type they're associated
 // with.
@@ -133,7 +141,7 @@ func symbolObject(src domain.SourceSnapshot, fset *token.FileSet, pkgName, name,
 		"package": pkgName,
 		"symbol":  name,
 	}
-	if sig := signature(fset, decl); sig != "" {
+	if sig := signature(fset, decl, name); sig != "" {
 		metadata["signature"] = sig
 	}
 	if receiver != "" {
@@ -153,10 +161,44 @@ func symbolObject(src domain.SourceSnapshot, fset *token.FileSet, pkgName, name,
 	}
 }
 
+// narrowLargeGroup reduces a grouped declaration bigger than
+// maxSignatureBytes to only the spec declaring name, sized from its
+// source span so the oversized block is never printed just to measure it.
+func narrowLargeGroup(decl ast.Node, name string) ast.Node {
+	gd, ok := decl.(*ast.GenDecl)
+	if !ok || len(gd.Specs) < 2 || int(gd.End()-gd.Pos()) <= maxSignatureBytes {
+		return decl
+	}
+	for _, spec := range gd.Specs {
+		if specDeclares(spec, name) {
+			single := *gd
+			single.Specs = []ast.Spec{spec}
+			single.Lparen, single.Rparen = token.NoPos, token.NoPos
+			return &single
+		}
+	}
+	return decl
+}
+
+func specDeclares(spec ast.Spec, name string) bool {
+	switch sp := spec.(type) {
+	case *ast.ValueSpec:
+		for _, n := range sp.Names {
+			if n.Name == name {
+				return true
+			}
+		}
+	case *ast.TypeSpec:
+		return sp.Name.Name == name
+	}
+	return false
+}
+
 // signature renders decl's declaration syntax (signature, or full type
 // definition for a type/const group) without its doc comment or —  for
 // a func — its body, via go/printer.
-func signature(fset *token.FileSet, decl ast.Node) string {
+func signature(fset *token.FileSet, decl ast.Node, name string) string {
+	decl = narrowLargeGroup(decl, name)
 	var toPrint ast.Node
 	switch d := decl.(type) {
 	case *ast.FuncDecl:

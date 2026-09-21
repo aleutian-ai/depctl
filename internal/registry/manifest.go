@@ -71,6 +71,7 @@ type Source struct {
 	URL       string `yaml:"url,omitempty" json:"url,omitempty"`
 	Ref       string `yaml:"ref,omitempty" json:"ref,omitempty"`
 	Module    string `yaml:"module,omitempty" json:"module,omitempty"`
+	Subdir    string `yaml:"subdir,omitempty" json:"subdir,omitempty"`
 	Authority int    `yaml:"authority" json:"authority"`
 }
 

@@ -166,7 +166,7 @@ func (c *Client) upsertBatch(ctx context.Context, collection string, points []ba
 	qPoints := make([]qdrantPoint, len(points))
 	for i, p := range points {
 		qPoints[i] = qdrantPoint{
-			ID:      pointID(p.ID),
+			ID:      pointID(p.Metadata.Generation, p.ID),
 			Vector:  p.Vector,
 			Payload: payloadFrom(p.Metadata, p.ID),
 		}
@@ -190,12 +190,13 @@ func (c *Client) upsertBatch(ctx context.Context, collection string, points []ba
 // request's JSON shape and never checked against a live server what
 // that shape actually does.
 func (c *Client) Delete(ctx context.Context, req backend.DeleteRequest) error {
-	if len(req.IDs) > 0 {
-		ids := make([]string, len(req.IDs))
-		for i, id := range req.IDs {
-			ids[i] = pointID(id)
-		}
-		body, err := json.Marshal(pointsSelector{Points: ids})
+	// req.IDs are ragctl chunk IDs. A point's own ID also depends on its
+	// generation now (see pointID), which an ID-only delete doesn't know,
+	// so each chunk is deleted by its "_id" payload instead — removing it
+	// from every generation that holds it, same as when one chunk was
+	// one point.
+	for _, id := range req.IDs {
+		body, err := json.Marshal(pointsSelector{Filter: &qdrantFilter{Must: []matchCondition{{Key: "_id", Match: matchValue{Value: id}}}}})
 		if err != nil {
 			return &Error{Op: "Delete", Kind: ErrBackendRequest, Cause: err}
 		}
@@ -278,11 +279,16 @@ func (c *Client) do(ctx context.Context, method, path string, body []byte, op st
 }
 
 // pointID derives a deterministic Qdrant-valid point ID (a UUID-shaped
-// hex string) from a ragctl chunk ID — Qdrant only accepts unsigned
-// integers or UUIDs as point IDs, and ragctl's chunk IDs ("chk_...") are
-// neither.
-func pointID(chunkID string) string {
-	sum := blake3.Sum256([]byte(chunkID))
+// hex string) from a generation ID and a ragctl chunk ID — Qdrant only
+// accepts unsigned integers or UUIDs as point IDs, and ragctl's chunk IDs
+// ("chk_...") are neither. The generation is part of the key because
+// chunk IDs are content-derived: two generations holding identical
+// content (sibling modules of one monorepo, or a file unchanged between
+// two versions) would otherwise share one point, and the later upsert
+// would overwrite the earlier generation's payload, leaving it with no
+// searchable points.
+func pointID(generationID, chunkID string) string {
+	sum := blake3.Sum256([]byte(generationID + "\x00" + chunkID))
 	b := sum[:16]
 	b[6] = (b[6] & 0x0f) | 0x50 // version 5 (name-based)
 	b[8] = (b[8] & 0x3f) | 0x80 // RFC 4122 variant

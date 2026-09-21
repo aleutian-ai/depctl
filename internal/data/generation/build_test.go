@@ -463,3 +463,60 @@ func TestAppendAttributedSetsTrustClassFromSourceType(t *testing.T) {
 		t.Errorf("TrustClass = %q, want %q", got[0].TrustClass, domain.TrustRepository)
 	}
 }
+
+// TestBuildScopesToSourceSubdir is the POINT-002 regression: a source
+// with a Subdir indexes exactly that directory's module (a monorepo
+// submodule's own docs), not the repo root, and a Subdir that doesn't
+// exist at the resolved commit fails acquisition instead of silently
+// indexing nothing.
+func TestBuildScopesToSourceSubdir(t *testing.T) {
+	requireGit(t)
+	ctx := context.Background()
+
+	repoDir := newFixtureRepo(t)
+	writeFile(t, repoDir, "go.mod", "module example.com/widget\n\ngo 1.21\n")
+	writeFile(t, repoDir, "sibling/go.mod", "module example.com/widget/sibling\n\ngo 1.21\n")
+	writeFile(t, repoDir, "sibling/sibling.go", "// Package sibling is a wholly separate module.\npackage sibling\n\n// Other does something else entirely.\nfunc Other() {}\n")
+	runGit(t, repoDir, "add", ".")
+	runGit(t, repoDir, "commit", "-q", "-m", "add sibling module")
+	runGit(t, repoDir, "tag", "-f", "v1.0.0")
+
+	build := func(t *testing.T, subdir string) (Manifest, error) {
+		store, badgerStore := testStores(t)
+		gitCache := git.NewCache(t.TempDir())
+		sources := []registry.Source{{ID: "repository", Type: "git", URL: repoDir, Ref: "v${version}", Subdir: subdir, Authority: 100}}
+		gen, err := Create(ctx, store, badgerStore, testDependency())
+		if err != nil {
+			t.Fatalf("Create: %v", err)
+		}
+		if err := Build(ctx, gen, sources, gitCache, store, badgerStore); err != nil {
+			return Manifest{}, err
+		}
+		m, err := getManifest(ctx, badgerStore, gen.ID)
+		if err != nil {
+			t.Fatalf("getManifest: %v", err)
+		}
+		return m, nil
+	}
+
+	root, err := build(t, "")
+	if err != nil {
+		t.Fatalf("root build: %v", err)
+	}
+	sibling, err := build(t, "sibling")
+	if err != nil {
+		t.Fatalf("sibling build: %v", err)
+	}
+	if sibling.ObjectCount == 0 {
+		t.Error("sibling subdir indexed nothing, want its own package docs")
+	}
+	// Root: README + widget package doc + Do. Sibling: package doc + Other
+	// only — none of the root module's content.
+	if root.ObjectCount != 3 || sibling.ObjectCount != 2 {
+		t.Errorf("ObjectCount root=%d sibling=%d, want 3 and 2", root.ObjectCount, sibling.ObjectCount)
+	}
+
+	if _, err := build(t, "does/not/exist"); !errors.Is(err, ErrAcquisition) {
+		t.Errorf("missing subdir error = %v, want ErrAcquisition", err)
+	}
+}

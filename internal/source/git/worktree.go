@@ -40,11 +40,13 @@ func (c *Cache) MaterializeWorktree(ctx context.Context, repoPath, commit string
 	}
 	addArgs = append(addArgs, worktreeDir, commit)
 
+	unlockAdd := c.lockMirror(repoPath)
 	result, runErr := executil.Run(ctx, executil.RunOptions{
 		Dir:     repoPath,
 		Args:    addArgs,
 		Timeout: defaultLocalTimeout,
 	})
+	unlockAdd()
 	if runErr != nil || result.ExitCode != 0 {
 		os.RemoveAll(worktreeDir)
 		cause := runErr
@@ -57,7 +59,7 @@ func (c *Cache) MaterializeWorktree(ctx context.Context, repoPath, commit string
 	cleanup := worktreeCleanup(repoPath, worktreeDir)
 
 	if len(sparsePatterns) > 0 {
-		if err := checkoutSparseOrFallback(ctx, worktreeDir, commit, sparsePatterns); err != nil {
+		if err := c.checkoutSparseOrFallback(ctx, repoPath, worktreeDir, commit, sparsePatterns); err != nil {
 			cleanup()
 			return "", nil, &CacheError{Op: "MaterializeWorktree", Kind: ErrKindPermanent, Cause: err}
 		}
@@ -75,7 +77,19 @@ func (c *Cache) MaterializeWorktree(ctx context.Context, repoPath, commit string
 // If the resulting checkout is empty (the patterns matched nothing in
 // this tree), sparse-checkout is disabled and a full checkout is done
 // instead.
-func checkoutSparseOrFallback(ctx context.Context, worktreeDir, commit string, patterns []string) error {
+func (c *Cache) checkoutSparseOrFallback(ctx context.Context, repoPath, worktreeDir, commit string, patterns []string) error {
+	// init/set/disable write the mirror's shared config file, which git
+	// guards with a lock file — concurrent worktrees of one mirror
+	// (monorepo submodules synced in parallel) otherwise fail with "could
+	// not lock config file". The slow checkout itself stays unlocked.
+	if err := c.configureSparse(ctx, repoPath, worktreeDir, patterns); err != nil {
+		return err
+	}
+	return c.finishSparseCheckout(ctx, repoPath, worktreeDir, commit)
+}
+
+func (c *Cache) configureSparse(ctx context.Context, repoPath, worktreeDir string, patterns []string) error {
+	defer c.lockMirror(repoPath)()
 	if res, runErr := executil.Run(ctx, executil.RunOptions{
 		Dir: worktreeDir, Args: []string{"git", "sparse-checkout", "init", "--no-cone"}, Timeout: defaultLocalTimeout,
 	}); runErr != nil || res.ExitCode != 0 {
@@ -89,6 +103,10 @@ func checkoutSparseOrFallback(ctx context.Context, worktreeDir, commit string, p
 		return gitStepErr("sparse-checkout set", runErr, res)
 	}
 
+	return nil
+}
+
+func (c *Cache) finishSparseCheckout(ctx context.Context, repoPath, worktreeDir, commit string) error {
 	if err := checkoutCommit(ctx, worktreeDir, commit); err != nil {
 		return err
 	}
@@ -111,9 +129,12 @@ func checkoutSparseOrFallback(ctx context.Context, worktreeDir, commit string, p
 	// The sparse pattern set matched nothing in this commit's tree —
 	// disable it and check out everything instead, rather than silently
 	// indexing nothing for this dependency.
-	if res, runErr := executil.Run(ctx, executil.RunOptions{
+	unlock := c.lockMirror(repoPath)
+	res, runErr := executil.Run(ctx, executil.RunOptions{
 		Dir: worktreeDir, Args: []string{"git", "sparse-checkout", "disable"}, Timeout: defaultLocalTimeout,
-	}); runErr != nil || res.ExitCode != 0 {
+	})
+	unlock()
+	if runErr != nil || res.ExitCode != 0 {
 		return gitStepErr("sparse-checkout disable", runErr, res)
 	}
 	return checkoutCommit(ctx, worktreeDir, commit)

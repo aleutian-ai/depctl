@@ -3,9 +3,11 @@ package godoc
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
 
 	"aleutian-ai/ragctl/internal/domain"
@@ -236,5 +238,77 @@ func TestGoldenSnapshot(t *testing.T) {
 	wantJSON, _ := json.MarshalIndent(want, "", "  ")
 	if string(gotJSON) != string(wantJSON) {
 		t.Errorf("normalized output drifted from golden fixture:\ngot:  %s\nwant: %s", gotJSON, wantJSON)
+	}
+}
+
+// writeConstGroupPackage writes a package whose only content is one
+// n-name exported const group, the shape of generated enum/endpoint
+// tables in real SDKs.
+func writeConstGroupPackage(t *testing.T, n int) domain.SourceSnapshot {
+	t.Helper()
+	var b strings.Builder
+	b.WriteString("// Package enums holds a generated enum table.\npackage enums\n\n// Codes are the generated codes.\nconst (\n")
+	for i := 0; i < n; i++ {
+		fmt.Fprintf(&b, "\tCode%04d = \"code-%04d\"\n", i, i)
+	}
+	b.WriteString(")\n")
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "enums.go"), []byte(b.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return domain.SourceSnapshot{LocalPath: dir, LogicalPath: "enums"}
+}
+
+// TestHugeConstGroupSignaturesStayBounded is the regression for the
+// STRESS-005 OOM: go/doc reports one const group as one declaration, and
+// every name in it was given that whole declaration as its signature, so
+// a group of N names cost N*N text — 2.4 GB live in one dependency's
+// build. Each name's signature must stay small regardless of group size.
+func TestHugeConstGroupSignaturesStayBounded(t *testing.T) {
+	objs, err := New().Normalize(context.Background(), writeConstGroupPackage(t, 1500))
+	if err != nil {
+		t.Fatalf("Normalize: %v", err)
+	}
+
+	var symbols, total, largest int
+	for _, o := range objs {
+		if o.ContentType != "symbol_doc" {
+			continue
+		}
+		symbols++
+		n := len(o.Metadata["signature"])
+		total += n
+		if n > largest {
+			largest = n
+		}
+	}
+	if symbols != 1500 {
+		t.Fatalf("got %d symbol objects, want 1500 (every constant still indexed)", symbols)
+	}
+	if largest > maxSignatureBytes*2 {
+		t.Errorf("largest signature = %d bytes, want it bounded near %d — the whole group is being repeated per name (total %d bytes)", largest, maxSignatureBytes, total)
+	}
+
+	code, ok := findByTitle(objs, "Code0042", "symbol_doc")
+	if !ok || !strings.Contains(code.Metadata["signature"], `Code0042 = "code-0042"`) {
+		t.Errorf("Code0042 signature = %q, want it to show its own definition", code.Metadata["signature"])
+	}
+}
+
+// TestSmallConstGroupKeepsWholeBlockSignature: bounded means only big
+// groups change — an ordinary enum block still shows its full context
+// (the type and the sibling values an iota reader needs).
+func TestSmallConstGroupKeepsWholeBlockSignature(t *testing.T) {
+	objs, err := New().Normalize(context.Background(), writeConstGroupPackage(t, 5))
+	if err != nil {
+		t.Fatalf("Normalize: %v", err)
+	}
+	code, ok := findByTitle(objs, "Code0002", "symbol_doc")
+	if !ok {
+		t.Fatal("Code0002 not found")
+	}
+	sig := code.Metadata["signature"]
+	if !strings.Contains(sig, "Code0000") || !strings.Contains(sig, "Code0004") {
+		t.Errorf("small group signature = %q, want the whole block", sig)
 	}
 }

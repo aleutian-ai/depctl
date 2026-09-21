@@ -18,7 +18,7 @@ import (
 type Backend struct {
 	mu         sync.Mutex
 	namespaces map[string]backend.Namespace
-	points     map[string]map[string]backend.Point // namespace -> point ID -> point
+	points     map[string]map[string]backend.Point // namespace -> generation+chunk ID -> point (mirrors qdrant's pointID)
 }
 
 // New returns an empty Backend.
@@ -62,7 +62,7 @@ func (b *Backend) Upsert(ctx context.Context, req backend.UpsertRequest) error {
 		return fmt.Errorf("backendtest: namespace %q not found (call EnsureNamespace first)", req.Namespace)
 	}
 	for _, p := range req.Points {
-		pts[p.ID] = p
+		pts[p.Metadata.Generation+"\x00"+p.ID] = p
 	}
 	return nil
 }
@@ -75,8 +75,14 @@ func (b *Backend) Delete(ctx context.Context, req backend.DeleteRequest) error {
 	if !ok {
 		return nil
 	}
+	// IDs are chunk IDs; a chunk can be held by several generations, and
+	// all of them go (mirrors qdrant's delete-by-_id-payload).
 	for _, id := range req.IDs {
-		delete(pts, id)
+		for key, p := range pts {
+			if p.ID == id {
+				delete(pts, key)
+			}
+		}
 	}
 	if req.Filter != nil {
 		for id, p := range pts {

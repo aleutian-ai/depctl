@@ -32,17 +32,24 @@ func (s *Store) PutKnowledgeObject(ctx context.Context, obj domain.KnowledgeObje
 // ErrNotFound.
 func (s *Store) GetKnowledgeObject(ctx context.Context, id string) (domain.KnowledgeObject, error) {
 	var obj domain.KnowledgeObject
-	err := s.db.View(func(txn *bg.Txn) error {
-		item, err := txn.Get(objectKey(id))
-		if errors.Is(err, bg.ErrKeyNotFound) {
-			return ErrNotFound
-		}
-		if err != nil {
-			return err
-		}
-		return item.Value(func(val []byte) error {
-			return json.Unmarshal(val, &obj)
-		})
+	err := s.db.View(func(txn *bg.Txn) (err error) {
+		obj, err = getObject(txn, id)
+		return err
+	})
+	return obj, err
+}
+
+func getObject(txn *bg.Txn, id string) (domain.KnowledgeObject, error) {
+	var obj domain.KnowledgeObject
+	item, err := txn.Get(objectKey(id))
+	if errors.Is(err, bg.ErrKeyNotFound) {
+		return obj, ErrNotFound
+	}
+	if err != nil {
+		return obj, err
+	}
+	err = item.Value(func(val []byte) error {
+		return json.Unmarshal(val, &obj)
 	})
 	return obj, err
 }

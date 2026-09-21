@@ -55,3 +55,16 @@ func contains(patterns []string, p string) bool {
 	}
 	return false
 }
+
+func TestScopeToSubdir(t *testing.T) {
+	got := ScopeToSubdir([]string{"*.go", "go.mod"}, "billing")
+	want := []string{"/billing/**/*.go", "/billing/**/go.mod"}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("pattern %d = %q, want %q", i, got[i], want[i])
+		}
+	}
+	if same := ScopeToSubdir([]string{"*.go"}, ""); same[0] != "*.go" {
+		t.Errorf("empty subdir changed patterns: %v", same)
+	}
+}

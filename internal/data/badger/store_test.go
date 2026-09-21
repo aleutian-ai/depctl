@@ -1,11 +1,14 @@
 package badger
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"path/filepath"
 	"testing"
+
+	bg "github.com/dgraph-io/badger/v4"
 
 	"aleutian-ai/ragctl/internal/domain"
 )
@@ -213,4 +216,165 @@ func TestEmbeddingMetadataRoundTrip(t *testing.T) {
 	if string(got) != `{"dims":768}` {
 		t.Errorf("GetEmbeddingMetadata = %s, want {\"dims\":768}", got)
 	}
+}
+
+// TestChunkIdenticalToObjectStoresTextOnce: a chunk whose text equals its
+// parent object's keeps no copy of it, and reads still return the text —
+// through GetChunk and ListGenerationChunks alike.
+func TestChunkIdenticalToObjectStoresTextOnce(t *testing.T) {
+	s, _ := openTestStore(t)
+	ctx := context.Background()
+
+	text := bytes.Repeat([]byte("doc comment text "), 200)
+	obj := domain.KnowledgeObject{ID: "ko_1", Content: text}
+	chunk := domain.Chunk{ID: "chk_1", ObjectID: "ko_1", Content: text}
+
+	b := s.NewBatch()
+	if err := b.PutKnowledgeObject(obj); err != nil {
+		t.Fatalf("PutKnowledgeObject: %v", err)
+	}
+	if err := b.PutChunk("gen_1", chunk, obj.Content); err != nil {
+		t.Fatalf("PutChunk: %v", err)
+	}
+	if err := b.Flush(); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
+
+	raw, err := rawValue(s, chunkKey("gen_1", "chk_1"))
+	if err != nil {
+		t.Fatalf("raw chunk: %v", err)
+	}
+	if len(raw) > 512 {
+		t.Errorf("stored chunk record is %d bytes, want it small (text kept only on the object)", len(raw))
+	}
+
+	got, err := s.GetChunk(ctx, "gen_1", "chk_1")
+	if err != nil {
+		t.Fatalf("GetChunk: %v", err)
+	}
+	if !bytes.Equal(got.Content, text) {
+		t.Errorf("GetChunk content = %d bytes, want the original %d", len(got.Content), len(text))
+	}
+	list, err := s.ListGenerationChunks(ctx, "gen_1")
+	if err != nil || len(list) != 1 || !bytes.Equal(list[0].Content, text) {
+		t.Errorf("ListGenerationChunks = %v (err %v), want the chunk with its text", len(list), err)
+	}
+}
+
+// TestChunkDifferingFromObjectKeepsItsOwnText: a markdown-style chunk
+// (a piece of the object, not all of it) is stored whole.
+func TestChunkDifferingFromObjectKeepsItsOwnText(t *testing.T) {
+	s, _ := openTestStore(t)
+	ctx := context.Background()
+
+	b := s.NewBatch()
+	obj := domain.KnowledgeObject{ID: "ko_2", Content: []byte("# A\nbody a\n# B\nbody b")}
+	chunk := domain.Chunk{ID: "chk_2", ObjectID: "ko_2", Content: []byte("# A\nbody a")}
+	if err := b.PutKnowledgeObject(obj); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.PutChunk("gen_1", chunk, obj.Content); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Flush(); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.GetChunk(ctx, "gen_1", "chk_2")
+	if err != nil || string(got.Content) != "# A\nbody a" {
+		t.Errorf("GetChunk = %q (err %v), want its own text", got.Content, err)
+	}
+}
+
+// TestChunkWithMissingParentObjectFailsLoudly: a chunk that relies on its
+// object for text must not silently come back empty.
+func TestChunkWithMissingParentObjectFailsLoudly(t *testing.T) {
+	s, _ := openTestStore(t)
+	ctx := context.Background()
+
+	b := s.NewBatch()
+	text := []byte("same text")
+	if err := b.PutChunk("gen_1", domain.Chunk{ID: "chk_3", ObjectID: "ko_missing", Content: text}, text); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.GetChunk(ctx, "gen_1", "chk_3"); err == nil {
+		t.Error("GetChunk succeeded with no parent object, want an error")
+	}
+}
+
+// TestBatchWritesInvisibleUntilFlushAndDiscardedByCancel.
+func TestBatchWritesInvisibleUntilFlushAndDiscardedByCancel(t *testing.T) {
+	s, _ := openTestStore(t)
+	ctx := context.Background()
+
+	b := s.NewBatch()
+	if err := b.PutKnowledgeObject(domain.KnowledgeObject{ID: "ko_b", Content: []byte("x")}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.GetKnowledgeObject(ctx, "ko_b"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("before Flush: err = %v, want ErrNotFound", err)
+	}
+	if err := b.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	b.Cancel() // safe after Flush
+	if _, err := s.GetKnowledgeObject(ctx, "ko_b"); err != nil {
+		t.Errorf("after Flush: %v", err)
+	}
+
+	c := s.NewBatch()
+	if err := c.PutKnowledgeObject(domain.KnowledgeObject{ID: "ko_c", Content: []byte("y")}); err != nil {
+		t.Fatal(err)
+	}
+	c.Cancel()
+	if _, err := s.GetKnowledgeObject(ctx, "ko_c"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("after Cancel: err = %v, want ErrNotFound", err)
+	}
+}
+
+// TestLargeValuesRoundTripAndSurviveValueLogReclaim: values above the
+// value threshold live in the value log; deleting a generation and
+// reclaiming must not disturb another generation's data.
+func TestLargeValuesRoundTripAndSurviveValueLogReclaim(t *testing.T) {
+	s, _ := openTestStore(t)
+	ctx := context.Background()
+
+	big := bytes.Repeat([]byte("v"), 200<<10)
+	for _, gen := range []string{"gen_a", "gen_b"} {
+		for i := 0; i < 20; i++ {
+			c := domain.Chunk{ID: fmt.Sprintf("chk_%d", i), ObjectID: "ko", Content: big}
+			if err := s.PutChunk(ctx, gen, c); err != nil {
+				t.Fatalf("PutChunk: %v", err)
+			}
+		}
+	}
+	if err := s.DeleteGeneration(ctx, "gen_a"); err != nil {
+		t.Fatalf("DeleteGeneration: %v", err)
+	}
+	if err := s.ReclaimValueLog(); err != nil {
+		t.Fatalf("ReclaimValueLog: %v", err)
+	}
+	got, err := s.ListGenerationChunks(ctx, "gen_b")
+	if err != nil || len(got) != 20 || !bytes.Equal(got[0].Content, big) {
+		t.Errorf("gen_b after reclaim: %d chunks (err %v), want 20 intact", len(got), err)
+	}
+	if left, _ := s.ListGenerationChunks(ctx, "gen_a"); len(left) != 0 {
+		t.Errorf("gen_a still has %d chunks after delete", len(left))
+	}
+}
+
+func rawValue(s *Store, key []byte) ([]byte, error) {
+	var out []byte
+	err := s.db.View(func(txn *bg.Txn) error {
+		item, err := txn.Get(key)
+		if err != nil {
+			return err
+		}
+		out, err = item.ValueCopy(nil)
+		return err
+	})
+	return out, err
 }

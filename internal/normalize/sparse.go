@@ -38,3 +38,17 @@ func SparsePatterns(ecosystem domain.Ecosystem) []string {
 	}
 	return patterns
 }
+
+// ScopeToSubdir narrows patterns to files under subdir (a repo-relative
+// path) so a sparse checkout of a monorepo fetches only that module's
+// tree. An empty subdir returns patterns unchanged.
+func ScopeToSubdir(patterns []string, subdir string) []string {
+	if subdir == "" {
+		return patterns
+	}
+	scoped := make([]string, len(patterns))
+	for i, p := range patterns {
+		scoped[i] = "/" + subdir + "/**/" + p
+	}
+	return scoped
+}

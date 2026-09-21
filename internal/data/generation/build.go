@@ -111,7 +111,7 @@ func Build(ctx context.Context, gen domain.Generation, sources []registry.Source
 // dependencies) is never fetched at all, not just skipped during
 // normalization.
 func acquireGitSources(ctx context.Context, gitCache *git.Cache, version string, ecosystem domain.Ecosystem, sources []registry.Source) ([]acquiredSource, error) {
-	patterns := normalize.SparsePatterns(ecosystem)
+	basePatterns := normalize.SparsePatterns(ecosystem)
 	var acquired []acquiredSource
 	for _, s := range sources {
 		if s.Type != "git" {
@@ -133,9 +133,20 @@ func acquireGitSources(ctx context.Context, gitCache *git.Cache, version string,
 			return acquired, fmt.Errorf("%w: source %s: resolve ref %q: %v", ErrAcquisition, s.ID, ref, err)
 		}
 
-		worktreeDir, cleanup, err := gitCache.MaterializeWorktree(ctx, repoPath, commit, patterns)
+		worktreeDir, cleanup, err := gitCache.MaterializeWorktree(ctx, repoPath, commit, normalize.ScopeToSubdir(basePatterns, s.Subdir))
 		if err != nil {
 			return acquired, fmt.Errorf("%w: source %s: worktree: %v", ErrAcquisition, s.ID, err)
+		}
+		if s.Subdir != "" {
+			// A module inside a monorepo owns only its own directory;
+			// walking from the repo root would index every sibling
+			// module's content under this dependency.
+			scoped := filepath.Join(worktreeDir, filepath.FromSlash(s.Subdir))
+			if info, statErr := os.Stat(scoped); statErr != nil || !info.IsDir() {
+				cleanup()
+				return acquired, fmt.Errorf("%w: source %s: subdir %q not found at commit %s", ErrAcquisition, s.ID, s.Subdir, commit)
+			}
+			worktreeDir = scoped
 		}
 
 		acquired = append(acquired, acquiredSource{source: s, worktreeDir: worktreeDir, commit: commit, cleanup: cleanup})
@@ -327,8 +338,17 @@ func indexObjects(ctx context.Context, gen domain.Generation, objects []domain.K
 	// count exceeds the distinct chunks actually staged and VAL-001's
 	// structural check fails every time.
 	writtenChunkIDs := map[string]bool{}
+
+	// Writes are batched into a few large commits (a per-value commit made
+	// a big generation pay thousands of them). A batch isn't readable
+	// until Flush, so identical objects within this call are deduped
+	// through storedByContent instead of the Badger content-hash index.
+	batch := badgerStore.NewBatch()
+	defer batch.Cancel()
+	storedByContent := map[string]string{}
+
 	for _, obj := range objects {
-		id, contentHash, reused, err := resolveObjectIdentity(ctx, badgerStore, gen, obj)
+		id, contentHash, reused, err := resolveObjectIdentity(ctx, badgerStore, storedByContent, gen, obj)
 		if err != nil {
 			return fmt.Errorf("%w: %v", ErrNormalization, err)
 		}
@@ -341,12 +361,13 @@ func indexObjects(ctx context.Context, gen domain.Generation, objects []domain.K
 			if err := obj.Validate(); err != nil {
 				return fmt.Errorf("%w: %v", ErrNormalization, err)
 			}
-			if err := badgerStore.PutKnowledgeObject(ctx, obj); err != nil {
+			if err := batch.PutKnowledgeObject(obj); err != nil {
 				return fmt.Errorf("%w: store object %s: %v", ErrNormalization, obj.ID, err)
 			}
-			if err := badgerStore.PutContentHashIndex(ctx, contentHash, obj.ID); err != nil {
+			if err := batch.PutContentHashIndex(contentHash, obj.ID); err != nil {
 				return fmt.Errorf("%w: index object %s: %v", ErrNormalization, obj.ID, err)
 			}
+			storedByContent[contentHash] = obj.ID
 			manifest.ObjectsCreated++
 		}
 		manifest.ObjectCount++
@@ -364,12 +385,16 @@ func indexObjects(ctx context.Context, gen domain.Generation, objects []domain.K
 			if writtenChunkIDs[c.ID] {
 				continue
 			}
-			if err := badgerStore.PutChunk(ctx, gen.ID, c); err != nil {
+			if err := batch.PutChunk(gen.ID, c, obj.Content); err != nil {
 				return fmt.Errorf("%w: store chunk %s: %v", ErrNormalization, c.ID, err)
 			}
 			writtenChunkIDs[c.ID] = true
 			manifest.ChunkCount++
 		}
+	}
+
+	if err := batch.Flush(); err != nil {
+		return fmt.Errorf("%w: commit staged objects and chunks: %v", ErrNormalization, err)
 	}
 
 	manifest.Sources = manifest.Sources[:0]
@@ -383,11 +408,14 @@ func indexObjects(ctx context.Context, gen domain.Generation, objects []domain.K
 // content hash, and reports whether an object with identical content
 // already exists (GEN-003) — in which case its existing ID is reused
 // instead of storing a duplicate payload.
-func resolveObjectIdentity(ctx context.Context, badgerStore *badger.Store, gen domain.Generation, obj domain.KnowledgeObject) (id, contentHash string, reused bool, err error) {
+func resolveObjectIdentity(ctx context.Context, badgerStore *badger.Store, storedByContent map[string]string, gen domain.Generation, obj domain.KnowledgeObject) (id, contentHash string, reused bool, err error) {
 	sourceIdentity := obj.SourceID + "@" + obj.Commit
 	digest := fingerprint.Fingerprint(sourceIdentity, obj.LogicalPath, obj.Metadata[normalizerNameKey], obj.Metadata[normalizerVersionKey], obj.Content)
 	contentHash = dchunk.ContentHash(obj.Content)
 
+	if existingID, ok := storedByContent[contentHash]; ok {
+		return existingID, contentHash, true, nil
+	}
 	if existingID, lookupErr := badgerStore.GetContentHashIndex(ctx, contentHash); lookupErr == nil {
 		return existingID, contentHash, true, nil
 	} else if lookupErr != badger.ErrNotFound {
