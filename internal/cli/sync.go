@@ -419,12 +419,25 @@ func fallbackManifest(ctx context.Context, dep domain.Dependency) (registry.Mani
 	if !ok {
 		return registry.Manifest{}, false
 	}
+	subdir := moduleSubdir(dep.Name, root)
 	return registry.Manifest{
 		Metadata: registry.Metadata{Name: dep.Name},
 		Match:    registry.Match{Ecosystems: []domain.Ecosystem{dep.Ecosystem}, Packages: []string{dep.Name}},
 		Version:  registry.VersionStrategy{Strategy: "none"},
-		Sources:  []registry.Source{{ID: "repository", Type: "git", URL: url, Ref: "HEAD", Subdir: moduleSubdir(dep.Name, root), Authority: 0}},
+		Sources:  []registry.Source{{ID: "repository", Type: "git", URL: url, Ref: moduleTagTemplate(subdir), Subdir: subdir, Authority: 0}},
 	}, true
+}
+
+// moduleTagTemplate is the git tag a Go module's release is published
+// under: "v1.2.3" for a module at the repo root, "<subdir>/v1.2.3" for one
+// in a subdirectory. Pinning the version's own tag is what makes a
+// fallback source version-exact; a branch head would index whatever the
+// default branch holds today under every version's label.
+func moduleTagTemplate(subdir string) string {
+	if subdir == "" {
+		return "v${version}"
+	}
+	return subdir + "/v${version}"
 }
 
 // majorVersionSuffix matches a Go module path's trailing /vN major-version

@@ -563,3 +563,31 @@ func TestFlattenActionsFiltersToTheRequestedSet(t *testing.T) {
 		t.Errorf("unknown name kept %d actions, want none", len(got))
 	}
 }
+
+// TestFallbackManifestPinsTheVersionTag: a fallback source must resolve
+// the dependency version's own tag — "v1.2.3" for a repo-root module,
+// "<subdir>/v1.2.3" for a monorepo submodule — never a branch head.
+func TestFallbackManifestPinsTheVersionTag(t *testing.T) {
+	srv := fakeVanityImportServer(t, `<meta name="go-import" content="example.vanity/mono git https://github.com/example/mono">`)
+	redirectVanityImportClient(t, srv)
+
+	cases := map[string]string{
+		"example.vanity/mono":         "v${version}",
+		"example.vanity/mono/billing": "billing/v${version}",
+		"example.vanity/mono/a/b/v3":  "a/b/v${version}",
+		"github.com/org/repo":         "v${version}",
+		"github.com/org/repo/sub":     "sub/v${version}",
+	}
+	for name, want := range cases {
+		m, ok := fallbackManifest(context.Background(), domain.Dependency{Ecosystem: domain.EcosystemGo, Name: name})
+		if !ok {
+			t.Fatalf("%s: fallbackManifest = false", name)
+		}
+		if got := m.Sources[0].Ref; got != want {
+			t.Errorf("%s: Ref = %q, want %q", name, got, want)
+		}
+		if m.Sources[0].Ref == "HEAD" {
+			t.Errorf("%s: fallback source still resolves HEAD", name)
+		}
+	}
+}

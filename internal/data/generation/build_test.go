@@ -6,6 +6,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
+	"strings"
 	"testing"
 
 	"aleutian-ai/ragctl/internal/control/bbolt"
@@ -518,5 +520,171 @@ func TestBuildScopesToSourceSubdir(t *testing.T) {
 
 	if _, err := build(t, "does/not/exist"); !errors.Is(err, ErrAcquisition) {
 		t.Errorf("missing subdir error = %v, want ErrAcquisition", err)
+	}
+}
+
+func TestRefCandidates(t *testing.T) {
+	root := registry.Source{ID: "r", Ref: "v${version}"}
+	sub := registry.Source{ID: "r", Ref: "billing/v${version}"}
+	cases := []struct {
+		name    string
+		source  registry.Source
+		version string
+		want    []string
+	}{
+		{"root module tag", root, "v1.2.3", []string{"v1.2.3"}},
+		{"submodule tag", sub, "v1.5.0", []string{"billing/v1.5.0"}},
+		{"pre-release and deprecated suffixes are part of the tag", sub, "v0.1.0-deprecated", []string{"billing/v0.1.0-deprecated"}},
+		{"+incompatible is a path marker, not part of the tag", root, "v2.0.0+incompatible", []string{"v2.0.0"}},
+		{"pseudo-version names a commit", sub, "v0.0.0-20210226163009-5ac0b6a4141c", []string{"5ac0b6a4141c"}},
+		{"pre-release pseudo-version names a commit", root, "v1.2.4-0.20200804184101-5ec99f83aff1", []string{"5ec99f83aff1"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := refCandidates(tc.source, tc.version)
+			if err != nil || !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("refCandidates = %v (err %v), want %v", got, err, tc.want)
+			}
+		})
+	}
+	if _, err := refCandidates(registry.Source{ID: "r"}, "v1.0.0"); err == nil {
+		t.Error("a source with no ref template must be an error")
+	}
+}
+
+// versionedMonorepo builds a repo whose sub/ module changed between two
+// tagged releases and again afterwards on the default branch, returning
+// the repo dir and the commit of the first release.
+func versionedMonorepo(t *testing.T) (dir, firstCommit string) {
+	t.Helper()
+	dir = t.TempDir()
+	runGit(t, dir, "init", "-q", "-b", "main")
+	writeFile(t, dir, "sub/go.mod", "module example.com/mono/sub\n\ngo 1.21\n")
+	writeFile(t, dir, "sub/sub.go", "// Package sub says: release one.\npackage sub\n\n// Say speaks.\nfunc Say() {}\n")
+	runGit(t, dir, "add", ".")
+	runGit(t, dir, "commit", "-q", "-m", "release one")
+	runGit(t, dir, "tag", "sub/v1.0.0")
+	firstCommit = gitOutput(t, dir, "rev-parse", "HEAD")
+
+	writeFile(t, dir, "sub/sub.go", "// Package sub says: release two.\npackage sub\n\n// Say speaks.\nfunc Say() {}\n")
+	runGit(t, dir, "commit", "-q", "-am", "release two")
+	runGit(t, dir, "tag", "sub/v2.0.0")
+
+	writeFile(t, dir, "sub/sub.go", "// Package sub says: unreleased head.\npackage sub\n\n// Say speaks.\nfunc Say() {}\n")
+	runGit(t, dir, "commit", "-q", "-am", "unreleased work on main")
+	return dir, firstCommit
+}
+
+func gitOutput(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("git %v: %v", args, err)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+func chunkText(t *testing.T, badgerStore *badger.Store, genID string) string {
+	t.Helper()
+	chunks, err := badgerStore.ListGenerationChunks(context.Background(), genID)
+	if err != nil {
+		t.Fatalf("ListGenerationChunks: %v", err)
+	}
+	var all strings.Builder
+	for _, c := range chunks {
+		all.Write(c.Content)
+		all.WriteString("\n")
+	}
+	return all.String()
+}
+
+func buildSubdirAt(t *testing.T, gitCache *git.Cache, repoDir, version string) (string, error) {
+	t.Helper()
+	store, badgerStore := testStores(t)
+	dep := domain.DependencyVersion{Dependency: domain.Dependency{Ecosystem: domain.EcosystemGo, Name: "example.com/mono/sub"}, Version: version}
+	gen, err := Create(context.Background(), store, badgerStore, dep)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	sources := []registry.Source{{ID: "repository", Type: "git", URL: repoDir, Ref: "sub/v${version}", Subdir: "sub", Authority: 0}}
+	if err := Build(context.Background(), gen, sources, gitCache, store, badgerStore); err != nil {
+		return "", err
+	}
+	return chunkText(t, badgerStore, gen.ID), nil
+}
+
+// TestBuildIsVersionExact is the core of the fix: each version indexes
+// the content at its own tag, not whatever the default branch holds now.
+func TestBuildIsVersionExact(t *testing.T) {
+	requireGit(t)
+	repo, _ := versionedMonorepo(t)
+	cache := git.NewCache(t.TempDir())
+
+	one, err := buildSubdirAt(t, cache, repo, "v1.0.0")
+	if err != nil {
+		t.Fatalf("v1.0.0: %v", err)
+	}
+	two, err := buildSubdirAt(t, cache, repo, "v2.0.0")
+	if err != nil {
+		t.Fatalf("v2.0.0: %v", err)
+	}
+	if !strings.Contains(one, "release one") || strings.Contains(one, "release two") || strings.Contains(one, "unreleased") {
+		t.Errorf("v1.0.0 content = %q, want only release one", one)
+	}
+	if !strings.Contains(two, "release two") || strings.Contains(two, "unreleased") {
+		t.Errorf("v2.0.0 content = %q, want release two and nothing from unreleased main", two)
+	}
+}
+
+func TestBuildResolvesAPseudoVersionToItsCommit(t *testing.T) {
+	requireGit(t)
+	repo, first := versionedMonorepo(t)
+	cache := git.NewCache(t.TempDir())
+
+	text, err := buildSubdirAt(t, cache, repo, "v0.0.0-20200101000000-"+first[:12])
+	if err != nil {
+		t.Fatalf("pseudo-version: %v", err)
+	}
+	if !strings.Contains(text, "release one") || strings.Contains(text, "release two") {
+		t.Errorf("pseudo-version content = %q, want the first release's commit", text)
+	}
+}
+
+// TestBuildNeverFallsBackToTheBranchHead: a version with no tag fails to
+// acquire, naming the ref it looked for — it does not silently index
+// main under that version's label.
+func TestBuildNeverFallsBackToTheBranchHead(t *testing.T) {
+	requireGit(t)
+	repo, _ := versionedMonorepo(t)
+
+	_, err := buildSubdirAt(t, git.NewCache(t.TempDir()), repo, "v9.9.9")
+	if !errors.Is(err, ErrAcquisition) || !strings.Contains(err.Error(), "sub/v9.9.9") {
+		t.Errorf("err = %v, want an acquisition error naming sub/v9.9.9", err)
+	}
+}
+
+// TestBuildRefreshesTagsForAVersionReleasedAfterTheMirrorWasCached: the
+// cache never re-fetches on its own, so a newer release must trigger one
+// tag refresh instead of failing as "missing".
+func TestBuildRefreshesTagsForAVersionReleasedAfterTheMirrorWasCached(t *testing.T) {
+	requireGit(t)
+	repo, _ := versionedMonorepo(t)
+	cache := git.NewCache(t.TempDir())
+
+	if _, err := buildSubdirAt(t, cache, repo, "v1.0.0"); err != nil { // clones the mirror
+		t.Fatalf("v1.0.0: %v", err)
+	}
+	writeFile(t, repo, "sub/sub.go", "// Package sub says: release three.\npackage sub\n\n// Say speaks.\nfunc Say() {}\n")
+	runGit(t, repo, "commit", "-q", "-am", "release three")
+	runGit(t, repo, "tag", "sub/v3.0.0")
+
+	text, err := buildSubdirAt(t, cache, repo, "v3.0.0")
+	if err != nil {
+		t.Fatalf("v3.0.0 after the mirror was cached: %v", err)
+	}
+	if !strings.Contains(text, "release three") {
+		t.Errorf("v3.0.0 content = %q, want release three", text)
 	}
 }

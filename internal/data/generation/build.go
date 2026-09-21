@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -118,7 +119,7 @@ func acquireGitSources(ctx context.Context, gitCache *git.Cache, version string,
 			continue
 		}
 
-		ref, err := gitRef(s, version)
+		refs, err := refCandidates(s, version)
 		if err != nil {
 			return acquired, fmt.Errorf("%w: source %s: %v", ErrAcquisition, s.ID, err)
 		}
@@ -128,9 +129,17 @@ func acquireGitSources(ctx context.Context, gitCache *git.Cache, version string,
 			return acquired, fmt.Errorf("%w: source %s: mirror: %v", ErrAcquisition, s.ID, err)
 		}
 
-		commit, err := gitCache.ResolveRef(ctx, repoPath, ref)
+		commit, err := resolveFirstRef(ctx, gitCache, repoPath, refs)
 		if err != nil {
-			return acquired, fmt.Errorf("%w: source %s: resolve ref %q: %v", ErrAcquisition, s.ID, ref, err)
+			// A cached mirror never learns of tags created after it was
+			// cloned, so a version released since then looks missing:
+			// refresh tags once and try again before giving up.
+			if fetchErr := gitCache.FetchTags(ctx, repoPath); fetchErr == nil {
+				commit, err = resolveFirstRef(ctx, gitCache, repoPath, refs)
+			}
+		}
+		if err != nil {
+			return acquired, fmt.Errorf("%w: source %s: resolve %s: %v", ErrAcquisition, s.ID, strings.Join(refs, " or "), err)
 		}
 
 		worktreeDir, cleanup, err := gitCache.MaterializeWorktree(ctx, repoPath, commit, normalize.ScopeToSubdir(basePatterns, s.Subdir))
@@ -164,6 +173,42 @@ func gitRef(source registry.Source, version string) (string, error) {
 	}
 	trimmed := strings.TrimPrefix(version, "v")
 	return strings.ReplaceAll(source.Ref, "${version}", trimmed), nil
+}
+
+// goPseudoVersion matches the tail of a Go pseudo-version
+// (vX.Y.Z-yyyymmddhhmmss-abcdef123456), which names a commit, not a tag.
+var goPseudoVersion = regexp.MustCompile(`\d{14}-([0-9a-f]{12})$`)
+
+// refCandidates lists the refs to try, in order, for version. A Go
+// pseudo-version names a commit (its last 12 hex digits), so that is the
+// ref; anything else uses the source's tag template. "+incompatible" is a
+// module-path marker, not part of the tag. There is deliberately no
+// fallback to a branch head: a version that resolves to different content
+// than its label says is worse than one that fails to acquire.
+func refCandidates(source registry.Source, version string) ([]string, error) {
+	version = strings.TrimSuffix(version, "+incompatible")
+	if m := goPseudoVersion.FindStringSubmatch(version); m != nil {
+		return []string{m[1]}, nil
+	}
+	ref, err := gitRef(source, version)
+	if err != nil {
+		return nil, err
+	}
+	return []string{ref}, nil
+}
+
+// resolveFirstRef returns the commit of the first ref that resolves in
+// the mirror.
+func resolveFirstRef(ctx context.Context, gitCache *git.Cache, repoPath string, refs []string) (string, error) {
+	var lastErr error
+	for _, ref := range refs {
+		commit, err := gitCache.ResolveRef(ctx, repoPath, ref)
+		if err == nil {
+			return commit, nil
+		}
+		lastErr = err
+	}
+	return "", lastErr
 }
 
 func cleanupAll(acquired []acquiredSource) {
