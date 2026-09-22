@@ -409,9 +409,20 @@ type syncPipeline struct {
 // hand-authored the YAML doesn't make the content itself less
 // authoritative, only its authority ranking, which is deliberately 0.
 func fallbackManifest(ctx context.Context, dep domain.Dependency) (registry.Manifest, bool) {
-	if dep.Ecosystem != domain.EcosystemGo {
+	switch dep.Ecosystem {
+	case domain.EcosystemGo:
+		return goFallbackManifest(ctx, dep)
+	case domain.EcosystemNode:
+		return npmFallbackManifest(ctx, dep)
+	default:
 		return registry.Manifest{}, false
 	}
+}
+
+// goFallbackManifest is REG-005/REG-008's original Go fallback: a module
+// path already carries its own repository location, and go.sum's version
+// pinning means a version's own tag is a safe, deterministic ref.
+func goFallbackManifest(ctx context.Context, dep domain.Dependency) (registry.Manifest, bool) {
 	root, url, ok := githubModuleURL(dep.Name)
 	if !ok {
 		root, url, ok = resolveVanityImport(ctx, dep.Name)
@@ -426,6 +437,141 @@ func fallbackManifest(ctx context.Context, dep domain.Dependency) (registry.Mani
 		Version:  registry.VersionStrategy{Strategy: "none"},
 		Sources:  []registry.Source{{ID: "repository", Type: "git", URL: url, Ref: moduleTagTemplate(subdir), Subdir: subdir, Authority: 0}},
 	}, true
+}
+
+// npmFallbackManifest is REG-012: unlike Go, an npm package name carries
+// no repository location, and a published version has no guaranteed
+// matching git tag — so the repository comes from a registry lookup, and
+// every real-world tag convention is tried, each verified to actually
+// exist before being trusted (never a bare branch-head fallback; see
+// refCandidates/resolveFirstRef in internal/data/generation/build.go,
+// which this manifest's RefTemplates feed).
+func npmFallbackManifest(ctx context.Context, dep domain.Dependency) (registry.Manifest, bool) {
+	url, subdir, ok := npmRepository(ctx, dep.Name)
+	if !ok {
+		return registry.Manifest{}, false
+	}
+	return registry.Manifest{
+		Metadata: registry.Metadata{Name: dep.Name},
+		Match:    registry.Match{Ecosystems: []domain.Ecosystem{dep.Ecosystem}, Packages: []string{dep.Name}},
+		Version:  registry.VersionStrategy{Strategy: "none"},
+		Sources: []registry.Source{{
+			ID: "repository", Type: "git", URL: url, Subdir: subdir, Authority: 0,
+			RefTemplates: npmTagCandidates(dep.Name, subdir),
+		}},
+	}, true
+}
+
+// npmTagCandidates lists the git tag conventions real npm packages
+// actually use. subdir is the registry's reported monorepo directory (see
+// npmRepository), if any — when set, ONLY package-scoped tag shapes
+// ("<package>@<version>"/"<package>-v<version>") are tried. A bare
+// "v<version>"/"<version>" tag in a monorepo hosting many packages is
+// ambiguous across every package's own version history, not just this
+// one's: verified live against eslint-visitor-keys 3.4.3 (repository
+// github.com/eslint/js, directory packages/eslint-visitor-keys) — the
+// bare tag "v3.4.3" resolves, but to ESLint core's own 2016 release, a
+// completely unrelated package's version number that happens to collide
+// in the same repo's tag namespace. Trusting it would have silently
+// indexed the wrong package's content under a confident version label,
+// exactly the failure class POINT-002's version-exactness fix eliminated
+// for Go — a subdir check happened to catch this specific instance (the
+// old commit predates the monorepo split), but a bare-tag match isn't
+// safe to trust in general, so it's never offered as a candidate at all
+// once a monorepo directory is known. A single-package repo (no subdir)
+// has no such ambiguity, so bare tags are tried there.
+func npmTagCandidates(name, subdir string) []string {
+	if subdir != "" {
+		return []string{name + "@${version}", name + "-v${version}"}
+	}
+	return []string{"v${version}", "${version}", name + "@${version}", name + "-v${version}"}
+}
+
+// npmRegistryHTTPClient issues npmRepository's lookup — a var so tests can
+// redirect it to a local httptest.Server, matching
+// vanityImportHTTPClient's own convention.
+var npmRegistryHTTPClient = http.DefaultClient
+
+// npmRepositoryField is the subset of the npm registry's package document
+// this needs. repository can be a plain string ("github:org/repo",
+// "org/repo", or a bare URL) or an object — the object shape is tried
+// first since json.RawMessage lets both be handled without two round trips.
+type npmRegistryDoc struct {
+	Repository json.RawMessage `json:"repository"`
+}
+
+type npmRepositoryObject struct {
+	URL       string `json:"url"`
+	Directory string `json:"directory"`
+}
+
+// npmShorthandRepo matches npm's "github:org/repo" or bare "org/repo"
+// repository-field shorthand.
+var npmShorthandRepo = regexp.MustCompile(`^(?:github:)?([\w.-]+)/([\w.-]+?)(?:\.git)?$`)
+
+// npmGitURL normalizes npm's several repository.url shapes
+// ("git+https://...", "git://...", "git+ssh://git@...", a bare
+// "https://...", or shorthand) to a plain https clone URL.
+func npmGitURL(raw string) (string, bool) {
+	raw = strings.TrimSpace(raw)
+	if m := npmShorthandRepo.FindStringSubmatch(raw); m != nil && !strings.Contains(raw, "://") {
+		return fmt.Sprintf("https://github.com/%s/%s", m[1], m[2]), true
+	}
+	raw = strings.TrimPrefix(raw, "git+")
+	raw = strings.TrimSuffix(raw, ".git")
+	switch {
+	case strings.HasPrefix(raw, "https://"), strings.HasPrefix(raw, "http://"):
+		return raw, true
+	case strings.HasPrefix(raw, "git://"):
+		return "https://" + strings.TrimPrefix(raw, "git://"), true
+	case strings.HasPrefix(raw, "git+ssh://git@"), strings.HasPrefix(raw, "ssh://git@"):
+		host := strings.TrimPrefix(strings.TrimPrefix(raw, "git+ssh://git@"), "ssh://git@")
+		return "https://" + strings.Replace(host, ":", "/", 1), true
+	default:
+		return "", false
+	}
+}
+
+// npmRepository looks up name's repository and (if the registry reports a
+// monorepo "directory") its subdirectory via the public npm registry —
+// the same document `npm view`/`npm install` read. Only a resolvable git
+// URL is usable; anything else (no repository field, an unrecognized
+// shape, a non-git host) is a clean miss, not an error.
+func npmRepository(ctx context.Context, name string) (url, subdir string, ok bool) {
+	ctx, cancel := context.WithTimeout(ctx, vanityImportTimeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://registry.npmjs.org/"+name, nil)
+	if err != nil {
+		return "", "", false
+	}
+	resp, err := npmRegistryHTTPClient.Do(req)
+	if err != nil {
+		return "", "", false
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", "", false
+	}
+	var doc npmRegistryDoc
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&doc); err != nil || len(doc.Repository) == 0 {
+		return "", "", false
+	}
+
+	var obj npmRepositoryObject
+	if err := json.Unmarshal(doc.Repository, &obj); err == nil && obj.URL != "" {
+		if url, ok := npmGitURL(obj.URL); ok {
+			return url, obj.Directory, true
+		}
+		return "", "", false
+	}
+	var shorthand string
+	if err := json.Unmarshal(doc.Repository, &shorthand); err == nil {
+		if url, ok := npmGitURL(shorthand); ok {
+			return url, "", true
+		}
+	}
+	return "", "", false
 }
 
 // moduleTagTemplate is the git tag a Go module's release is published

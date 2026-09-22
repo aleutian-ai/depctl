@@ -1,7 +1,7 @@
 # PY-002: uv resolver
 
 **Epic:** Python Resolver
-**Status:** planned
+**Status:** done
 **Depends on:** PY-001
 **Estimated size:** medium
 

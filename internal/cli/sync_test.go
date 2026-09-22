@@ -591,3 +591,125 @@ func TestFallbackManifestPinsTheVersionTag(t *testing.T) {
 		}
 	}
 }
+
+func fakeNpmRegistryServer(t *testing.T, body string) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, body)
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func redirectNpmRegistryClient(t *testing.T, srv *httptest.Server) {
+	t.Helper()
+	prev := npmRegistryHTTPClient
+	npmRegistryHTTPClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		redirected := req.Clone(req.Context())
+		redirected.URL.Scheme = "http"
+		redirected.URL.Host = strings.TrimPrefix(srv.URL, "http://")
+		return http.DefaultTransport.RoundTrip(redirected)
+	})}
+	t.Cleanup(func() { npmRegistryHTTPClient = prev })
+}
+
+func TestNpmGitURLNormalizesEveryShape(t *testing.T) {
+	cases := map[string]string{
+		"git+https://github.com/npm/node-semver.git":   "https://github.com/npm/node-semver",
+		"git://github.com/npm/node-semver.git":         "https://github.com/npm/node-semver",
+		"https://github.com/npm/node-semver.git":       "https://github.com/npm/node-semver",
+		"git+ssh://git@github.com/npm/node-semver.git": "https://github.com/npm/node-semver",
+		"github:npm/node-semver":                       "https://github.com/npm/node-semver",
+		"npm/node-semver":                              "https://github.com/npm/node-semver",
+	}
+	for raw, want := range cases {
+		got, ok := npmGitURL(raw)
+		if !ok || got != want {
+			t.Errorf("npmGitURL(%q) = %q, %v; want %q, true", raw, got, ok, want)
+		}
+	}
+	if _, ok := npmGitURL("not a url at all !!"); ok {
+		t.Error("npmGitURL accepted garbage")
+	}
+}
+
+func TestNpmRepositoryObjectShapeWithDirectory(t *testing.T) {
+	srv := fakeNpmRegistryServer(t, `{"repository":{"type":"git","url":"git+https://github.com/eslint/js.git","directory":"packages/eslint-visitor-keys"}}`)
+	redirectNpmRegistryClient(t, srv)
+
+	url, subdir, ok := npmRepository(context.Background(), "eslint-visitor-keys")
+	if !ok || url != "https://github.com/eslint/js" || subdir != "packages/eslint-visitor-keys" {
+		t.Errorf("npmRepository = %q, %q, %v", url, subdir, ok)
+	}
+}
+
+func TestNpmRepositoryStringShorthand(t *testing.T) {
+	srv := fakeNpmRegistryServer(t, `{"repository":"github:tj/commander.js"}`)
+	redirectNpmRegistryClient(t, srv)
+
+	url, subdir, ok := npmRepository(context.Background(), "commander")
+	if !ok || url != "https://github.com/tj/commander.js" || subdir != "" {
+		t.Errorf("npmRepository = %q, %q, %v", url, subdir, ok)
+	}
+}
+
+func TestNpmRepositoryMissingIsACleanMiss(t *testing.T) {
+	srv := fakeNpmRegistryServer(t, `{}`)
+	redirectNpmRegistryClient(t, srv)
+	if _, _, ok := npmRepository(context.Background(), "whatever"); ok {
+		t.Error("npmRepository succeeded with no repository field")
+	}
+}
+
+func TestNpmTagCandidatesForASinglePackageRepo(t *testing.T) {
+	got := npmTagCandidates("commander", "")
+	want := []string{"v${version}", "${version}", "commander@${version}", "commander-v${version}"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("npmTagCandidates = %v, want %v", got, want)
+	}
+}
+
+// TestNpmTagCandidatesForAMonorepoPackageExcludesBareTags is the direct
+// regression for the live-found eslint-visitor-keys bug: a bare version
+// tag in a monorepo can belong to an entirely different package sharing
+// the repo (verified live: github.com/eslint/js's "v3.4.3" is ESLint
+// core's own unrelated 2016 release, not eslint-visitor-keys 3.4.3) — so
+// once a monorepo directory is known, only package-scoped tag shapes are
+// ever offered as candidates.
+func TestNpmTagCandidatesForAMonorepoPackageExcludesBareTags(t *testing.T) {
+	got := npmTagCandidates("eslint-visitor-keys", "packages/eslint-visitor-keys")
+	want := []string{"eslint-visitor-keys@${version}", "eslint-visitor-keys-v${version}"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("npmTagCandidates = %v, want %v (no bare version tags for a monorepo package)", got, want)
+	}
+}
+
+func TestNpmFallbackManifestBuildsSourceWithSubdirAndTemplates(t *testing.T) {
+	srv := fakeNpmRegistryServer(t, `{"repository":{"type":"git","url":"git+https://github.com/eslint/js.git","directory":"packages/eslint-visitor-keys"}}`)
+	redirectNpmRegistryClient(t, srv)
+
+	m, ok := fallbackManifest(context.Background(), domain.Dependency{Ecosystem: domain.EcosystemNode, Name: "eslint-visitor-keys"})
+	if !ok {
+		t.Fatal("fallbackManifest = false")
+	}
+	src := m.Sources[0]
+	if src.URL != "https://github.com/eslint/js" || src.Subdir != "packages/eslint-visitor-keys" {
+		t.Errorf("source = %+v", src)
+	}
+	if len(src.RefTemplates) != 2 || src.Ref != "" {
+		t.Errorf("source RefTemplates=%v Ref=%q, want the 2 package-scoped templates only (no bare version tags — this dependency's own repository is a monorepo) and no singular Ref", src.RefTemplates, src.Ref)
+	}
+	for _, tmpl := range src.RefTemplates {
+		if !strings.Contains(tmpl, "eslint-visitor-keys") {
+			t.Errorf("RefTemplates contains a bare, unscoped template %q for a monorepo package", tmpl)
+		}
+	}
+}
+
+func TestNpmFallbackManifestFalseWithoutARepository(t *testing.T) {
+	srv := fakeNpmRegistryServer(t, `{}`)
+	redirectNpmRegistryClient(t, srv)
+	if _, ok := fallbackManifest(context.Background(), domain.Dependency{Ecosystem: domain.EcosystemNode, Name: "whatever"}); ok {
+		t.Error("fallbackManifest = true for an npm package with no repository field")
+	}
+}

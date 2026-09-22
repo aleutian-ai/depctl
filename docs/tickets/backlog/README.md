@@ -8,8 +8,8 @@ Same ticket format as `planned/`: each epic has an `INDEX.md`, each ticket is se
 
 ## Additional ecosystems (one at a time, after the Go slice is stable)
 
-20. [20-python-resolver](20-python-resolver/INDEX.md)
-21. [21-node-resolver](21-node-resolver/INDEX.md)
+20. Python resolver — done, moved to [../completed/20-python-resolver](../completed/20-python-resolver/INDEX.md).
+21. [21-node-resolver](21-node-resolver/INDEX.md) — partially done (npm/pnpm shipped; Yarn/Bun still open — see its own INDEX.md).
 22. [22-rust-resolver](22-rust-resolver/INDEX.md)
 23. [23-java-resolver](23-java-resolver/INDEX.md)
 

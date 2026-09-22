@@ -57,6 +57,7 @@
           "ref": { "type": "string" },
           "module": { "type": "string" },
           "subdir": { "type": "string" },
+          "ref_templates": { "type": "array", "items": { "type": "string" } },
           "authority": { "type": "integer", "minimum": 0, "maximum": 100 }
         }
       }

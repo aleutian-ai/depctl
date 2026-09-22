@@ -688,3 +688,61 @@ func TestBuildRefreshesTagsForAVersionReleasedAfterTheMirrorWasCached(t *testing
 		t.Errorf("v3.0.0 content = %q, want release three", text)
 	}
 }
+
+func TestRefCandidatesExpandsRefTemplates(t *testing.T) {
+	got, err := refCandidates(registry.Source{RefTemplates: []string{"v${version}", "${version}", "pkg@${version}"}}, "v1.2.3")
+	want := []string{"v1.2.3", "1.2.3", "pkg@1.2.3"}
+	if err != nil || !reflect.DeepEqual(got, want) {
+		t.Errorf("refCandidates = %v (err %v), want %v", got, err, want)
+	}
+}
+
+// TestBuildTriesEveryRefTemplateUntilOneResolves is REG-012's real-git
+// proof: a repo tagged only in the "<package>@<version>" convention still
+// resolves, because every template is tried and verified before use.
+func TestBuildTriesEveryRefTemplateUntilOneResolves(t *testing.T) {
+	requireGit(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+	runGit(t, dir, "init", "-q", "-b", "main")
+	writeFile(t, dir, "index.js", "// nothing\n")
+	runGit(t, dir, "add", ".")
+	runGit(t, dir, "commit", "-q", "-m", "release")
+	runGit(t, dir, "tag", "widget@3.4.3") // not "v3.4.3" or "3.4.3" — only the monorepo convention
+
+	store, badgerStore := testStores(t)
+	gitCache := git.NewCache(t.TempDir())
+	sources := []registry.Source{{ID: "repository", Type: "git", URL: dir, RefTemplates: []string{"v${version}", "${version}", "widget@${version}"}, Authority: 0}}
+	dep := domain.DependencyVersion{Dependency: domain.Dependency{Ecosystem: domain.EcosystemNode, Name: "widget"}, Version: "3.4.3"}
+	gen, err := Create(ctx, store, badgerStore, dep)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Build(ctx, gen, sources, gitCache, store, badgerStore); err != nil {
+		t.Fatalf("Build: %v, want the widget@3.4.3 template to resolve after v3.4.3 and 3.4.3 both miss", err)
+	}
+}
+
+func TestBuildFailsCleanlyWhenNoRefTemplateResolves(t *testing.T) {
+	requireGit(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+	runGit(t, dir, "init", "-q", "-b", "main")
+	writeFile(t, dir, "index.js", "// nothing\n")
+	runGit(t, dir, "add", ".")
+	runGit(t, dir, "commit", "-q", "-m", "release")
+	// deliberately no tag at all
+
+	store, badgerStore := testStores(t)
+	gitCache := git.NewCache(t.TempDir())
+	sources := []registry.Source{{ID: "repository", Type: "git", URL: dir, RefTemplates: []string{"v${version}", "${version}"}, Authority: 0}}
+	dep := domain.DependencyVersion{Dependency: domain.Dependency{Ecosystem: domain.EcosystemNode, Name: "widget"}, Version: "9.9.9"}
+	gen, err := Create(ctx, store, badgerStore, dep)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = Build(ctx, gen, sources, gitCache, store, badgerStore)
+	if !errors.Is(err, ErrAcquisition) || !strings.Contains(err.Error(), "v9.9.9 or 9.9.9") {
+		t.Errorf("err = %v, want an acquisition error naming both untried refs, no branch-head fallback", err)
+	}
+}

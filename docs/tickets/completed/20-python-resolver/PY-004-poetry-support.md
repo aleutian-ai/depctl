@@ -1,7 +1,7 @@
 # PY-004: Poetry support
 
 **Epic:** Python Resolver
-**Status:** planned
+**Status:** done
 **Depends on:** PY-001
 **Estimated size:** medium
 

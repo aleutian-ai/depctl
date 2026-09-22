@@ -187,6 +187,14 @@ var goPseudoVersion = regexp.MustCompile(`\d{14}-([0-9a-f]{12})$`)
 // than its label says is worse than one that fails to acquire.
 func refCandidates(source registry.Source, version string) ([]string, error) {
 	version = strings.TrimSuffix(version, "+incompatible")
+	if len(source.RefTemplates) > 0 {
+		trimmed := strings.TrimPrefix(version, "v")
+		candidates := make([]string, len(source.RefTemplates))
+		for i, tmpl := range source.RefTemplates {
+			candidates[i] = strings.ReplaceAll(tmpl, "${version}", trimmed)
+		}
+		return candidates, nil
+	}
 	if m := goPseudoVersion.FindStringSubmatch(version); m != nil {
 		return []string{m[1]}, nil
 	}

@@ -1,7 +1,7 @@
 # PY-001: Python project detection
 
 **Epic:** Python Resolver
-**Status:** planned
+**Status:** done
 **Depends on:** RES-001
 **Estimated size:** small
 

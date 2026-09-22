@@ -1,7 +1,7 @@
 # NODE-002: npm lock resolver
 
 **Epic:** Node / JavaScript / TypeScript Resolver
-**Status:** planned
+**Status:** done
 **Depends on:** NODE-001
 **Estimated size:** medium
 
@@ -55,3 +55,6 @@ Normalized identity:
 - [ ] Same lockfile parsed twice yields identical, stable `Fingerprint`.
 - [ ] Workspace/local packages excluded from external sync but still recorded.
 - [ ] Scoped package names preserved exactly (registry identity match).
+
+## Post-implementation note
+Built and tested (`internal/resolver/node`). Like the Python resolver (epic 20), this gives resolution only — resolved Node dependencies mostly can't *sync* yet, since the automatic fallback-manifest path is Go-only and almost no npm packages are curated in the registry. See `docs/tickets/planned/56-npm-pypi-fallback-manifest`.

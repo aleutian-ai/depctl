@@ -1,7 +1,7 @@
 # NODE-001: Node project detection
 
 **Epic:** Node / JavaScript / TypeScript Resolver
-**Status:** planned
+**Status:** done
 **Depends on:** RES-001
 **Estimated size:** small
 
@@ -53,3 +53,6 @@ Store which lockfile was found on the Resolution (`LockPath`) so downstream tick
 ## Acceptance criteria
 - [ ] `Detect` correctly identifies Node projects across `testdata/projects/node-npm/` and `testdata/projects/node-pnpm/` fixtures.
 - [ ] Lockfile priority order matches the list above.
+
+## Post-implementation note
+Built and tested (`internal/resolver/node`). Like the Python resolver (epic 20), this gives resolution only — resolved Node dependencies mostly can't *sync* yet, since the automatic fallback-manifest path is Go-only and almost no npm packages are curated in the registry. See `docs/tickets/planned/56-npm-pypi-fallback-manifest`.
