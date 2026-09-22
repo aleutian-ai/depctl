@@ -107,10 +107,16 @@ func (n *Normalizer) Normalize(ctx context.Context, src domain.SourceSnapshot) (
 	return objects, nil
 }
 
-// singlePackage picks the non-"_test" package from parser.ParseDir's
+// singlePackage picks the package to document from parser.ParseDir's
 // result — a directory can also yield an external "foo_test" package,
-// which isn't the API surface being documented. ok is false if dir has
-// no non-test package (e.g. an integration-test-only directory).
+// which isn't the API surface being documented. A library directory can
+// also hold a build-ignored `package main` generator (//go:build ignore),
+// which ParseDir folds in as a second package: an importable package is
+// preferred over "main", since a generator is not part of the library's
+// API (choosing alphabetically documented the generator, and indexed
+// nothing, for any library named after "m"). A directory with only a main
+// package is a command and keeps it. ok is false if dir has no non-test
+// package (e.g. an integration-test-only directory).
 func singlePackage(pkgs map[string]*ast.Package) (pkg *ast.Package, ok bool) {
 	var names []string
 	for name := range pkgs {
@@ -119,6 +125,11 @@ func singlePackage(pkgs map[string]*ast.Package) (pkg *ast.Package, ok bool) {
 		}
 	}
 	sort.Strings(names)
+	for _, name := range names {
+		if name != "main" {
+			return pkgs[name], true
+		}
+	}
 	if len(names) == 0 {
 		return nil, false
 	}

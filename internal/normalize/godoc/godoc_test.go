@@ -312,3 +312,50 @@ func TestSmallConstGroupKeepsWholeBlockSignature(t *testing.T) {
 		t.Errorf("small group signature = %q, want the whole block", sig)
 	}
 }
+
+// TestLibraryWithABuildIgnoredMainGeneratorIsStillDocumented is the
+// regression for a silent zero-symbol dependency found by the Ollama smoke
+// test (github.com/apparentlymart/go-textseg/v12): a directory can hold the
+// real library package plus a build-ignored `package main` generator (a
+// very common shape). singlePackage picked the alphabetically-first
+// package, so any library whose name sorts after "main" was replaced by its
+// own generator, and the dependency indexed nothing.
+func TestLibraryWithABuildIgnoredMainGeneratorIsStillDocumented(t *testing.T) {
+	dir := t.TempDir()
+	files := map[string]string{
+		"textseg.go":  "// Package textseg splits text into grapheme clusters.\npackage textseg\n\n// Split returns the clusters of s.\nfunc Split(s string) []string { return nil }\n",
+		"generate.go": "//go:build ignore\n// +build ignore\n\n// This generator rebuilds the tables.\npackage main\n\n// Generate is exported but is not part of the library.\nfunc Generate() {}\n\nfunc main() {}\n",
+	}
+	for name, body := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	objs, err := New().Normalize(context.Background(), domain.SourceSnapshot{LocalPath: dir, LogicalPath: "textseg"})
+	if err != nil {
+		t.Fatalf("Normalize: %v", err)
+	}
+	if _, ok := findByTitle(objs, "Split", "symbol_doc"); !ok {
+		t.Errorf("the library's Split is missing; got %d objects, want the real package documented", len(objs))
+	}
+	if _, ok := findByTitle(objs, "Generate", "symbol_doc"); ok {
+		t.Error("the build-ignored generator's Generate was documented as part of the library")
+	}
+}
+
+// TestCommandDirectoryWithOnlyMainIsStillDocumented: a directory that is
+// only a command keeps its main package's docs.
+func TestCommandDirectoryWithOnlyMainIsStillDocumented(t *testing.T) {
+	dir := t.TempDir()
+	src := "// Command tool does a thing.\npackage main\n\n// Run does it.\nfunc Run() {}\n\nfunc main() {}\n"
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	objs, err := New().Normalize(context.Background(), domain.SourceSnapshot{LocalPath: dir, LogicalPath: "tool"})
+	if err != nil {
+		t.Fatalf("Normalize: %v", err)
+	}
+	if _, ok := findByTitle(objs, "Run", "symbol_doc"); !ok {
+		t.Errorf("a main-only directory lost its docs; got %d objects", len(objs))
+	}
+}
