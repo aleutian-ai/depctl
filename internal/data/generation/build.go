@@ -22,7 +22,9 @@ import (
 	"aleutian-ai/ragctl/internal/normalize/godoc"
 	"aleutian-ai/ragctl/internal/normalize/markdown"
 	"aleutian-ai/ragctl/internal/normalize/plaintext"
+	"aleutian-ai/ragctl/internal/normalize/pydoc"
 	"aleutian-ai/ragctl/internal/normalize/releasenotes"
+	"aleutian-ai/ragctl/internal/normalize/tsdoc"
 	"aleutian-ai/ragctl/internal/registry"
 	"aleutian-ai/ragctl/internal/source/git"
 )
@@ -293,9 +295,36 @@ func cleanupAll(acquired []acquiredSource) {
 func normalizeSources(ctx context.Context, dep domain.DependencyVersion, acquired []acquiredSource) ([]domain.KnowledgeObject, error) {
 	normReg := normalize.NewRegistry(releasenotes.New(), markdown.New(), plaintext.New())
 	gd := godoc.New()
+	tsd := tsdoc.New()
+	pyd := pydoc.New()
 
 	var objects []domain.KnowledgeObject
 	for _, a := range acquired {
+		// Unlike godoc, a Node package's published entry point is
+		// conventionally singular at the package root (package.json's own
+		// "types"/"main" field) regardless of how deep the real
+		// implementation is nested — no per-directory walk needed, one
+		// call at the already-correctly-scoped worktree root (Subdir
+		// scoping, or the whole repo for a single-package one) is enough.
+		if dep.Dependency.Ecosystem == domain.EcosystemNode && tsd.Supports(domain.SourceSnapshot{LocalPath: a.worktreeDir}) {
+			objs, err := normalizeOne(ctx, tsd, a, a.worktreeDir)
+			if err != nil {
+				return nil, fmt.Errorf("%w: source %s: %v", ErrNormalization, a.source.ID, err)
+			}
+			objects = appendAttributed(objects, dep, a.source, objs)
+		}
+		// Same reasoning as tsdoc above: a Python package's entry module
+		// (__init__.py, conventionally) sits at the package root; deeper
+		// submodules are only ever reached through pydoc's own bounded
+		// single-hop re-export resolution, not a directory walk here.
+		if dep.Dependency.Ecosystem == domain.EcosystemPython && pyd.Supports(domain.SourceSnapshot{LocalPath: a.worktreeDir}) {
+			objs, err := normalizeOne(ctx, pyd, a, a.worktreeDir)
+			if err != nil {
+				return nil, fmt.Errorf("%w: source %s: %v", ErrNormalization, a.source.ID, err)
+			}
+			objects = appendAttributed(objects, dep, a.source, objs)
+		}
+
 		err := filepath.WalkDir(a.worktreeDir, func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
 				return err

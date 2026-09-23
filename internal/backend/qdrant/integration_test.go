@@ -213,3 +213,84 @@ func TestQdrantIntegrationDeleteByIDsAndFilterTogether(t *testing.T) {
 		t.Fatalf("remaining points = %+v, want exactly [chk_survivor]", result.Points)
 	}
 }
+
+// TestQdrantIntegrationCountAgainstARealCollection is POINT-003's own
+// proof point: Count must return the real, exact number of points for a
+// generation, including zero for a generation with none at all — not a
+// TopK-bounded approximation via Query, which would report "1" for a
+// generation with 50 points once TopK caps it, or worse, "0" only by
+// accident if no query vector happened to be similar enough to surface
+// any of them.
+func TestQdrantIntegrationCountAgainstARealCollection(t *testing.T) {
+	requireContainerRuntime(t)
+	t.Setenv("TESTCONTAINERS_RYUK_DISABLED", "true")
+	ctx := context.Background()
+
+	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+		ContainerRequest: testcontainers.ContainerRequest{
+			Image:        "qdrant/qdrant:v1.13.1",
+			ExposedPorts: []string{"6333/tcp"},
+			WaitingFor:   wait.ForHTTP("/healthz").WithPort("6333/tcp").WithStartupTimeout(60 * time.Second),
+		},
+		Started: true,
+	})
+	if err != nil {
+		t.Fatalf("start qdrant container: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := container.Terminate(context.Background()); err != nil {
+			t.Logf("terminate qdrant container: %v", err)
+		}
+	})
+
+	host, err := container.Host(ctx)
+	if err != nil {
+		t.Fatalf("container host: %v", err)
+	}
+	port, err := container.MappedPort(ctx, "6333")
+	if err != nil {
+		t.Fatalf("mapped port: %v", err)
+	}
+	c := New(fmt.Sprintf("http://%s:%s", host, port.Port()))
+
+	ns := backend.Namespace{Name: "ragctl", Dimensions: 4, Distance: "cosine"}
+	if err := c.EnsureNamespace(ctx, ns); err != nil {
+		t.Fatalf("EnsureNamespace: %v", err)
+	}
+
+	err = c.Upsert(ctx, backend.UpsertRequest{
+		Namespace: ns.Name,
+		Points: []backend.Point{
+			{ID: "chk_1", Vector: []float32{1, 0, 0, 0}, Metadata: backend.PointMetadata{Ecosystem: "go", Dependency: "widget", Version: "v1.0.0", Generation: "gen_has_points"}},
+			{ID: "chk_2", Vector: []float32{0, 1, 0, 0}, Metadata: backend.PointMetadata{Ecosystem: "go", Dependency: "widget", Version: "v1.0.0", Generation: "gen_has_points"}},
+			{ID: "chk_3", Vector: []float32{0, 0, 1, 0}, Metadata: backend.PointMetadata{Ecosystem: "go", Dependency: "other", Version: "v2.0.0", Generation: "gen_other"}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Upsert: %v", err)
+	}
+
+	n, err := c.Count(ctx, ns.Name, &backend.Filter{Generation: "gen_has_points"})
+	if err != nil {
+		t.Fatalf("Count: %v", err)
+	}
+	if n != 2 {
+		t.Errorf("Count(gen_has_points) = %d, want 2", n)
+	}
+
+	n, err = c.Count(ctx, ns.Name, &backend.Filter{Generation: "gen_no_points_at_all"})
+	if err != nil {
+		t.Fatalf("Count: %v", err)
+	}
+	if n != 0 {
+		t.Errorf("Count(gen_no_points_at_all) = %d, want 0 — the exact case POINT-003 needs to detect", n)
+	}
+
+	n, err = c.Count(ctx, ns.Name, nil)
+	if err != nil {
+		t.Fatalf("Count with nil filter: %v", err)
+	}
+	if n != 3 {
+		t.Errorf("Count(nil filter) = %d, want 3 (the whole namespace)", n)
+	}
+}

@@ -49,6 +49,17 @@ type searchResponse struct {
 	Result []searchResultItem `json:"result"`
 }
 
+type countRequest struct {
+	Filter *qdrantFilter `json:"filter,omitempty"`
+	Exact  bool          `json:"exact"`
+}
+
+type countResponse struct {
+	Result struct {
+		Count int `json:"count"`
+	} `json:"result"`
+}
+
 type matchCondition struct {
 	Key   string     `json:"key"`
 	Match matchValue `json:"match"`

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -13,10 +14,12 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"aleutian-ai/ragctl/internal/backend"
 	"aleutian-ai/ragctl/internal/config"
 	bboltstore "aleutian-ai/ragctl/internal/control/bbolt"
 	"aleutian-ai/ragctl/internal/daemon/client"
 	badgerstore "aleutian-ai/ragctl/internal/data/badger"
+	"aleutian-ai/ragctl/internal/data/generation"
 	"aleutian-ai/ragctl/internal/domain"
 	"aleutian-ai/ragctl/internal/registry"
 )
@@ -83,6 +86,7 @@ var doctorChecks = []struct {
 	{"active generations", checkActiveGenerations},
 	{"active generation manifests", checkActiveManifests},
 	{"backend replicas", checkBackendReplicas},
+	{"empty active generations", checkEmptyActiveGenerations},
 	{"vector backend reachable", checkBackendReachable},
 	{"embedding model compatibility", checkEmbeddingModel},
 	{"registry validity", checkRegistry},
@@ -431,6 +435,66 @@ func checkBackendReplicas(ctx context.Context, env *doctorEnv) (Severity, string
 		return SeverityUnhealthy, fmt.Sprintf("%d active generation(s) lack a complete %s replica: %s", len(bad), env.cfg.Vector.Backend, summarize(bad))
 	}
 	return SeverityOK, fmt.Sprintf("%d complete", len(pointers))
+}
+
+// checkEmptyActiveGenerations is POINT-003: a collection populated
+// before POINT-001's point-ID fix can hold an ACTIVE generation whose
+// points were silently overwritten by a sibling (two generations with
+// byte-identical content used to collide on one shared point). It
+// reports as synced (its manifest, replica, and bbolt state all look
+// fine — checkActiveManifests/checkBackendReplicas above pass) but a
+// search against it returns nothing. Scoped deliberately to the exact-
+// zero case, not a fuzzy "far fewer than expected" threshold: GEN-003's
+// content-reuse dedup means a legitimate generation can share most of
+// its points with an earlier one, so a lower-than-manifest count isn't
+// on its own evidence of anything wrong — zero, for a generation whose
+// own manifest claims real chunks, always is.
+func checkEmptyActiveGenerations(ctx context.Context, env *doctorEnv) (Severity, string) {
+	pointers, sev, detail, ok := activePointers(ctx, env)
+	if !ok {
+		return sev, detail
+	}
+	if env.badger == nil {
+		return notChecked("Badger")
+	}
+	if env.cfgErr != nil {
+		return notChecked("config")
+	}
+	vb, err := buildVectorBackend(env.cfg)
+	if err != nil {
+		return SeverityUnhealthy, err.Error()
+	}
+
+	var empty []string
+	checked := 0
+	for _, p := range pointers {
+		raw, err := env.badger.GetManifest(ctx, p.GenerationID)
+		if errors.Is(err, badgerstore.ErrNotFound) {
+			continue // checkActiveManifests already flags this
+		}
+		if err != nil {
+			return SeverityUnhealthy, err.Error()
+		}
+		var m generation.Manifest
+		if err := json.Unmarshal(raw, &m); err != nil {
+			return SeverityUnhealthy, fmt.Sprintf("decode manifest for %s: %v", pointerLabel(p), err)
+		}
+		if m.ChunkCount == 0 {
+			continue // nothing to have points for
+		}
+		checked++
+		n, err := vb.Count(ctx, env.cfg.Vector.Collection, &backend.Filter{Generation: p.GenerationID})
+		if err != nil {
+			return SeverityUnhealthy, fmt.Sprintf("count points for %s: %v", pointerLabel(p), err)
+		}
+		if n == 0 {
+			empty = append(empty, fmt.Sprintf("%s (manifest claims %d chunks, backend has 0 points)", pointerLabel(p), m.ChunkCount))
+		}
+	}
+	if len(empty) > 0 {
+		return SeverityUnhealthy, fmt.Sprintf("%d active generation(s) have zero points despite a non-empty manifest — re-sync with `ragctl sync --force`: %s", len(empty), summarize(empty))
+	}
+	return SeverityOK, fmt.Sprintf("%d checked, none empty", checked)
 }
 
 func checkBackendReachable(ctx context.Context, env *doctorEnv) (Severity, string) {

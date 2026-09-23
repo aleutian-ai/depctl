@@ -44,7 +44,24 @@ func SparsePatterns(ecosystem domain.Ecosystem) []string {
 		// per package is negligible next to what skipping it costs for a
 		// monorepo whose registry metadata didn't report which
 		// subdirectory the target package actually lives in.
-		patterns = append(patterns, "package.json")
+		// *.d.ts is NORM-008's own structured-extraction input — small,
+		// declaration-only files (no implementation), cheap to always
+		// fetch. Unlike godoc's *.go, this is deliberately NOT the whole
+		// story: a package with no .d.ts at all (the JSDoc-only fallback
+		// NORM-008's ticket defers) still only gets README/CHANGELOG/
+		// LICENSE content today — see that ticket's own Non-goals.
+		patterns = append(patterns, "package.json", "*.d.ts")
+	}
+	if ecosystem == domain.EcosystemPython {
+		// *.py/*.pyi are NORM-009's own structured-extraction input.
+		// Unlike npm's typical deep node_modules-style implementation
+		// tree, a published PyPI package's own source is usually flat
+		// and bounded (closer to a Go module's own shape than a Node
+		// package's), so fetching it broadly — rather than needing an
+		// entry-point-only two-phase acquisition the way NORM-008's
+		// deferred JSDoc fallback would — is a reasonable, direct
+		// analog of *.go's own precedent above.
+		patterns = append(patterns, "*.py", "*.pyi")
 	}
 	return patterns
 }

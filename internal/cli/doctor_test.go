@@ -229,6 +229,55 @@ func TestDoctorFlagsDanglingActivePointer(t *testing.T) {
 	}
 }
 
+// TestDoctorFlagsEmptyActiveGeneration is POINT-003's own regression
+// test: an ACTIVE generation whose manifest/replica/bbolt state all look
+// fine (the fixture's other checks all stay OK) but whose points were
+// silently overwritten by a sibling — the exact pre-POINT-001 failure
+// class — must be caught even though nothing else in the pipeline
+// noticed anything wrong.
+func TestDoctorFlagsEmptyActiveGeneration(t *testing.T) {
+	env := healthyDoctorEnv(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/healthz":
+			return
+		case strings.HasSuffix(r.URL.Path, "/points/count"):
+			json.NewEncoder(w).Encode(map[string]any{"result": map[string]any{"count": 0}, "status": "ok"})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	env.cfg.Vector.Endpoint = srv.URL
+
+	r := resultNamed(t, runChecks(context.Background(), env), "empty active generations")
+	if r.Severity != SeverityUnhealthy || !strings.Contains(r.Detail, "pkg-a") || !strings.Contains(r.Detail, "0 points") {
+		t.Errorf("empty active generations = %s (%s), want UNHEALTHY naming pkg-a and 0 points", r.Severity, r.Detail)
+	}
+}
+
+// TestDoctorEmptyActiveGenerationsSkipsGenerationsWithNoChunks covers the
+// deliberate scope limit: a generation whose own manifest already
+// claims zero chunks (nothing to embed at all — an edge case, not a
+// bug) must never be flagged just because the backend also has zero
+// points for it.
+func TestDoctorEmptyActiveGenerationsSkipsGenerationsWithNoChunks(t *testing.T) {
+	ctx := context.Background()
+	env := healthyDoctorEnv(t)
+	// A generation whose own manifest already claims zero chunks (the
+	// fixture's pre-seeded pkg-a keeps its normal, nonzero 5) — the
+	// backend below reports a nonzero count for every generation, so if
+	// this generation gets flagged anyway, that would mean the check
+	// wrongly queried the backend for it at all, not just wrongly
+	// interpreted the result.
+	seedActiveGeneration(t, env.store, env.badger, domain.EcosystemGo, "pkg-empty", "1.0.0", 0)
+
+	r := resultNamed(t, runChecks(ctx, env), "empty active generations")
+	if r.Severity != SeverityOK || strings.Contains(r.Detail, "pkg-empty") {
+		t.Errorf("empty active generations = %s (%s), want OK and not naming pkg-empty (its manifest claims 0 chunks — nothing to have points for)", r.Severity, r.Detail)
+	}
+}
+
 func TestDoctorEmbeddingModelMismatchIsUnhealthy(t *testing.T) {
 	env := healthyDoctorEnv(t)
 	env.cfg.Embedding.Model = "some-newer-model"

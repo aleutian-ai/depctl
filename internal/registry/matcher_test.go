@@ -16,6 +16,40 @@ func loadBuiltinRegistry(t *testing.T) *Registry {
 	return reg
 }
 
+// TestFastapiManifestUsesVerifiedRefTemplatesNotABareVPrefixedRef is the
+// regression for a live-found bug in the curated seed manifest itself:
+// fastapi/fastapi tags releases as bare "X.Y.Z" — of its entire tag
+// history, exactly one release ("v0.1.16") has a "v" prefix, every real
+// version since does not (verified live via `git ls-remote --tags`,
+// e.g. 0.115.8) — so the old singular `ref: "v${version}"` silently
+// failed acquisition for virtually every real version. Both candidates
+// are now tried, each verified to actually resolve before being trusted,
+// same principle as REG-012/013's fallback manifests applied to a
+// hand-curated one.
+func TestFastapiManifestUsesVerifiedRefTemplatesNotABareVPrefixedRef(t *testing.T) {
+	reg := loadBuiltinRegistry(t)
+	m, ok := reg.Match(domain.EcosystemPython, "fastapi")
+	if !ok {
+		t.Fatal("Match returned false for fastapi")
+	}
+	if len(m.Sources) == 0 || m.Sources[0].ID != "repository" {
+		t.Fatalf("Sources = %+v, want a repository source first", m.Sources)
+	}
+	src := m.Sources[0]
+	if src.Ref != "" {
+		t.Errorf("repository source Ref = %q, want empty — RefTemplates must be used instead of a single unverified guess", src.Ref)
+	}
+	want := []string{"${version}", "v${version}"}
+	if len(src.RefTemplates) != len(want) {
+		t.Fatalf("RefTemplates = %v, want %v", src.RefTemplates, want)
+	}
+	for i, w := range want {
+		if src.RefTemplates[i] != w {
+			t.Errorf("RefTemplates[%d] = %q, want %q (order matters: the real, current convention tried first)", i, src.RefTemplates[i], w)
+		}
+	}
+}
+
 func TestMatchExactGoModule(t *testing.T) {
 	reg := loadBuiltinRegistry(t)
 	m, ok := reg.Match(domain.EcosystemGo, "google.golang.org/grpc")

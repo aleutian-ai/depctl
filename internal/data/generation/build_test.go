@@ -24,6 +24,20 @@ func requireGit(t *testing.T) {
 	}
 }
 
+func requireNode(t *testing.T) {
+	t.Helper()
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node not on PATH")
+	}
+}
+
+func requirePython(t *testing.T) {
+	t.Helper()
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not on PATH")
+	}
+}
+
 func runGit(t *testing.T, dir string, args ...string) {
 	t.Helper()
 	cmd := exec.Command("git", args...)
@@ -583,6 +597,137 @@ func TestBuildDiscoversNodeSubdirWhenRegistryOmitsDirectory(t *testing.T) {
 	}
 	if !sawOwn {
 		t.Error("never indexed @scope/api's own README — discovery should have scoped the worktree to api/")
+	}
+}
+
+// TestBuildExtractsStructuredTypeScriptDocsAndNeverLeaksASiblingsSymbols
+// is NORM-008's own golden-fixture acceptance test: real exported
+// signatures/docs extracted correctly, a private class member excluded,
+// and — reusing the exact monorepo shape TestBuildDiscoversNodeSubdirWhen
+// RegistryOmitsDirectory already proved acquisition-scopes correctly —
+// a sibling package's own exported symbols must never appear in this
+// dependency's structured content either.
+func TestBuildExtractsStructuredTypeScriptDocsAndNeverLeaksASiblingsSymbols(t *testing.T) {
+	requireGit(t)
+	requireNode(t)
+	ctx := context.Background()
+
+	dir := t.TempDir()
+	runGit(t, dir, "init", "-q", "-b", "main")
+	writeFile(t, dir, "api/package.json", `{"name": "@scope/api", "types": "index.d.ts"}`)
+	writeFile(t, dir, "api/index.d.ts", "/**\n * Do performs the api package's core action.\n */\nexport declare function Do(x: string): number;\n")
+	writeFile(t, dir, "core/package.json", `{"name": "@scope/core", "types": "index.d.ts"}`)
+	writeFile(t, dir, "core/index.d.ts", "/**\n * SiblingOnly must never appear in @scope/api's own structured docs.\n */\nexport declare function SiblingOnly(): void;\n")
+	runGit(t, dir, "add", ".")
+	runGit(t, dir, "commit", "-q", "-m", "initial")
+	runGit(t, dir, "tag", "v1.0.0")
+
+	store, badgerStore := testStores(t)
+	gitCache := git.NewCache(t.TempDir())
+	dep := domain.DependencyVersion{
+		Dependency: domain.Dependency{Ecosystem: domain.EcosystemNode, Name: "@scope/api"},
+		Version:    "v1.0.0",
+	}
+	sources := []registry.Source{{ID: "repository", Type: "git", URL: dir, Ref: "v${version}", Authority: 100}}
+	gen, err := Create(ctx, store, badgerStore, dep)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if err := Build(ctx, gen, sources, gitCache, store, badgerStore); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	chunks, err := badgerStore.ListGenerationChunks(ctx, gen.ID)
+	if err != nil {
+		t.Fatalf("ListGenerationChunks: %v", err)
+	}
+	var sawDo, sawSibling bool
+	for _, c := range chunks {
+		obj, err := badgerStore.GetKnowledgeObject(ctx, c.ObjectID)
+		if err != nil {
+			continue
+		}
+		if obj.ContentType != "symbol_doc" {
+			continue
+		}
+		if obj.Title == "Do" && strings.Contains(string(obj.Content), "performs the api package's core action") {
+			sawDo = true
+		}
+		if obj.Title == "SiblingOnly" || strings.Contains(string(obj.Content), "must never appear") {
+			sawSibling = true
+		}
+	}
+	if !sawDo {
+		t.Error("never extracted @scope/api's own Do() signature/doc — structured extraction didn't run")
+	}
+	if sawSibling {
+		t.Error("@scope/core's SiblingOnly symbol leaked into @scope/api's structured docs")
+	}
+}
+
+// TestBuildExtractsStructuredPythonDocsThroughTheFullPipeline is
+// NORM-009's own golden-fixture acceptance test, run through real
+// acquisition/chunking/storage rather than just the pydoc package's own
+// unit tests: real exported signatures/docstrings extracted correctly, a
+// private (underscore-prefixed) symbol excluded, and a single-hop
+// relative-import re-export resolved correctly. No sibling-package-leak
+// variant here (unlike the Node case above) — REG-013's own Non-goals
+// state Python has no Subdir/monorepo-directory support at all yet, so
+// there is no dynamic scoping step that could leak a sibling's content
+// the way discoverNodeSubdir's absence could for Node; this fixture is a
+// straightforward single-package repo, the shape every real PyPI package
+// syncs as today.
+func TestBuildExtractsStructuredPythonDocsThroughTheFullPipeline(t *testing.T) {
+	requireGit(t)
+	requirePython(t)
+	ctx := context.Background()
+
+	dir := t.TempDir()
+	runGit(t, dir, "init", "-q", "-b", "main")
+	writeFile(t, dir, "__init__.py", "\"\"\"The widget package does something useful.\"\"\"\n\n__all__ = [\"Do\", \"Reexported\"]\n\n\ndef Do(x: str) -> int:\n    \"\"\"Do performs the widget's core action.\"\"\"\n    return len(x)\n\n\ndef _internal() -> None:\n    \"\"\"Must never appear.\"\"\"\n    pass\n\n\nfrom .core import Reexported\n")
+	writeFile(t, dir, "core.py", "def Reexported() -> str:\n    \"\"\"Reexported lives in a sibling module.\"\"\"\n    return \"ok\"\n")
+	runGit(t, dir, "add", ".")
+	runGit(t, dir, "commit", "-q", "-m", "initial")
+	runGit(t, dir, "tag", "1.0.0")
+
+	store, badgerStore := testStores(t)
+	gitCache := git.NewCache(t.TempDir())
+	dep := domain.DependencyVersion{
+		Dependency: domain.Dependency{Ecosystem: domain.EcosystemPython, Name: "widget"},
+		Version:    "1.0.0",
+	}
+	sources := []registry.Source{{ID: "repository", Type: "git", URL: dir, Ref: "${version}", Authority: 100}}
+	gen, err := Create(ctx, store, badgerStore, dep)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if err := Build(ctx, gen, sources, gitCache, store, badgerStore); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	chunks, err := badgerStore.ListGenerationChunks(ctx, gen.ID)
+	if err != nil {
+		t.Fatalf("ListGenerationChunks: %v", err)
+	}
+	byTitle := map[string]domain.KnowledgeObject{}
+	for _, c := range chunks {
+		obj, err := badgerStore.GetKnowledgeObject(ctx, c.ObjectID)
+		if err != nil || obj.ContentType != "symbol_doc" {
+			continue
+		}
+		byTitle[obj.Title] = obj
+	}
+
+	if _, ok := byTitle["_internal"]; ok {
+		t.Error("_internal (not exported) must never appear")
+	}
+	do, ok := byTitle["Do"]
+	if !ok || !strings.Contains(string(do.Content), "performs the widget's core action") {
+		t.Errorf("Do = %+v, ok=%v", do, ok)
+	}
+	reexp, ok := byTitle["Reexported"]
+	if !ok || !strings.Contains(string(reexp.Content), "lives in a sibling module") {
+		t.Errorf("Reexported (single-hop re-export) = %+v, ok=%v", reexp, ok)
 	}
 }
 

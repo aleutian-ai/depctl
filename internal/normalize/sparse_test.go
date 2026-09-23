@@ -63,6 +63,19 @@ func TestSparsePatternsIncludesPackageJSONForNodeBoundaryDetection(t *testing.T)
 	}
 }
 
+// TestSparsePatternsIncludesDTSForNode covers NORM-008's own input: the
+// tsdoc normalizer needs .d.ts present in the checked-out worktree.
+func TestSparsePatternsIncludesDTSForNode(t *testing.T) {
+	nodePatterns := SparsePatterns(domain.EcosystemNode)
+	if !contains(nodePatterns, "*.d.ts") {
+		t.Errorf("SparsePatterns(node) = %v, want it to include *.d.ts", nodePatterns)
+	}
+	goPatterns := SparsePatterns(domain.EcosystemGo)
+	if contains(goPatterns, "*.d.ts") {
+		t.Errorf("SparsePatterns(go) = %v, want it to NOT include *.d.ts", goPatterns)
+	}
+}
+
 func contains(patterns []string, p string) bool {
 	for _, x := range patterns {
 		if x == p {
