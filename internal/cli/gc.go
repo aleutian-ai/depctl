@@ -18,24 +18,25 @@ import (
 )
 
 func newGCCmd() *cobra.Command {
-	var dryRun bool
+	var dryRun, orphans bool
 	cmd := &cobra.Command{
 		Use:   "gc",
 		Short: "Garbage-collect unreferenced versions",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runGC(cmd, dryRun)
+			return runGC(cmd, dryRun, orphans)
 		},
 	}
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "print GC candidates without deleting anything")
+	cmd.Flags().BoolVar(&orphans, "orphans", false, "target FAILED/stuck generations instead of unreferenced versions (see GC-001)")
 	return cmd
 }
 
-func runGC(cmd *cobra.Command, dryRun bool) error {
+func runGC(cmd *cobra.Command, dryRun, orphans bool) error {
 	c, err := ensureDaemon(cmd.Context())
 	if err != nil {
 		return err
 	}
-	res, err := c.GC(cmd.Context(), dryRun, cmd.OutOrStdout())
+	res, err := c.GC(cmd.Context(), dryRun, orphans, cmd.OutOrStdout())
 	if err != nil {
 		return err
 	}
@@ -87,6 +88,58 @@ func RunGC(ctx context.Context, store *bboltstore.Store, badgerStore *badgerstor
 		} else {
 			result.Failed++
 			fmt.Fprintf(out, "FAIL  %s %s: %s\n", r.Candidate.Package, r.Candidate.Version, r.Error)
+		}
+	}
+
+	fmt.Fprintf(out, "\n%d deleted, %d failed\n", result.Deleted, result.Failed)
+	return result, nil
+}
+
+// RunOrphanGC plans and executes GC-001/GC-002/GC-003's orphan-
+// generation cleanup — a separate eligibility path from RunGC's
+// reference-based one, never combined into the same report or deletion
+// run (see docs/tickets/planned/22-orphan-lifecycle-gc). It runs inside
+// the daemon, against the stores it holds open, exactly like RunGC.
+func RunOrphanGC(ctx context.Context, store *bboltstore.Store, badgerStore *badgerstore.Store, cfg config.Config, dryRun bool, out io.Writer, vecReadiness *vectorReadiness) (api.GCResult, error) {
+	candidates, err := retention.PlanOrphanGC(ctx, store, cfg.Vector.Backend, cfg.Retention.OrphanAge, time.Now())
+	if err != nil {
+		return api.GCResult{}, fmt.Errorf("plan orphan GC: %w", err)
+	}
+
+	result := api.GCResult{Candidates: len(candidates), DryRun: dryRun}
+	if len(candidates) == 0 {
+		fmt.Fprintln(out, "nothing eligible for orphan garbage collection")
+		return result, nil
+	}
+	for _, c := range candidates {
+		fmt.Fprintf(out, "%-8s %-45s %-15s %-8s %-16s %s\n", c.Ecosystem, c.Package, c.Version, c.State, c.Reason, c.GenerationID)
+	}
+
+	if dryRun {
+		return result, nil
+	}
+
+	if err := vecReadiness.checkReady(); err != nil {
+		return result, err
+	}
+	vb, err := buildVectorBackend(cfg)
+	if err != nil {
+		return result, err
+	}
+	ns := backend.Namespace{Name: cfg.Vector.Collection}
+
+	results, err := gc.RunOrphans(ctx, store, badgerStore, vb, ns, candidates)
+	if err != nil {
+		return result, fmt.Errorf("run orphan GC: %w", err)
+	}
+
+	for _, r := range results {
+		if r.Succeeded {
+			result.Deleted++
+			fmt.Fprintf(out, "OK    %s %s %s\n", r.Candidate.Package, r.Candidate.Version, r.Candidate.GenerationID)
+		} else {
+			result.Failed++
+			fmt.Fprintf(out, "FAIL  %s %s %s: %s\n", r.Candidate.Package, r.Candidate.Version, r.Candidate.GenerationID, r.Error)
 		}
 	}
 

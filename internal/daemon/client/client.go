@@ -42,8 +42,8 @@ var (
 	// large registered fleet.
 	describeRequestTimeout = 10 * time.Minute
 
-	// longRunningRequestTimeout bounds Resolve/Sync/GC, the streamed
-	// calls that legitimately run long. Set a safety margin above the
+	// longRunningRequestTimeout bounds Resolve/GC, the streamed calls
+	// that legitimately run long. Set a safety margin above the
 	// daemon's own ceiling (maxActionDuration, internal/daemon/
 	// scheduler.go) rather than leaving the client with no bound at
 	// all: the server already promises to finish or fail within
@@ -52,6 +52,19 @@ var (
 	// in practice. Resolve (scan) has no server-side ceiling of its own
 	// yet, so it shares this generous bound too rather than the default.
 	longRunningRequestTimeout = 35 * time.Minute
+
+	// syncTimeout bounds Sync specifically, separately from
+	// longRunningRequestTimeout as of epic 53/COORD-003: the daemon's
+	// own execute() no longer imposes any aggregate ceiling on a sync
+	// run at all (STRESS-005 found the old shared one was the wrong
+	// granularity for a large batch — see execute's own comment), so
+	// matching this client-side bound to it would just reintroduce the
+	// exact same problem one layer up. The real protection is now
+	// per-dependency (RunSync's own dependencySyncTimeout), so this only
+	// needs to be generous enough for a genuinely large real project's
+	// full batch to complete — sized from STRESS-005/COORD-003's own
+	// live terraform benchmark, not guessed.
+	syncTimeout = 4 * time.Hour
 )
 
 // Client is a connection to one daemon socket. It is safe for
@@ -127,10 +140,20 @@ func (c *Client) Resolve(ctx context.Context, root string, out io.Writer) (api.R
 
 // Sync runs a sync in the daemon, relaying progress to out.
 func (c *Client) Sync(ctx context.Context, req api.SyncRequest, out io.Writer) (api.SyncResponse, error) {
-	ctx, cancel := context.WithTimeout(ctx, longRunningRequestTimeout)
+	ctx, cancel := context.WithTimeout(ctx, syncTimeout)
 	defer cancel()
 	var res api.SyncResponse
 	err := c.stream(ctx, api.PathSync, req, out, &res)
+	return res, err
+}
+
+// SyncProgress returns projectID's sync progress: live counters while a
+// run is in flight, the last run's afterwards (all zero if it never ran).
+func (c *Client) SyncProgress(ctx context.Context, projectID string) (api.SyncProgress, error) {
+	ctx, cancel := context.WithTimeout(ctx, defaultRequestTimeout)
+	defer cancel()
+	var res api.SyncProgress
+	err := c.do(ctx, http.MethodPost, api.PathSyncProgress, api.SyncProgressRequest{ProjectID: projectID}, &res)
 	return res, err
 }
 
@@ -157,11 +180,13 @@ func (c *Client) Plan(ctx context.Context, projectID string, plans any) error {
 }
 
 // GC runs garbage collection in the daemon, relaying progress to out.
-func (c *Client) GC(ctx context.Context, dryRun bool, out io.Writer) (api.GCResult, error) {
+// orphans selects GC-001/GC-002's orphan-generation path instead of the
+// default reference-based one — never both in the same call.
+func (c *Client) GC(ctx context.Context, dryRun, orphans bool, out io.Writer) (api.GCResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, longRunningRequestTimeout)
 	defer cancel()
 	var res api.GCResult
-	err := c.stream(ctx, api.PathGC, api.GCRequest{DryRun: dryRun}, out, &res)
+	err := c.stream(ctx, api.PathGC, api.GCRequest{DryRun: dryRun, Orphans: orphans}, out, &res)
 	return res, err
 }
 

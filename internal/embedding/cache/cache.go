@@ -5,10 +5,12 @@ package cache
 
 import (
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"sync"
 
 	dchunk "aleutian-ai/ragctl/internal/data/chunk"
@@ -55,9 +57,46 @@ func (c *CachingEmbedder) Counts() (reused, generated int) {
 	return c.reused, c.made
 }
 
-// cacheEntry is the JSON value stored per cache key.
+// cacheEntry is the legacy JSON value stored per cache key; new entries
+// are written in binaryVectorTag form (see encodeVector) but old ones
+// still decode.
 type cacheEntry struct {
 	Vector []float32 `json:"vector"`
+}
+
+// binaryVectorTag prefixes a binary-encoded vector. A legacy JSON entry
+// always starts with '{', so the two forms can't be confused.
+const binaryVectorTag = 0x01
+
+// encodeVector packs v as tag + little-endian float32s: 4 bytes per
+// dimension, against roughly 10 as JSON text.
+func encodeVector(v []float32) []byte {
+	out := make([]byte, 1+4*len(v))
+	out[0] = binaryVectorTag
+	for i, f := range v {
+		binary.LittleEndian.PutUint32(out[1+4*i:], math.Float32bits(f))
+	}
+	return out
+}
+
+// decodeVector reads either encoding.
+func decodeVector(data []byte) ([]float32, error) {
+	if len(data) > 0 && data[0] == binaryVectorTag {
+		body := data[1:]
+		if len(body)%4 != 0 {
+			return nil, fmt.Errorf("binary vector length %d is not a multiple of 4", len(body))
+		}
+		v := make([]float32, len(body)/4)
+		for i := range v {
+			v[i] = math.Float32frombits(binary.LittleEndian.Uint32(body[4*i:]))
+		}
+		return v, nil
+	}
+	var entry cacheEntry
+	if err := json.Unmarshal(data, &entry); err != nil {
+		return nil, err
+	}
+	return entry.Vector, nil
 }
 
 // Embed returns one vector per text, in the same order as texts,
@@ -77,11 +116,10 @@ func (c *CachingEmbedder) Embed(ctx context.Context, texts []string) ([][]float3
 		key := cacheKey(text, provider, model)
 		data, err := c.store.GetEmbeddingMetadata(ctx, key)
 		if err == nil {
-			var entry cacheEntry
-			if err := json.Unmarshal(data, &entry); err != nil {
+			if vec, err := decodeVector(data); err != nil {
 				log.Printf("embedding cache: corrupt entry for key %s: %v (treating as miss)", key, err)
 			} else {
-				out[i] = entry.Vector
+				out[i] = vec
 				continue
 			}
 		} else if !errors.Is(err, badger.ErrNotFound) {
@@ -96,21 +134,23 @@ func (c *CachingEmbedder) Embed(ctx context.Context, texts []string) ([][]float3
 		if err != nil {
 			return nil, fmt.Errorf("embedding cache: inner embed: %w", err)
 		}
-		writeBroken := false
+		batch := c.store.NewBatch()
+		defer batch.Cancel()
+		writeFailed := false
 		for j, idx := range missIdx {
 			out[idx] = vecs[j]
-			if writeBroken {
+			if writeFailed {
 				continue
 			}
 			key := cacheKey(texts[idx], provider, model)
-			data, err := json.Marshal(cacheEntry{Vector: vecs[j]})
-			if err != nil {
-				log.Printf("embedding cache: encode entry for key %s: %v", key, err)
-				continue
-			}
-			if err := c.store.PutEmbeddingMetadata(ctx, key, data); err != nil {
+			if err := batch.PutEmbeddingMetadata(key, encodeVector(vecs[j])); err != nil {
 				log.Printf("embedding cache: write error for key %s: %v (skipping cache writes for the rest of this batch)", key, err)
-				writeBroken = true
+				writeFailed = true
+			}
+		}
+		if !writeFailed {
+			if err := batch.Flush(); err != nil {
+				log.Printf("embedding cache: commit error: %v (vectors are still returned, just not cached)", err)
 			}
 		}
 	}

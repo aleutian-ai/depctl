@@ -136,6 +136,7 @@ func TestPlanGCDeterministicGivenSameState(t *testing.T) {
 type fakeStore struct {
 	refs   map[string]domain.VersionReference // key: eco|pkg|version|projectID|reason
 	active map[string]domain.Generation       // key: eco|pkg|backendName
+	gens   []domain.Generation                // GC-001's PlanOrphanGC tests populate this
 }
 
 func newFakeStore() *fakeStore {
@@ -188,6 +189,10 @@ func (s *fakeStore) GetActiveGeneration(ctx context.Context, ecosystem domain.Ec
 		return domain.Generation{}, errNotFound
 	}
 	return g, nil
+}
+
+func (s *fakeStore) ListAllGenerations(ctx context.Context) ([]domain.Generation, error) {
+	return s.gens, nil
 }
 
 var errNotFound = &notFoundError{}

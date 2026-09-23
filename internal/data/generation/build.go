@@ -2,10 +2,12 @@ package generation
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -70,7 +72,7 @@ func Build(ctx context.Context, gen domain.Generation, sources []registry.Source
 		return err
 	}
 
-	acquired, err := acquireGitSources(ctx, gitCache, gen.Dependency.Version, gen.Dependency.Dependency.Ecosystem, sources)
+	acquired, err := acquireGitSources(ctx, gitCache, gen.Dependency.Dependency.Name, gen.Dependency.Version, gen.Dependency.Dependency.Ecosystem, sources)
 	defer cleanupAll(acquired)
 	if err != nil {
 		fail(ctx, store, &gen, err.Error())
@@ -110,15 +112,15 @@ func Build(ctx context.Context, gen domain.Generation, sources []registry.Source
 // (source trees in other languages, binary assets, vendored
 // dependencies) is never fetched at all, not just skipped during
 // normalization.
-func acquireGitSources(ctx context.Context, gitCache *git.Cache, version string, ecosystem domain.Ecosystem, sources []registry.Source) ([]acquiredSource, error) {
-	patterns := normalize.SparsePatterns(ecosystem)
+func acquireGitSources(ctx context.Context, gitCache *git.Cache, depName, version string, ecosystem domain.Ecosystem, sources []registry.Source) ([]acquiredSource, error) {
+	basePatterns := normalize.SparsePatterns(ecosystem)
 	var acquired []acquiredSource
 	for _, s := range sources {
 		if s.Type != "git" {
 			continue
 		}
 
-		ref, err := gitRef(s, version)
+		refs, err := refCandidates(s, version)
 		if err != nil {
 			return acquired, fmt.Errorf("%w: source %s: %v", ErrAcquisition, s.ID, err)
 		}
@@ -128,19 +130,97 @@ func acquireGitSources(ctx context.Context, gitCache *git.Cache, version string,
 			return acquired, fmt.Errorf("%w: source %s: mirror: %v", ErrAcquisition, s.ID, err)
 		}
 
-		commit, err := gitCache.ResolveRef(ctx, repoPath, ref)
+		commit, err := resolveFirstRef(ctx, gitCache, repoPath, refs)
 		if err != nil {
-			return acquired, fmt.Errorf("%w: source %s: resolve ref %q: %v", ErrAcquisition, s.ID, ref, err)
+			// A cached mirror never learns of tags created after it was
+			// cloned, so a version released since then looks missing:
+			// refresh tags once and try again before giving up.
+			if fetchErr := gitCache.FetchTags(ctx, repoPath); fetchErr == nil {
+				commit, err = resolveFirstRef(ctx, gitCache, repoPath, refs)
+			}
+		}
+		if err != nil {
+			return acquired, fmt.Errorf("%w: source %s: resolve %s: %v", ErrAcquisition, s.ID, strings.Join(refs, " or "), err)
 		}
 
-		worktreeDir, cleanup, err := gitCache.MaterializeWorktree(ctx, repoPath, commit, patterns)
+		subdir := s.Subdir
+		if subdir == "" && ecosystem == domain.EcosystemNode {
+			// npm's registry "directory" field (the only source Subdir is
+			// ever derived from for Node) is sometimes simply absent even
+			// for a package that genuinely lives in a subdirectory of a
+			// real monorepo (confirmed live: @opentelemetry/api in
+			// open-telemetry/opentelemetry-js). Unlike Go, whose import
+			// path IS the directory, npm gives no structural way to know
+			// this from the package name alone — so find it the same way
+			// a person would: search the tree for the package.json that
+			// actually claims this name.
+			found, findErr := discoverNodeSubdir(ctx, gitCache, repoPath, commit, depName)
+			if findErr == nil {
+				subdir = found
+			}
+		}
+
+		worktreeDir, cleanup, err := gitCache.MaterializeWorktree(ctx, repoPath, commit, normalize.ScopeToSubdir(basePatterns, subdir))
 		if err != nil {
 			return acquired, fmt.Errorf("%w: source %s: worktree: %v", ErrAcquisition, s.ID, err)
+		}
+		if subdir != "" {
+			// A module inside a monorepo owns only its own directory;
+			// walking from the repo root would index every sibling
+			// module's content under this dependency.
+			scoped := filepath.Join(worktreeDir, filepath.FromSlash(subdir))
+			if info, statErr := os.Stat(scoped); statErr != nil || !info.IsDir() {
+				cleanup()
+				return acquired, fmt.Errorf("%w: source %s: subdir %q not found at commit %s", ErrAcquisition, s.ID, subdir, commit)
+			}
+			worktreeDir = scoped
 		}
 
 		acquired = append(acquired, acquiredSource{source: s, worktreeDir: worktreeDir, commit: commit, cleanup: cleanup})
 	}
 	return acquired, nil
+}
+
+// discoverNodeSubdir searches repoPath's tree at commit for the
+// package.json that actually declares depName, structurally rather than
+// trusting npm registry metadata (which sometimes omits "directory" even
+// for a genuine monorepo package — see acquireGitSources). A root-level
+// match returns "" (not a monorepo); no match returns "" too, since
+// there's nothing more specific to scope to — the walk-time check in
+// normalizeSources (packageJSONBoundary) is the remaining safety net in
+// that case.
+func discoverNodeSubdir(ctx context.Context, gitCache *git.Cache, repoPath, commit, depName string) (string, error) {
+	paths, err := gitCache.ListFiles(ctx, repoPath, commit, "package.json")
+	if err != nil {
+		return "", err
+	}
+	for _, p := range paths {
+		content, readErr := gitCache.ReadFile(ctx, repoPath, commit, p)
+		if readErr != nil {
+			continue
+		}
+		name, ok := packageJSONName(content)
+		if !ok || name != depName {
+			continue
+		}
+		dir := strings.TrimSuffix(p, "/package.json")
+		if dir == "package.json" {
+			return "", nil
+		}
+		return dir, nil
+	}
+	return "", nil
+}
+
+// packageJSONName extracts the "name" field from raw package.json content.
+func packageJSONName(content []byte) (string, bool) {
+	var doc struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(content, &doc); err != nil || doc.Name == "" {
+		return "", false
+	}
+	return doc.Name, true
 }
 
 // gitRef substitutes "${version}" in source.Ref with version, stripped of
@@ -153,6 +233,50 @@ func gitRef(source registry.Source, version string) (string, error) {
 	}
 	trimmed := strings.TrimPrefix(version, "v")
 	return strings.ReplaceAll(source.Ref, "${version}", trimmed), nil
+}
+
+// goPseudoVersion matches the tail of a Go pseudo-version
+// (vX.Y.Z-yyyymmddhhmmss-abcdef123456), which names a commit, not a tag.
+var goPseudoVersion = regexp.MustCompile(`\d{14}-([0-9a-f]{12})$`)
+
+// refCandidates lists the refs to try, in order, for version. A Go
+// pseudo-version names a commit (its last 12 hex digits), so that is the
+// ref; anything else uses the source's tag template. "+incompatible" is a
+// module-path marker, not part of the tag. There is deliberately no
+// fallback to a branch head: a version that resolves to different content
+// than its label says is worse than one that fails to acquire.
+func refCandidates(source registry.Source, version string) ([]string, error) {
+	version = strings.TrimSuffix(version, "+incompatible")
+	if len(source.RefTemplates) > 0 {
+		trimmed := strings.TrimPrefix(version, "v")
+		candidates := make([]string, len(source.RefTemplates))
+		for i, tmpl := range source.RefTemplates {
+			candidates[i] = strings.ReplaceAll(tmpl, "${version}", trimmed)
+		}
+		return candidates, nil
+	}
+	if m := goPseudoVersion.FindStringSubmatch(version); m != nil {
+		return []string{m[1]}, nil
+	}
+	ref, err := gitRef(source, version)
+	if err != nil {
+		return nil, err
+	}
+	return []string{ref}, nil
+}
+
+// resolveFirstRef returns the commit of the first ref that resolves in
+// the mirror.
+func resolveFirstRef(ctx context.Context, gitCache *git.Cache, repoPath string, refs []string) (string, error) {
+	var lastErr error
+	for _, ref := range refs {
+		commit, err := gitCache.ResolveRef(ctx, repoPath, ref)
+		if err == nil {
+			return commit, nil
+		}
+		lastErr = err
+	}
+	return "", lastErr
 }
 
 func cleanupAll(acquired []acquiredSource) {
@@ -179,6 +303,31 @@ func normalizeSources(ctx context.Context, dep domain.DependencyVersion, acquire
 			if d.IsDir() {
 				if skipDirNames[d.Name()] {
 					return filepath.SkipDir
+				}
+				// A subdirectory with its own go.mod is a separate Go
+				// module's root, not content belonging to dep — a real,
+				// large repo (e.g. google-cloud-go, whose root module
+				// resolves to a single file, doc.go, alongside 200+
+				// independently-versioned sibling modules in the same
+				// git repo) would otherwise have every sibling module's
+				// content normalized and attributed to dep, both wildly
+				// inflating chunk volume and mislabeling unrelated
+				// packages' docs as dep's own.
+				if path != a.worktreeDir && hasGoMod(path) {
+					return filepath.SkipDir
+				}
+				// Mirrors the go.mod boundary above for npm monorepos:
+				// discoverNodeSubdir (in acquireGitSources) already tries
+				// to scope the worktree to the right subdirectory, but
+				// this is the safety net for when it couldn't (registry
+				// metadata missing and no matching package.json found, or
+				// a nested package the discovery pass didn't reach) — a
+				// directory that names a *different* package than dep
+				// itself is never this dependency's content.
+				if dep.Dependency.Ecosystem == domain.EcosystemNode && path != a.worktreeDir {
+					if name, ok := packageJSONNameAt(path); ok && name != dep.Dependency.Name {
+						return filepath.SkipDir
+					}
 				}
 				if hasGoFiles(path) {
 					objs, err := normalizeOne(ctx, gd, a, path)
@@ -284,6 +433,23 @@ func hasGoFiles(dir string) bool {
 	return false
 }
 
+// hasGoMod reports whether dir directly contains a go.mod — marking it
+// as a separate Go module's root within a larger checked-out worktree.
+func hasGoMod(dir string) bool {
+	info, err := os.Stat(filepath.Join(dir, "go.mod"))
+	return err == nil && !info.IsDir()
+}
+
+// packageJSONNameAt reads dir's own package.json (if any) from the
+// checked-out worktree and returns its "name" field.
+func packageJSONNameAt(dir string) (string, bool) {
+	content, err := os.ReadFile(filepath.Join(dir, "package.json"))
+	if err != nil {
+		return "", false
+	}
+	return packageJSONName(content)
+}
+
 // indexObjects fingerprints, dedups (GEN-003), chunks, and stores every
 // object, updating gen's manifest counters as it goes.
 func indexObjects(ctx context.Context, gen domain.Generation, objects []domain.KnowledgeObject, badgerStore *badger.Store) error {
@@ -308,8 +474,17 @@ func indexObjects(ctx context.Context, gen domain.Generation, objects []domain.K
 	// count exceeds the distinct chunks actually staged and VAL-001's
 	// structural check fails every time.
 	writtenChunkIDs := map[string]bool{}
+
+	// Writes are batched into a few large commits (a per-value commit made
+	// a big generation pay thousands of them). A batch isn't readable
+	// until Flush, so identical objects within this call are deduped
+	// through storedByContent instead of the Badger content-hash index.
+	batch := badgerStore.NewBatch()
+	defer batch.Cancel()
+	storedByContent := map[string]string{}
+
 	for _, obj := range objects {
-		id, contentHash, reused, err := resolveObjectIdentity(ctx, badgerStore, gen, obj)
+		id, contentHash, reused, err := resolveObjectIdentity(ctx, badgerStore, storedByContent, gen, obj)
 		if err != nil {
 			return fmt.Errorf("%w: %v", ErrNormalization, err)
 		}
@@ -322,12 +497,13 @@ func indexObjects(ctx context.Context, gen domain.Generation, objects []domain.K
 			if err := obj.Validate(); err != nil {
 				return fmt.Errorf("%w: %v", ErrNormalization, err)
 			}
-			if err := badgerStore.PutKnowledgeObject(ctx, obj); err != nil {
+			if err := batch.PutKnowledgeObject(obj); err != nil {
 				return fmt.Errorf("%w: store object %s: %v", ErrNormalization, obj.ID, err)
 			}
-			if err := badgerStore.PutContentHashIndex(ctx, contentHash, obj.ID); err != nil {
+			if err := batch.PutContentHashIndex(contentHash, obj.ID); err != nil {
 				return fmt.Errorf("%w: index object %s: %v", ErrNormalization, obj.ID, err)
 			}
+			storedByContent[contentHash] = obj.ID
 			manifest.ObjectsCreated++
 		}
 		manifest.ObjectCount++
@@ -345,12 +521,16 @@ func indexObjects(ctx context.Context, gen domain.Generation, objects []domain.K
 			if writtenChunkIDs[c.ID] {
 				continue
 			}
-			if err := badgerStore.PutChunk(ctx, gen.ID, c); err != nil {
+			if err := batch.PutChunk(gen.ID, c, obj.Content); err != nil {
 				return fmt.Errorf("%w: store chunk %s: %v", ErrNormalization, c.ID, err)
 			}
 			writtenChunkIDs[c.ID] = true
 			manifest.ChunkCount++
 		}
+	}
+
+	if err := batch.Flush(); err != nil {
+		return fmt.Errorf("%w: commit staged objects and chunks: %v", ErrNormalization, err)
 	}
 
 	manifest.Sources = manifest.Sources[:0]
@@ -364,11 +544,14 @@ func indexObjects(ctx context.Context, gen domain.Generation, objects []domain.K
 // content hash, and reports whether an object with identical content
 // already exists (GEN-003) — in which case its existing ID is reused
 // instead of storing a duplicate payload.
-func resolveObjectIdentity(ctx context.Context, badgerStore *badger.Store, gen domain.Generation, obj domain.KnowledgeObject) (id, contentHash string, reused bool, err error) {
+func resolveObjectIdentity(ctx context.Context, badgerStore *badger.Store, storedByContent map[string]string, gen domain.Generation, obj domain.KnowledgeObject) (id, contentHash string, reused bool, err error) {
 	sourceIdentity := obj.SourceID + "@" + obj.Commit
 	digest := fingerprint.Fingerprint(sourceIdentity, obj.LogicalPath, obj.Metadata[normalizerNameKey], obj.Metadata[normalizerVersionKey], obj.Content)
 	contentHash = dchunk.ContentHash(obj.Content)
 
+	if existingID, ok := storedByContent[contentHash]; ok {
+		return existingID, contentHash, true, nil
+	}
 	if existingID, lookupErr := badgerStore.GetContentHashIndex(ctx, contentHash); lookupErr == nil {
 		return existingID, contentHash, true, nil
 	} else if lookupErr != badger.ErrNotFound {

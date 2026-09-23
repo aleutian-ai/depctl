@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"aleutian-ai/ragctl/internal/daemon/api"
 )
 
 // listenUnix starts a bare HTTP server on a fresh temp socket running
@@ -88,5 +90,39 @@ func TestSyncUsesLongerTimeoutThanDefault(t *testing.T) {
 	c := New(socket)
 	if _, err := c.Resolve(context.Background(), "/tmp/whatever", nil); err != nil {
 		t.Errorf("Resolve = %v, want it to survive a 300ms handler despite the 50ms default timeout (it should use longRunningRequestTimeout)", err)
+	}
+}
+
+// TestSyncUsesItsOwnLongerTimeout proves Sync uses its own syncTimeout,
+// separate from longRunningRequestTimeout as of epic 53/COORD-003 (the
+// daemon's own execute() no longer bounds a sync run's total duration —
+// STRESS-005 found that ceiling was the wrong granularity for a large
+// batch — so this client-side bound doesn't need to match it either).
+func TestSyncUsesItsOwnLongerTimeout(t *testing.T) {
+	originalDefault := defaultRequestTimeout
+	originalLong := longRunningRequestTimeout
+	originalSync := syncTimeout
+	defaultRequestTimeout = 50 * time.Millisecond
+	longRunningRequestTimeout = 50 * time.Millisecond
+	syncTimeout = 2 * time.Second
+	defer func() {
+		defaultRequestTimeout = originalDefault
+		longRunningRequestTimeout = originalLong
+		syncTimeout = originalSync
+	}()
+
+	// The handler takes longer than both defaultRequestTimeout and
+	// longRunningRequestTimeout, but finishes comfortably inside
+	// syncTimeout — proving Sync really uses its own bound, not either
+	// of the other two.
+	socket := listenUnix(t, func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(300 * time.Millisecond)
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"log":"done"}` + "\n" + `{"result":{"results":[]}}` + "\n"))
+	})
+
+	c := New(socket)
+	if _, err := c.Sync(context.Background(), api.SyncRequest{}, nil); err != nil {
+		t.Errorf("Sync = %v, want it to survive a 300ms handler despite both shorter timeouts (it should use syncTimeout)", err)
 	}
 }

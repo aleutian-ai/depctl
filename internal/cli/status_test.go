@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"aleutian-ai/ragctl/internal/daemon/api"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -9,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -181,6 +183,13 @@ func TestProbeBackend(t *testing.T) {
 
 // writeTestConfig saves cfg at the isolated default config path and
 // creates the data dir, as `ragctl init` would.
+// noAmbientSync writes the default test config (ambient sync disabled) for
+// a test that doesn't otherwise customize its config.
+func noAmbientSync(t *testing.T) {
+	t.Helper()
+	writeTestConfig(t, func(*config.Config) {})
+}
+
 func writeTestConfig(t *testing.T, mutate func(*config.Config)) {
 	t.Helper()
 	dataDir, err := config.DefaultDataDir()
@@ -191,6 +200,10 @@ func writeTestConfig(t *testing.T, mutate func(*config.Config)) {
 		t.Fatalf("MkdirAll data dir: %v", err)
 	}
 	cfg := config.Default(dataDir)
+	// Tests drive their own syncs and assert on the results; an automatic
+	// sync starting behind them (SCOPE-002) would race those assertions.
+	// Tests of the ambient behavior itself set this back to false.
+	cfg.Sync.DisableAmbient = true
 	mutate(&cfg)
 
 	path, err := config.DefaultConfigPath()
@@ -246,5 +259,34 @@ func TestFormatBytes(t *testing.T) {
 		if got := formatBytes(n); got != want {
 			t.Errorf("formatBytes(%d) = %q, want %q", n, got, want)
 		}
+	}
+}
+
+func TestStatusTextShowsSyncProgressWithChunkDetail(t *testing.T) {
+	var out bytes.Buffer
+	printStatusText(&out, Status{Syncs: []api.ProjectSync{{
+		ProjectID: "proj_a",
+		Root:      "/work/app",
+		SyncProgress: api.SyncProgress{
+			Syncing: true, Done: 412, Failed: 3, Total: 560,
+			InFlight: []api.InFlightDependency{
+				{Name: "example.com/big", ChunksDone: 1200, ChunksTotal: 4800},
+				{Name: "example.com/new"},
+			},
+		},
+	}}})
+	text := out.String()
+	for _, want := range []string{"1 running", "/work/app: 412 of 560 done, 3 failed", "building example.com/big: 1200 of 4800 chunks", "building example.com/new\n"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("status text missing %q:\n%s", want, text)
+		}
+	}
+}
+
+func TestStatusTextOmitsSyncsWhenIdle(t *testing.T) {
+	var out bytes.Buffer
+	printStatusText(&out, Status{})
+	if strings.Contains(out.String(), "syncs:") {
+		t.Errorf("idle status mentions syncs:\n%s", out.String())
 	}
 }

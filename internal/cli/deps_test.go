@@ -28,6 +28,7 @@ func TestDepsUnknownProject(t *testing.T) {
 
 func TestDepsListsResolvedDependencies(t *testing.T) {
 	isolateEnv(t)
+	noAmbientSync(t)
 	requireGo(t)
 	runInitForTest(t)
 	useRealRagctlBinary(t)

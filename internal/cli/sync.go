@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -30,25 +32,26 @@ import (
 )
 
 func newSyncCmd() *cobra.Command {
-	var projectID, dependency string
+	var projectID string
+	var dependencies []string
 	var dryRun, offline, force bool
 
 	cmd := &cobra.Command{
 		Use:   "sync",
 		Short: "Execute the sync plan",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runSync(cmd, projectID, dependency, dryRun, offline, force)
+			return runSync(cmd, projectID, dependencies, dryRun, offline, force)
 		},
 	}
 	cmd.Flags().StringVar(&projectID, "project", "", "limit to one project ID")
-	cmd.Flags().StringVar(&dependency, "dependency", "", "limit to one dependency name")
+	cmd.Flags().StringArrayVar(&dependencies, "dependency", nil, "limit to a dependency name (repeatable)")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "print the plan and exit without executing")
 	cmd.Flags().BoolVar(&offline, "offline", false, "skip actions that require network access")
 	cmd.Flags().BoolVar(&force, "force", false, "promote a candidate even if VAL-002 sanity thresholds fail (structural/version-correctness failures are never forceable)")
 	return cmd
 }
 
-func runSync(cmd *cobra.Command, projectID, dependency string, dryRun, offline, force bool) error {
+func runSync(cmd *cobra.Command, projectID string, dependencies []string, dryRun, offline, force bool) error {
 	c, err := ensureDaemon(cmd.Context())
 	if err != nil {
 		return err
@@ -63,7 +66,7 @@ func runSync(cmd *cobra.Command, projectID, dependency string, dryRun, offline, 
 		return nil
 	}
 
-	req := api.SyncRequest{ProjectID: projectID, Dependency: dependency, Offline: offline, Force: force}
+	req := api.SyncRequest{ProjectID: projectID, Dependencies: dependencies, Offline: offline, Force: force}
 	resp, err := c.Sync(cmd.Context(), req, cmd.OutOrStdout())
 	if err != nil {
 		return err
@@ -88,7 +91,32 @@ func runSync(cmd *cobra.Command, projectID, dependency string, dryRun, offline, 
 // own Badger store, since Badger only allows one open handle per
 // directory per process and the MCP server already holds one open for
 // query.Service's whole lifetime.
-func RunSync(ctx context.Context, store *bboltstore.Store, badgerStore *badgerstore.Store, cfg config.Config, projectID, dependency string, offline, force bool, out io.Writer, readiness *embeddingReadiness, vecReadiness *vectorReadiness, priority *daemon.SyncPriority) (synced, failed, skipped int, err error) {
+//
+// coordinator gates every actual generation build (ActionSyncVersion)
+// and every reference-state mutation (ActionAddReference/DropReference)
+// against concurrent GC and against duplicate builds of the identical
+// generation — see daemon.BuildCoordinator and epic 53/COORD-001..002.
+//
+// daemonSem, if non-nil, is a daemon-wide semaphore (SCOPE-002's known
+// risk: ambient sync fires per project, and each project's own worker
+// pool below is unaware of every other project's) — one shared channel
+// the daemon's single `engine` instance owns across every RunSync call
+// for every project, sized by cfg.Sync.MaxTotalConcurrency. A worker
+// acquires it only around the actual action (build+replicate — the
+// network/GPU-bound work), never around the cheap local queue pop, so
+// total concurrent action processing across the whole daemon stays
+// bounded regardless of how many projects are syncing at once. nil (the
+// CLI's own direct test/tool call sites that don't construct a daemon
+// engine) means uncapped, matching this function's pre-existing behavior.
+// syncActionConcurrencyHook, if set, runs once per action while its
+// daemonSem slot is held — test-only instrumentation for proving the
+// daemon-wide cap actually bounds concurrency across separate RunSync
+// calls (simulating separate projects, each with its own worker pool),
+// since neither an offline SYNC_VERSION skip nor reference bookkeeping
+// normally takes long enough to observably overlap on their own.
+var syncActionConcurrencyHook = func() {}
+
+func RunSync(ctx context.Context, coordinator *daemon.BuildCoordinator, store *bboltstore.Store, badgerStore *badgerstore.Store, cfg config.Config, projectID string, dependencies []string, offline, force bool, out io.Writer, readiness *embeddingReadiness, vecReadiness *vectorReadiness, priority *daemon.SyncPriority, progress *daemon.SyncProgress, daemonSem chan struct{}) (synced, failed, skipped int, err error) {
 	plans, err := computePlans(ctx, store, cfg.Vector.Backend, projectID)
 	if err != nil {
 		return 0, 0, 0, err
@@ -103,17 +131,23 @@ func RunSync(ctx context.Context, store *bboltstore.Store, badgerStore *badgerst
 	// The readiness check happens every call, not just when pipeline is
 	// nil, for the same reason fullQueryService's does: a "still
 	// pulling" result must never get treated as if it were the real,
-	// memoized pipeline build.
+	// memoized pipeline build. pipelineMu guards the lazy build itself
+	// (not the readiness checks, which can run concurrently) — COORD-003
+	// made getPipeline reachable from multiple worker goroutines at
+	// once, and an unguarded read/write of pipeline would race.
+	var pipelineMu sync.Mutex
 	var pipeline *syncPipeline
 	getPipeline := func() (*syncPipeline, error) {
-		if pipeline != nil {
-			return pipeline, nil
-		}
 		if err := readiness.checkReady(); err != nil {
 			return nil, err
 		}
 		if err := vecReadiness.checkReady(); err != nil {
 			return nil, err
+		}
+		pipelineMu.Lock()
+		defer pipelineMu.Unlock()
+		if pipeline != nil {
+			return pipeline, nil
 		}
 		embedder, err := buildEmbedder(cfg, badgerStore)
 		if err != nil {
@@ -153,65 +187,193 @@ func RunSync(ctx context.Context, store *bboltstore.Store, badgerStore *badgerst
 	// named dependency's SYNC_VERSION action to the very front of
 	// whatever's left, ahead of any other action kind too — "prioritize"
 	// means it runs next, not just next among other syncs.
-	var queue []planner.Action
+	actions := flattenActions(plans, dependencies, out)
+	progress.SetTotal(len(actions))
+
+	// N workers pull from the same queue concurrently (epic 53/
+	// COORD-003) — bounded by cfg.Sync.MaxConcurrency, defaulting to 2
+	// for a config predating this field (0 unmarshals as "unset", never
+	// rejected by Validate — see SyncConfig's own doc comment for why
+	// this default was chosen conservatively rather than measured to be
+	// optimal). A single-action JIT sync (len(actions) <= 1) never
+	// benefits from more than one worker regardless of this setting.
+	n := cfg.Sync.MaxConcurrency
+	if n < 1 {
+		n = 2
+	}
+	if n > len(actions) {
+		n = max(len(actions), 1)
+	}
+
+	queue := newSyncQueue(actions)
+	var mu, outMu sync.Mutex
+	writeLine := func(format string, args ...any) {
+		outMu.Lock()
+		defer outMu.Unlock()
+		fmt.Fprintf(out, format, args...)
+	}
+
+	var wg sync.WaitGroup
+	for range n {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				action, ok := queue.next(priority)
+				if !ok {
+					return
+				}
+				if daemonSem != nil {
+					daemonSem <- struct{}{}
+				}
+				syncActionConcurrencyHook()
+				s, f, sk := runSyncAction(ctx, coordinator, store, badgerStore, reg, getPipeline, action, offline, force, progress, writeLine)
+				if daemonSem != nil {
+					<-daemonSem
+				}
+				mu.Lock()
+				synced += s
+				failed += f
+				skipped += sk
+				mu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+
+	writeLine("\n%d synced, %d failed, %d skipped\n", synced, failed, skipped)
+	return synced, failed, skipped, nil
+}
+
+// syncQueue is a priority-bumpable action queue safe for concurrent
+// workers to pop from — the same WATCH-020 bump-to-front reordering
+// RunSync's previous single-consumer loop had, just synchronized now
+// that more than one goroutine drains it (epic 53/COORD-003).
+type syncQueue struct {
+	mu      sync.Mutex
+	actions []planner.Action
+}
+
+func newSyncQueue(actions []planner.Action) *syncQueue {
+	return &syncQueue{actions: actions}
+}
+
+// next drains any pending priority bumps, then pops the front action.
+// Reports false once the queue is empty — a worker's signal to exit.
+func (q *syncQueue) next(priority *daemon.SyncPriority) (planner.Action, bool) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	for _, dep := range priority.Drain() {
+		q.actions = bumpActionToFront(q.actions, dep)
+	}
+	if len(q.actions) == 0 {
+		return planner.Action{}, false
+	}
+	action := q.actions[0]
+	q.actions = q.actions[1:]
+	return action, true
+}
+
+// flattenActions orders every project's planned actions into one queue,
+// project by project, keeping only actions for the named dependencies
+// (all of them when dependencies is empty). A project with a warning
+// contributes the warning, not actions.
+func flattenActions(plans []projectPlan, dependencies []string, out io.Writer) []planner.Action {
+	wanted := make(map[string]bool, len(dependencies))
+	for _, name := range dependencies {
+		wanted[name] = true
+	}
+	var actions []planner.Action
 	for _, pp := range plans {
 		if pp.Warning != "" {
 			fmt.Fprintf(out, "%s: %s\n", pp.Project.Root, pp.Warning)
 			continue
 		}
 		for _, action := range pp.Actions {
-			if dependency != "" && action.Dependency.Dependency.Name != dependency {
+			if len(wanted) > 0 && !wanted[action.Dependency.Dependency.Name] {
 				continue
 			}
-			queue = append(queue, action)
+			actions = append(actions, action)
 		}
 	}
+	return actions
+}
 
-	for len(queue) > 0 {
-		for _, dep := range priority.Drain() {
-			queue = bumpActionToFront(queue, dep)
-		}
-		action := queue[0]
-		queue = queue[1:]
+// dependencySyncTimeout bounds one SYNC_VERSION action's own real work —
+// replacing the old whole-batch maxActionDuration ceiling as the thing
+// that actually bounds a single dependency (STRESS-005/epic 51's own
+// finding: a single huge dependency, alibaba-cloud-sdk-go-shaped,
+// shouldn't be able to starve every other worker sharing one aggregate
+// deadline). Each worker gets its own budget, independent of how long
+// the rest of the batch takes or how many other workers are running. A
+// var, not a const, so a test can shorten it (matches maxActionDuration's
+// own convention in internal/daemon/scheduler.go).
+var dependencySyncTimeout = 10 * time.Minute
 
-		switch action.Kind {
-		case planner.ActionSyncVersion:
-			if offline {
-				fmt.Fprintf(out, "SKIP (offline)  %s %s\n", action.Dependency.Dependency.Name, action.Dependency.Version)
-				skipped++
-				continue
-			}
-			p, perr := getPipeline()
-			if perr != nil {
-				fmt.Fprintf(out, "FAIL  %s %s: %v\n", action.Dependency.Dependency.Name, action.Dependency.Version, perr)
-				failed++
-				continue
-			}
-			if err := syncVersion(ctx, store, badgerStore, p.gitCache, p.embedder, p.vb, p.ns, reg, action, force); err != nil {
-				fmt.Fprintf(out, "FAIL  %s %s: %v\n", action.Dependency.Dependency.Name, action.Dependency.Version, err)
-				failed++
-				continue
-			}
-			fmt.Fprintf(out, "OK    %s %s\n", action.Dependency.Dependency.Name, action.Dependency.Version)
-			synced++
-
-		case planner.ActionAddReference:
-			if err := addReference(ctx, store, action); err != nil {
-				fmt.Fprintf(out, "FAIL  reference %s %s: %v\n", action.Dependency.Dependency.Name, action.Dependency.Version, err)
-				failed++
-			}
-
-		case planner.ActionDropReference:
-			dep := action.Dependency.Dependency
-			if err := retention.DropReference(ctx, store, dep.Ecosystem, dep.Name, action.Dependency.Version, action.ProjectID); err != nil {
-				fmt.Fprintf(out, "FAIL  drop reference %s: %v\n", action.Dependency.Dependency.Name, err)
-				failed++
-			}
-		}
+// runSyncAction runs one action to completion (never returning an error
+// itself — every outcome is written to out and reflected in its
+// synced/failed/skipped return, so one worker's failure can never
+// propagate into cancelling another's unrelated in-flight work, unlike
+// errgroup's default cancel-on-first-error behavior).
+func runSyncAction(ctx context.Context, coordinator *daemon.BuildCoordinator, store *bboltstore.Store, badgerStore *badgerstore.Store, reg *registry.Registry, getPipeline func() (*syncPipeline, error), action planner.Action, offline, force bool, progress *daemon.SyncProgress, writeLine func(string, ...any)) (synced, failed, skipped int) {
+	name := action.Dependency.Dependency.Name
+	if action.Kind == planner.ActionSyncVersion {
+		progress.Begin(name)
+		ctx = generation.WithProgress(ctx, func(done, total int) { progress.SetChunks(name, done, total) })
 	}
+	defer func() { progress.Finish(name, failed > 0) }()
 
-	fmt.Fprintf(out, "\n%d synced, %d failed, %d skipped\n", synced, failed, skipped)
-	return synced, failed, skipped, nil
+	switch action.Kind {
+	case planner.ActionSyncVersion:
+		if offline {
+			writeLine("SKIP (offline)  %s %s\n", action.Dependency.Dependency.Name, action.Dependency.Version)
+			return 0, 0, 1
+		}
+		p, perr := getPipeline()
+		if perr != nil {
+			writeLine("FAIL  %s %s: %v\n", action.Dependency.Dependency.Name, action.Dependency.Version, perr)
+			return 0, 1, 0
+		}
+		actionCtx, cancel := context.WithTimeout(ctx, dependencySyncTimeout)
+		defer cancel()
+		// coordinator.Build both excludes concurrent GC and coalesces
+		// any other concurrent request for this identical generation
+		// into this one real build (epic 53/COORD-001..002).
+		buildErr := coordinator.Build(action.Dependency, func() error {
+			return syncVersion(actionCtx, store, badgerStore, p.gitCache, p.embedder, p.vb, p.ns, reg, action, force)
+		})
+		if buildErr != nil {
+			writeLine("FAIL  %s %s: %v\n", action.Dependency.Dependency.Name, action.Dependency.Version, buildErr)
+			return 0, 1, 0
+		}
+		writeLine("OK    %s %s\n", action.Dependency.Dependency.Name, action.Dependency.Version)
+		return 1, 0, 0
+
+	case planner.ActionAddReference:
+		// PlanGC reads the references bucket directly, so this write
+		// needs the same GC exclusion a real build gets, even though
+		// there's no build identity here to coalesce.
+		refErr := coordinator.ProtectFromGC(func() error {
+			return addReference(ctx, store, action)
+		})
+		if refErr != nil {
+			writeLine("FAIL  reference %s %s: %v\n", action.Dependency.Dependency.Name, action.Dependency.Version, refErr)
+			return 0, 1, 0
+		}
+		return 0, 0, 0
+
+	case planner.ActionDropReference:
+		dep := action.Dependency.Dependency
+		dropErr := coordinator.ProtectFromGC(func() error {
+			return retention.DropReference(ctx, store, dep.Ecosystem, dep.Name, action.Dependency.Version, action.ProjectID)
+		})
+		if dropErr != nil {
+			writeLine("FAIL  drop reference %s: %v\n", action.Dependency.Dependency.Name, dropErr)
+			return 0, 1, 0
+		}
+		return 0, 0, 0
+	}
+	return 0, 0, 0
 }
 
 // bumpActionToFront moves the first SYNC_VERSION action for dependency
@@ -275,13 +437,47 @@ type syncPipeline struct {
 // hand-authored the YAML doesn't make the content itself less
 // authoritative, only its authority ranking, which is deliberately 0.
 func fallbackManifest(ctx context.Context, dep domain.Dependency) (registry.Manifest, bool) {
-	if dep.Ecosystem != domain.EcosystemGo {
+	switch dep.Ecosystem {
+	case domain.EcosystemGo:
+		return goFallbackManifest(ctx, dep)
+	case domain.EcosystemNode:
+		return npmFallbackManifest(ctx, dep)
+	case domain.EcosystemPython:
+		return pypiFallbackManifest(ctx, dep)
+	default:
 		return registry.Manifest{}, false
 	}
-	url, ok := githubModuleURL(dep.Name)
+}
+
+// goFallbackManifest is REG-005/REG-008's original Go fallback: a module
+// path already carries its own repository location, and go.sum's version
+// pinning means a version's own tag is a safe, deterministic ref.
+func goFallbackManifest(ctx context.Context, dep domain.Dependency) (registry.Manifest, bool) {
+	root, url, ok := githubModuleURL(dep.Name)
 	if !ok {
-		url, ok = resolveVanityImport(ctx, dep.Name)
+		root, url, ok = resolveVanityImport(ctx, dep.Name)
 	}
+	if !ok {
+		return registry.Manifest{}, false
+	}
+	subdir := moduleSubdir(dep.Name, root)
+	return registry.Manifest{
+		Metadata: registry.Metadata{Name: dep.Name},
+		Match:    registry.Match{Ecosystems: []domain.Ecosystem{dep.Ecosystem}, Packages: []string{dep.Name}},
+		Version:  registry.VersionStrategy{Strategy: "none"},
+		Sources:  []registry.Source{{ID: "repository", Type: "git", URL: url, Ref: moduleTagTemplate(subdir), Subdir: subdir, Authority: 0}},
+	}, true
+}
+
+// npmFallbackManifest is REG-012: unlike Go, an npm package name carries
+// no repository location, and a published version has no guaranteed
+// matching git tag — so the repository comes from a registry lookup, and
+// every real-world tag convention is tried, each verified to actually
+// exist before being trusted (never a bare branch-head fallback; see
+// refCandidates/resolveFirstRef in internal/data/generation/build.go,
+// which this manifest's RefTemplates feed).
+func npmFallbackManifest(ctx context.Context, dep domain.Dependency) (registry.Manifest, bool) {
+	url, subdir, ok := npmRepository(ctx, dep.Name)
 	if !ok {
 		return registry.Manifest{}, false
 	}
@@ -289,18 +485,267 @@ func fallbackManifest(ctx context.Context, dep domain.Dependency) (registry.Mani
 		Metadata: registry.Metadata{Name: dep.Name},
 		Match:    registry.Match{Ecosystems: []domain.Ecosystem{dep.Ecosystem}, Packages: []string{dep.Name}},
 		Version:  registry.VersionStrategy{Strategy: "none"},
-		Sources:  []registry.Source{{ID: "repository", Type: "git", URL: url, Ref: "HEAD", Authority: 0}},
+		Sources: []registry.Source{{
+			ID: "repository", Type: "git", URL: url, Subdir: subdir, Authority: 0,
+			RefTemplates: npmTagCandidates(dep.Name, subdir),
+		}},
 	}, true
+}
+
+// npmTagCandidates lists the git tag conventions real npm packages
+// actually use. subdir is the registry's reported monorepo directory (see
+// npmRepository), if any — when set, ONLY package-scoped tag shapes
+// ("<package>@<version>"/"<package>-v<version>") are tried. A bare
+// "v<version>"/"<version>" tag in a monorepo hosting many packages is
+// ambiguous across every package's own version history, not just this
+// one's: verified live against eslint-visitor-keys 3.4.3 (repository
+// github.com/eslint/js, directory packages/eslint-visitor-keys) — the
+// bare tag "v3.4.3" resolves, but to ESLint core's own 2016 release, a
+// completely unrelated package's version number that happens to collide
+// in the same repo's tag namespace. Trusting it would have silently
+// indexed the wrong package's content under a confident version label,
+// exactly the failure class POINT-002's version-exactness fix eliminated
+// for Go — a subdir check happened to catch this specific instance (the
+// old commit predates the monorepo split), but a bare-tag match isn't
+// safe to trust in general, so it's never offered as a candidate at all
+// once a monorepo directory is known. A single-package repo (no subdir)
+// has no such ambiguity, so bare tags are tried there.
+func npmTagCandidates(name, subdir string) []string {
+	if subdir != "" {
+		return []string{name + "@${version}", name + "-v${version}"}
+	}
+	return []string{"v${version}", "${version}", name + "@${version}", name + "-v${version}"}
+}
+
+// npmRegistryHTTPClient issues npmRepository's lookup — a var so tests can
+// redirect it to a local httptest.Server, matching
+// vanityImportHTTPClient's own convention.
+var npmRegistryHTTPClient = http.DefaultClient
+
+// npmRepositoryField is the subset of the npm registry's package document
+// this needs. repository can be a plain string ("github:org/repo",
+// "org/repo", or a bare URL) or an object — the object shape is tried
+// first since json.RawMessage lets both be handled without two round trips.
+type npmRegistryDoc struct {
+	Repository json.RawMessage `json:"repository"`
+}
+
+type npmRepositoryObject struct {
+	URL       string `json:"url"`
+	Directory string `json:"directory"`
+}
+
+// npmShorthandRepo matches npm's "github:org/repo" or bare "org/repo"
+// repository-field shorthand.
+var npmShorthandRepo = regexp.MustCompile(`^(?:github:)?([\w.-]+)/([\w.-]+?)(?:\.git)?$`)
+
+// npmGitURL normalizes npm's several repository.url shapes
+// ("git+https://...", "git://...", "git+ssh://git@...", a bare
+// "https://...", or shorthand) to a plain https clone URL.
+func npmGitURL(raw string) (string, bool) {
+	raw = strings.TrimSpace(raw)
+	if m := npmShorthandRepo.FindStringSubmatch(raw); m != nil && !strings.Contains(raw, "://") {
+		return fmt.Sprintf("https://github.com/%s/%s", m[1], m[2]), true
+	}
+	raw = strings.TrimPrefix(raw, "git+")
+	raw = strings.TrimSuffix(raw, ".git")
+	switch {
+	case strings.HasPrefix(raw, "https://"), strings.HasPrefix(raw, "http://"):
+		return raw, true
+	case strings.HasPrefix(raw, "git://"):
+		return "https://" + strings.TrimPrefix(raw, "git://"), true
+	case strings.HasPrefix(raw, "git+ssh://git@"), strings.HasPrefix(raw, "ssh://git@"):
+		host := strings.TrimPrefix(strings.TrimPrefix(raw, "git+ssh://git@"), "ssh://git@")
+		return "https://" + strings.Replace(host, ":", "/", 1), true
+	default:
+		return "", false
+	}
+}
+
+// npmRepository looks up name's repository and (if the registry reports a
+// monorepo "directory") its subdirectory via the public npm registry —
+// the same document `npm view`/`npm install` read. Only a resolvable git
+// URL is usable; anything else (no repository field, an unrecognized
+// shape, a non-git host) is a clean miss, not an error.
+func npmRepository(ctx context.Context, name string) (url, subdir string, ok bool) {
+	ctx, cancel := context.WithTimeout(ctx, vanityImportTimeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://registry.npmjs.org/"+name, nil)
+	if err != nil {
+		return "", "", false
+	}
+	resp, err := npmRegistryHTTPClient.Do(req)
+	if err != nil {
+		return "", "", false
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", "", false
+	}
+	var doc npmRegistryDoc
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&doc); err != nil || len(doc.Repository) == 0 {
+		return "", "", false
+	}
+
+	var obj npmRepositoryObject
+	if err := json.Unmarshal(doc.Repository, &obj); err == nil && obj.URL != "" {
+		if url, ok := npmGitURL(obj.URL); ok {
+			return url, obj.Directory, true
+		}
+		return "", "", false
+	}
+	var shorthand string
+	if err := json.Unmarshal(doc.Repository, &shorthand); err == nil {
+		if url, ok := npmGitURL(shorthand); ok {
+			return url, "", true
+		}
+	}
+	return "", "", false
+}
+
+// pypiFallbackManifest is REG-013: PyPI has no equivalent of npm's
+// registry-reported monorepo "directory" field, so there is no Subdir
+// support here at all — a package published from a monorepo subdirectory
+// isn't detectable from the PyPI API alone (unlike REG-012's npm case).
+// Otherwise the same shape: repository comes from a registry lookup, and
+// only a tag verified to actually resolve is ever trusted.
+func pypiFallbackManifest(ctx context.Context, dep domain.Dependency) (registry.Manifest, bool) {
+	url, ok := pypiRepository(ctx, dep.Name)
+	if !ok {
+		return registry.Manifest{}, false
+	}
+	return registry.Manifest{
+		Metadata: registry.Metadata{Name: dep.Name},
+		Match:    registry.Match{Ecosystems: []domain.Ecosystem{dep.Ecosystem}, Packages: []string{dep.Name}},
+		Version:  registry.VersionStrategy{Strategy: "none"},
+		Sources: []registry.Source{{
+			ID: "repository", Type: "git", URL: url, Authority: 0,
+			RefTemplates: []string{"v${version}", "${version}"},
+		}},
+	}, true
+}
+
+// pypiRegistryHTTPClient issues pypiRepository's lookup — a var so tests
+// can redirect it to a local httptest.Server, matching
+// npmRegistryHTTPClient's own convention.
+var pypiRegistryHTTPClient = http.DefaultClient
+
+// pypiRegistryDoc is the subset of PyPI's JSON API response this needs.
+type pypiRegistryDoc struct {
+	Info struct {
+		ProjectURLs map[string]string `json:"project_urls"`
+		HomePage    string            `json:"home_page"`
+	} `json:"info"`
+}
+
+// pypiProjectURLKeys is the priority order to search info.project_urls
+// under — verified live, real packages use these keys inconsistently, no
+// single one is universal.
+var pypiProjectURLKeys = []string{"Source", "Repository", "Source Code", "Code", "GitHub", "Homepage"}
+
+// pypiGitHosts are the hosts pypiGitURL treats as git-hostable — same
+// reasoning as REG-012's npm URL normalization, but PyPI's project_urls
+// are arbitrary homepage-shaped links (often with extra path segments
+// like /issues or /tree/main), not already-canonical clone URLs, so only
+// a known host's URL is trusted to mean "this is the repository," not
+// just any link a maintainer happened to put in project_urls.
+var pypiGitHosts = map[string]bool{"github.com": true, "gitlab.com": true, "bitbucket.org": true}
+
+// pypiGitURL extracts a plain "https://<host>/<org>/<repo>" clone URL from
+// an arbitrary project_urls/home_page link, keeping only the first two
+// path segments and discarding anything further (issue trackers, file
+// paths, branch refs).
+func pypiGitURL(raw string) (string, bool) {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return "", false
+	}
+	if !pypiGitHosts[strings.ToLower(u.Host)] {
+		return "", false
+	}
+	segments := strings.Split(strings.Trim(u.Path, "/"), "/")
+	if len(segments) < 2 || segments[0] == "" || segments[1] == "" {
+		return "", false
+	}
+	org, repo := segments[0], strings.TrimSuffix(segments[1], ".git")
+	return fmt.Sprintf("https://%s/%s/%s", u.Host, org, repo), true
+}
+
+// pypiRepository looks up name's repository via PyPI's public JSON API —
+// the same document `pip show`/PyPI's own web page read. Only a
+// recognized git-hostable URL is usable; anything else (no matching
+// project_urls key, an unrecognized host) is a clean miss, not an error.
+func pypiRepository(ctx context.Context, name string) (url string, ok bool) {
+	ctx, cancel := context.WithTimeout(ctx, vanityImportTimeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://pypi.org/pypi/"+name+"/json", nil)
+	if err != nil {
+		return "", false
+	}
+	resp, err := pypiRegistryHTTPClient.Do(req)
+	if err != nil {
+		return "", false
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", false
+	}
+	var doc pypiRegistryDoc
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&doc); err != nil {
+		return "", false
+	}
+
+	for _, key := range pypiProjectURLKeys {
+		for k, v := range doc.Info.ProjectURLs {
+			if !strings.EqualFold(k, key) {
+				continue
+			}
+			if gitURL, ok := pypiGitURL(v); ok {
+				return gitURL, true
+			}
+		}
+	}
+	if gitURL, ok := pypiGitURL(doc.Info.HomePage); ok {
+		return gitURL, true
+	}
+	return "", false
+}
+
+// moduleTagTemplate is the git tag a Go module's release is published
+// under: "v1.2.3" for a module at the repo root, "<subdir>/v1.2.3" for one
+// in a subdirectory. Pinning the version's own tag is what makes a
+// fallback source version-exact; a branch head would index whatever the
+// default branch holds today under every version's label.
+func moduleTagTemplate(subdir string) string {
+	if subdir == "" {
+		return "v${version}"
+	}
+	return subdir + "/v${version}"
+}
+
+// majorVersionSuffix matches a Go module path's trailing /vN major-version
+// element (N >= 2), which is part of the import path, not a directory.
+var majorVersionSuffix = regexp.MustCompile(`/v([2-9]|[1-9][0-9]+)$`)
+
+// moduleSubdir is where a module lives inside its repository: its path
+// below the repo's import root, minus any /vN major-version suffix. A
+// monorepo module such as cloud.google.com/go/billing (root
+// cloud.google.com/go) owns only "billing/"; a repo-root module owns "".
+func moduleSubdir(modulePath, root string) string {
+	rest := strings.TrimPrefix(strings.TrimPrefix(modulePath, root), "/")
+	return strings.TrimPrefix(majorVersionSuffix.ReplaceAllString("/"+rest, ""), "/")
 }
 
 // githubModuleURL is the fast path: a Go module path already directly
 // shaped like github.com/<org>/<repo>[/...] needs no lookup at all.
-func githubModuleURL(modulePath string) (string, bool) {
+func githubModuleURL(modulePath string) (root, url string, ok bool) {
 	segments := strings.Split(modulePath, "/")
 	if len(segments) < 3 || segments[0] != "github.com" {
-		return "", false
+		return "", "", false
 	}
-	return "https://github.com/" + segments[1] + "/" + segments[2], true
+	return strings.Join(segments[:3], "/"), "https://github.com/" + segments[1] + "/" + segments[2], true
 }
 
 // vanityImportTimeout bounds the go-import meta-tag HTTP lookup so a
@@ -320,25 +765,25 @@ var vanityImportHTTPClient = http.DefaultClient
 // module path with no known VCS host: GET .../<path>?go-get=1 and parse
 // the go-import meta tag out of the response. Only a git-VCS result is
 // usable — nothing else in ragctl can acquire from a source.
-func resolveVanityImport(ctx context.Context, modulePath string) (string, bool) {
+func resolveVanityImport(ctx context.Context, modulePath string) (root, repoURL string, ok bool) {
 	ctx, cancel := context.WithTimeout(ctx, vanityImportTimeout)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://"+modulePath+"?go-get=1", nil)
 	if err != nil {
-		return "", false
+		return "", "", false
 	}
 	resp, err := vanityImportHTTPClient.Do(req)
 	if err != nil {
-		return "", false
+		return "", "", false
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return "", false
+		return "", "", false
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
-		return "", false
+		return "", "", false
 	}
 
 	for _, m := range goImportMetaTag.FindAllStringSubmatch(string(body), -1) {
@@ -346,21 +791,45 @@ func resolveVanityImport(ctx context.Context, modulePath string) (string, bool) 
 		if len(fields) != 3 {
 			continue
 		}
-		root, vcs, repoURL := fields[0], fields[1], fields[2]
+		importRoot, vcs, url := fields[0], fields[1], fields[2]
 		if vcs != "git" {
 			continue
 		}
-		if modulePath == root || strings.HasPrefix(modulePath, root+"/") {
-			return repoURL, true
+		if modulePath == importRoot || strings.HasPrefix(modulePath, importRoot+"/") {
+			return importRoot, url, true
 		}
 	}
-	return "", false
+	return "", "", false
 }
+
+// SyncPhaseTimings is syncVersion's own duration breakdown: build
+// (acquisition+normalize+chunk), replicate (embed+upsert), validate, and
+// promote — the phase-level counterpart to BuildCoordinator's own
+// GateWait/Work split (epic 53/COORD-002). Only phases that actually ran
+// before a failure or early return are non-zero.
+type SyncPhaseTimings struct {
+	Build     time.Duration
+	Replicate time.Duration
+	Validate  time.Duration
+	Promote   time.Duration
+}
+
+// onSyncPhaseTimings, if set, is called after every syncVersion call
+// completes (success or failure) with its phase breakdown. A var, not a
+// parameter, so every existing caller/test stays unaffected unless
+// something wants to observe it — matches vanityImportHTTPClient's own
+// test-injectable-var convention in this file. Tests that set this must
+// restore the original value (e.g. via t.Cleanup), since it's shared
+// package state.
+var onSyncPhaseTimings = func(dep domain.DependencyVersion, t SyncPhaseTimings) {}
 
 // syncVersion drives the full build->replicate->validate->promote
 // pipeline for one SYNC_VERSION action.
 func syncVersion(ctx context.Context, store *bboltstore.Store, badgerStore *badgerstore.Store, gitCache *git.Cache, embedder embedding.Embedder, vb backend.VectorBackend, ns backend.Namespace, reg *registry.Registry, action planner.Action, force bool) error {
 	dep := action.Dependency
+	var timings SyncPhaseTimings
+	defer func() { onSyncPhaseTimings(dep, timings) }()
+
 	manifest, ok := reg.Match(dep.Dependency.Ecosystem, dep.Dependency.Name)
 	if !ok {
 		manifest, ok = fallbackManifest(ctx, dep.Dependency)
@@ -373,11 +842,19 @@ func syncVersion(ctx context.Context, store *bboltstore.Store, badgerStore *badg
 	if err != nil {
 		return fmt.Errorf("create generation: %w", err)
 	}
-	if err := generation.Build(ctx, gen, manifest.Sources, gitCache, store, badgerStore); err != nil {
-		return fmt.Errorf("build: %w", err)
+
+	buildStart := time.Now()
+	buildErr := generation.Build(ctx, gen, manifest.Sources, gitCache, store, badgerStore)
+	timings.Build = time.Since(buildStart)
+	if buildErr != nil {
+		return fmt.Errorf("build: %w", buildErr)
 	}
-	if err := generation.Replicate(ctx, gen, manifest.Sources, embedder, vb, ns, store, badgerStore); err != nil {
-		return fmt.Errorf("replicate: %w", err)
+
+	replicateStart := time.Now()
+	replicateErr := generation.Replicate(ctx, gen, manifest.Sources, embedder, vb, ns, store, badgerStore)
+	timings.Replicate = time.Since(replicateStart)
+	if replicateErr != nil {
+		return fmt.Errorf("replicate: %w", replicateErr)
 	}
 
 	genManifest, err := readGenerationManifest(ctx, badgerStore, gen.ID)
@@ -398,7 +875,9 @@ func syncVersion(ctx context.Context, store *bboltstore.Store, badgerStore *badg
 		}
 	}
 
+	validateStart := time.Now()
 	gen, report, err := validate.Run(ctx, gen, genManifest, replica, prior, priorManifest, validate.DefaultSanityConfig(), embedder, vb, ns, store, badgerStore)
+	timings.Validate = time.Since(validateStart)
 	if err != nil {
 		return fmt.Errorf("validate: %w", err)
 	}
@@ -414,7 +893,10 @@ func syncVersion(ctx context.Context, store *bboltstore.Store, badgerStore *badg
 		return fmt.Errorf("validation failed: %v", append(append(report.Structural.Failures, sanity.Failures...), report.VersionCorrectness.Failures...))
 	}
 
-	return promote.Promote(ctx, store, gen, vb.Name(), report.Structural, sanity, report.VersionCorrectness)
+	promoteStart := time.Now()
+	promoteErr := promote.Promote(ctx, store, gen, vb.Name(), report.Structural, sanity, report.VersionCorrectness)
+	timings.Promote = time.Since(promoteStart)
+	return promoteErr
 }
 
 func readGenerationManifest(ctx context.Context, badgerStore *badgerstore.Store, generationID string) (generation.Manifest, error) {

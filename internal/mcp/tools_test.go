@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -34,10 +35,14 @@ func (f *fakeEmbedder) Embed(ctx context.Context, texts []string) ([][]float32, 
 }
 
 type fakeControlStore struct {
+	// mu guards the maps a just-in-time sync's goroutine writes (via
+	// seedChunk) while a handler is polling them.
+	mu          sync.Mutex
 	projects    map[string]domain.Project
 	resolutions map[string]domain.Resolution
 	active      map[string]domain.Generation
 	refs        []domain.VersionReference
+	generations []domain.Generation // every generation ever seeded, any state — see seedChunk
 }
 
 func newFakeControlStore() *fakeControlStore {
@@ -68,6 +73,8 @@ func (s *fakeControlStore) GetResolution(ctx context.Context, projectID string) 
 	return r, nil
 }
 func (s *fakeControlStore) GetActiveGeneration(ctx context.Context, ecosystem domain.Ecosystem, pkg, backendName string) (domain.Generation, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	g, ok := s.active[string(ecosystem)+"|"+pkg+"|"+backendName]
 	if !ok {
 		return domain.Generation{}, errNotFound
@@ -85,6 +92,17 @@ func (s *fakeControlStore) ListReferences(ctx context.Context, ecosystem domain.
 }
 func (s *fakeControlStore) ListAllReferences(ctx context.Context) ([]domain.VersionReference, error) {
 	return s.refs, nil
+}
+func (s *fakeControlStore) ListGenerationsByDependencyVersion(ctx context.Context, ecosystem domain.Ecosystem, pkg, version string) ([]domain.Generation, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []domain.Generation
+	for _, g := range s.generations {
+		if g.Dependency.Dependency.Ecosystem == ecosystem && g.Dependency.Dependency.Name == pkg && g.Dependency.Version == version {
+			out = append(out, g)
+		}
+	}
+	return out, nil
 }
 
 type fakeDataStore struct {
@@ -117,16 +135,20 @@ type fakeSyncTrigger struct {
 	synced, failed, skipped int
 	err                     error
 	called                  bool
+	calls                   int
 	calledProjectID         string
-	calledDependency        string
+	calledDependency        string   // dependencies joined by ","
+	calledDependencies      []string // exactly what SyncProject received
 	progressLines           []string // lines this fake "streams" via the progress callback
 	onSync                  func()   // WATCH-019: simulates a real sync's side effect (an active generation appearing)
 }
 
-func (f *fakeSyncTrigger) SyncProject(ctx context.Context, projectID, dependency string, progress func(line string)) (int, int, int, error) {
+func (f *fakeSyncTrigger) SyncProject(ctx context.Context, projectID string, dependencies []string, progress func(line string)) (int, int, int, error) {
 	f.called = true
+	f.calls++
 	f.calledProjectID = projectID
-	f.calledDependency = dependency
+	f.calledDependency = strings.Join(dependencies, ",")
+	f.calledDependencies = dependencies
 	if progress != nil {
 		for _, line := range f.progressLines {
 			progress(line)
@@ -215,7 +237,15 @@ func (e *testEnv) seedChunk(t *testing.T, ecosystem domain.Ecosystem, pkg, versi
 		t.Fatalf("Upsert: %v", err)
 	}
 	e.data.chunks[generationID+"|"+chunkID] = domain.Chunk{ID: chunkID, Content: []byte(content)}
-	e.control.active[string(ecosystem)+"|"+pkg+"|qdrant"] = domain.Generation{ID: generationID}
+	gen := domain.Generation{
+		ID:         generationID,
+		Dependency: domain.DependencyVersion{Dependency: domain.Dependency{Ecosystem: ecosystem, Name: pkg}, Version: version},
+		State:      domain.GenActive,
+	}
+	e.control.mu.Lock()
+	e.control.active[string(ecosystem)+"|"+pkg+"|qdrant"] = gen
+	e.control.generations = append(e.control.generations, gen)
+	e.control.mu.Unlock()
 }
 
 func TestSearchDependencyDocsHandlerReturnsChunksWithSecurityNote(t *testing.T) {
@@ -656,7 +686,7 @@ func newBlockingSyncTrigger() *blockingSyncTrigger {
 	return &blockingSyncTrigger{release: make(chan struct{}), finished: make(chan struct{})}
 }
 
-func (f *blockingSyncTrigger) SyncProject(ctx context.Context, projectID, dependency string, progress func(line string)) (int, int, int, error) {
+func (f *blockingSyncTrigger) SyncProject(ctx context.Context, projectID string, dependencies []string, progress func(line string)) (int, int, int, error) {
 	for _, line := range f.progressLines {
 		if progress != nil {
 			progress(line)

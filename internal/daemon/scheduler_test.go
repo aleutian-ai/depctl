@@ -6,13 +6,27 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"reflect"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"aleutian-ai/ragctl/internal/daemon/api"
+	"aleutian-ai/ragctl/internal/domain"
 )
+
+// fakeSyncKey gives fakeSync.run a distinct coordinator.Build identity
+// per project, so different projects' fake runs never coalesce into one
+// another — only two runs for the identical project would (which the
+// per-project state machine already prevents from happening
+// concurrently in the first place).
+func fakeSyncKey(projectID string) domain.DependencyVersion {
+	return domain.DependencyVersion{
+		Dependency: domain.Dependency{Ecosystem: domain.EcosystemGo, Name: "fake/" + projectID},
+		Version:    "v0",
+	}
+}
 
 // fakeSync is a sync function whose runs are gated by channels, so a
 // test can hold one "mid-sync" while it queues more requests.
@@ -35,27 +49,35 @@ func newFakeSync() *fakeSync {
 	return &fakeSync{started: make(chan string, 32), release: make(chan struct{})}
 }
 
-func (f *fakeSync) run(_ context.Context, projectID string, opts SyncOptions, out io.Writer) (api.SyncResult, error) {
+func (f *fakeSync) run(_ context.Context, coordinator *BuildCoordinator, projectID string, opts SyncOptions, out io.Writer) (api.SyncResult, error) {
 	n := f.record(projectID, opts)
-	now := f.inFlight.Add(1)
-	for {
-		seen := f.maxSeen.Load()
-		if now <= seen || f.maxSeen.CompareAndSwap(seen, now) {
-			break
+	var res api.SyncResult
+	buildErr := coordinator.Build(fakeSyncKey(projectID), func() error {
+		now := f.inFlight.Add(1)
+		for {
+			seen := f.maxSeen.Load()
+			if now <= seen || f.maxSeen.CompareAndSwap(seen, now) {
+				break
+			}
 		}
-	}
-	defer f.inFlight.Add(-1)
+		defer f.inFlight.Add(-1)
 
-	f.started <- projectID
-	fmt.Fprintf(out, "syncing %s\n", projectID)
-	<-f.release
+		f.started <- projectID
+		fmt.Fprintf(out, "syncing %s\n", projectID)
+		<-f.release
 
-	if f.fail != nil {
-		if err := f.fail(projectID, n); err != nil {
-			return api.SyncResult{}, err
+		if f.fail != nil {
+			if err := f.fail(projectID, n); err != nil {
+				return err
+			}
 		}
+		res = api.SyncResult{ProjectID: projectID, Synced: 1}
+		return nil
+	})
+	if buildErr != nil {
+		return api.SyncResult{}, buildErr
 	}
-	return api.SyncResult{ProjectID: projectID, Synced: 1}, nil
+	return res, nil
 }
 
 // record appends the call and returns how many times this project has
@@ -96,6 +118,17 @@ func awaitResult(t *testing.T, ch <-chan Result) Result {
 	case <-time.After(5 * time.Second):
 		t.Fatal("timed out waiting for a sync result")
 		return Result{}
+	}
+}
+
+func awaitGCOutcome(t *testing.T, ch <-chan GCOutcome) GCOutcome {
+	t.Helper()
+	select {
+	case r := <-ch:
+		return r
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for a GC result")
+		return GCOutcome{}
 	}
 }
 
@@ -228,10 +261,10 @@ func TestSchedulerMergesFollowUpOptions(t *testing.T) {
 	f := newFakeSync()
 	s := NewScheduler(context.Background(), f.run, noGC, nil)
 
-	first := s.Request("proj_a", SyncOptions{Offline: true, Dependency: "example.com/a"}, nil)
+	first := s.Request("proj_a", SyncOptions{Offline: true, Dependencies: []string{"example.com/a"}}, nil)
 	f.awaitStart(t)
-	s.Request("proj_a", SyncOptions{Offline: true, Force: true, Dependency: "example.com/a"}, nil)
-	last := s.Request("proj_a", SyncOptions{Resolve: true, Dependency: "example.com/b"}, nil)
+	s.Request("proj_a", SyncOptions{Offline: true, Force: true, Dependencies: []string{"example.com/a"}}, nil)
+	last := s.Request("proj_a", SyncOptions{Resolve: true, Dependencies: []string{"example.com/b"}}, nil)
 
 	close(f.release)
 	awaitResult(t, first)
@@ -249,23 +282,54 @@ func TestSchedulerMergesFollowUpOptions(t *testing.T) {
 	if calls[1].opts.Priority == nil {
 		t.Error("follow-up run's SyncOptions.Priority is nil, want a live queue every scheduler-launched run gets")
 	}
+	if calls[1].opts.Progress == nil {
+		t.Error("follow-up run's SyncOptions.Progress is nil, want live counters every scheduler-launched run gets (SCOPE-001)")
+	}
 	got := calls[1].opts
 	got.Priority = nil
-	want := SyncOptions{Force: true, Resolve: true} // offline: not unanimous; dependency: differed
-	if got != want {
+	got.Progress = nil
+	// offline: not unanimous. dependencies: the union of what was asked.
+	want := SyncOptions{Force: true, Resolve: true, Dependencies: []string{"example.com/a", "example.com/b"}}
+	if !reflect.DeepEqual(got, want) {
 		t.Errorf("follow-up options = %+v, want %+v", got, want)
 	}
 }
 
-func TestSchedulerNeverRunsTwoSyncsAtOnce(t *testing.T) {
+// TestSchedulerRunsDifferentProjectsConcurrently is epic 53/COORD-002's
+// own regression test at the scheduler level: three different projects'
+// syncs, none sharing a generation, must genuinely overlap — the
+// opposite of what a pre-COORD-002 scheduler would have done (this test
+// replaces the old TestSchedulerNeverRunsTwoSyncsAtOnce, whose premise
+// was the exact global-serialization behavior this epic removes).
+func TestSchedulerRunsDifferentProjectsConcurrently(t *testing.T) {
 	f := newFakeSync()
-	close(f.release)
 	s := NewScheduler(context.Background(), f.run, noGC, nil)
 
+	ids := []string{"proj_a", "proj_b", "proj_c"}
 	var chans []<-chan Result
-	for _, id := range []string{"proj_a", "proj_b", "proj_c"} {
+	for _, id := range ids {
 		chans = append(chans, s.Request(id, SyncOptions{}, nil))
 	}
+
+	// All three must report started before any of them is released —
+	// proof they were genuinely in flight at the same time, not just
+	// that the scheduler accepted three requests.
+	seen := map[string]bool{}
+	for range ids {
+		select {
+		case id := <-f.started:
+			seen[id] = true
+		case <-time.After(5 * time.Second):
+			t.Fatalf("timed out waiting for all three to start; saw %v", seen)
+		}
+	}
+	for _, id := range ids {
+		if !seen[id] {
+			t.Errorf("%s never started", id)
+		}
+	}
+
+	close(f.release)
 	for _, ch := range chans {
 		if r := awaitResult(t, ch); r.Err != nil {
 			t.Fatalf("run: %v", r.Err)
@@ -273,8 +337,8 @@ func TestSchedulerNeverRunsTwoSyncsAtOnce(t *testing.T) {
 	}
 	s.Wait()
 
-	if got := f.maxSeen.Load(); got > 1 {
-		t.Errorf("%d syncs ran concurrently, want at most 1 (v1 serializes globally)", got)
+	if got := f.maxSeen.Load(); got < 3 {
+		t.Errorf("max concurrent syncs observed = %d, want 3 (different projects must not exclude each other)", got)
 	}
 }
 
@@ -441,7 +505,7 @@ func TestSchedulerGCAndSyncExcludeEachOther(t *testing.T) {
 	maxSync := f.maxSeen.Load()
 	maxGC := g.maxSeen.Load()
 	if maxSync > 1 || maxGC > 1 {
-		t.Errorf("sync saw %d concurrent, gc saw %d concurrent, want at most 1 each (they share the global lock)", maxSync, maxGC)
+		t.Errorf("sync saw %d concurrent, gc saw %d concurrent, want at most 1 each (coordinator.ExcludeForGC must exclude every in-flight Build)", maxSync, maxGC)
 	}
 }
 
@@ -564,41 +628,42 @@ func TestSchedulerLockProjectEvictsIdleEntries(t *testing.T) {
 	unlock()
 }
 
-// TestSchedulerActionTimesOutWithoutWedgingQueue is the direct test for
-// maxActionDuration: a run that respects ctx cancellation (as every real
-// SyncFunc/GCFunc does — the qdrant/ollama clients and git subprocess
-// calls are all ctx-bound) gets cut off at the deadline, releases the
-// global lock, and lets the next queued action proceed — instead of one
-// hung run wedging the queue shut forever.
-func TestSchedulerActionTimesOutWithoutWedgingQueue(t *testing.T) {
+// TestGCActionTimesOutWithoutWedgingQueue is the direct test for
+// maxActionDuration on the side it still actually bounds: a GC run that
+// respects ctx cancellation gets cut off at the deadline and lets a
+// later GC request proceed, instead of one hung run wedging GC shut
+// forever. This used to also cover sync's own execute() wrap — as of
+// epic 53/COORD-003, sync no longer has an aggregate ceiling at all
+// (removed deliberately: STRESS-005 found it was the wrong granularity
+// for a large batch); the equivalent protection for sync now lives in
+// internal/cli's RunSync, bounding each dependency individually — see
+// TestRunSyncDependencyTimeoutDoesNotWedgeOtherWorkers there.
+func TestGCActionTimesOutWithoutWedgingQueue(t *testing.T) {
 	original := maxActionDuration
 	maxActionDuration = 20 * time.Millisecond
 	defer func() { maxActionDuration = original }()
 
-	hangs := func(ctx context.Context, _ string, _ SyncOptions, _ io.Writer) (api.SyncResult, error) {
-		<-ctx.Done()
-		return api.SyncResult{}, ctx.Err()
-	}
-	f := newFakeSync()
-	close(f.release)
-	run := func(ctx context.Context, projectID string, opts SyncOptions, out io.Writer) (api.SyncResult, error) {
-		if projectID == "proj_stuck" {
-			return hangs(ctx, projectID, opts, out)
+	g := newFakeGC()
+	close(g.release)
+	hungOnce := false
+	runGC := func(ctx context.Context, dryRun bool, out io.Writer) (api.GCResult, error) {
+		if !hungOnce {
+			hungOnce = true
+			<-ctx.Done()
+			return api.GCResult{}, ctx.Err()
 		}
-		return f.run(ctx, projectID, opts, out)
+		return g.run(ctx, dryRun, out)
 	}
-	s := NewScheduler(context.Background(), run, noGC, nil)
+	s := NewScheduler(context.Background(), noSync, runGC, nil)
 
-	stuck := s.Request("proj_stuck", SyncOptions{}, nil)
-	if r := awaitResult(t, stuck); r.Err == nil {
-		t.Error("hung run reported success, want a context-deadline error")
+	stuck := s.RequestGC(false, nil)
+	if r := awaitGCOutcome(t, stuck); r.Err == nil {
+		t.Error("hung GC run reported success, want a context-deadline error")
 	}
 
-	// The lock the hung run held must already be free: a request queued
-	// right behind it runs promptly, not after 30 real minutes.
-	next := s.Request("proj_next", SyncOptions{}, nil)
-	if r := awaitResult(t, next); r.Err != nil {
-		t.Errorf("run after the timed-out one = %v, want it to proceed normally", r.Err)
+	next := s.RequestGC(false, nil)
+	if r := awaitGCOutcome(t, next); r.Err != nil {
+		t.Errorf("GC run after the timed-out one = %v, want it to proceed normally", r.Err)
 	}
 	s.Wait()
 }
@@ -662,10 +727,35 @@ func TestBumpPriorityFalseAfterSyncFinishes(t *testing.T) {
 
 // noSync is a SyncFunc for tests that only exercise GC — never expected
 // to be called.
-func noSync(context.Context, string, SyncOptions, io.Writer) (api.SyncResult, error) {
+func noSync(context.Context, *BuildCoordinator, string, SyncOptions, io.Writer) (api.SyncResult, error) {
 	panic("sync should not run in this test")
 }
 
 func errorContains(err error, want string) bool {
 	return err != nil && bytes.Contains([]byte(err.Error()), []byte(want))
+}
+
+// TestMergeOptionsUnionsDependencySets is SCOPE-003's regression: two
+// different single-dependency requests used to merge into "no filter"
+// (a full untargeted sync); they must merge into exactly those two.
+func TestMergeOptionsUnionsDependencySets(t *testing.T) {
+	cases := []struct {
+		name       string
+		a, b, want []string
+	}{
+		{"different names union", []string{"x"}, []string{"y"}, []string{"x", "y"}},
+		{"overlap de-duplicated and sorted", []string{"y", "x"}, []string{"x", "z"}, []string{"x", "y", "z"}},
+		{"same name stays one", []string{"x"}, []string{"x"}, []string{"x"}},
+		{"an unfiltered request wants everything", nil, []string{"x"}, nil},
+		{"named set never narrows an unfiltered one", []string{"x"}, nil, nil},
+		{"both unfiltered stays everything", nil, nil, nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := mergeOptions(SyncOptions{Dependencies: tc.a}, SyncOptions{Dependencies: tc.b}).Dependencies
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("merged Dependencies = %v, want %v", got, tc.want)
+			}
+		})
+	}
 }

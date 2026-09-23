@@ -2,11 +2,15 @@ package cli
 
 import (
 	"fmt"
+	"os"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/cobra"
 
+	"aleutian-ai/ragctl/internal/daemon/client"
 	"aleutian-ai/ragctl/internal/mcp"
+	"aleutian-ai/ragctl/internal/symbolgraph"
+	"aleutian-ai/ragctl/internal/symbolgraph/gopackages"
 )
 
 func newServeCmd() *cobra.Command {
@@ -61,8 +65,25 @@ func runServe(cmd *cobra.Command) error {
 		EnableSyncTool: health.EnableSyncTool,
 		Scan:           &daemonScanTrigger{c: c},
 		Priority:       &daemonPriorityBumper{c: c},
+		Progress:       &daemonProgressReader{c: c},
+		Symbols:        callSiteResolver(c),
 	})
 
 	fmt.Fprintln(cmd.ErrOrStderr(), "ragctl MCP server starting (stdio transport)")
 	return server.Run(ctx, &sdkmcp.StdioTransport{})
+}
+
+// callSiteResolver builds explain_call_site's backing symbolgraph.Resolver
+// (GRAPH-004), scoped to the MCP server's own working directory — the
+// same "typically the project you're already in" convention scan_project
+// already uses. Returns nil (explain_call_site reports "not configured")
+// rather than failing serve's startup entirely if the working directory
+// can't be determined; a real Go source tree failing to type-check is a
+// per-call error, handled by the tool itself, not a startup failure.
+func callSiteResolver(c *client.Client) mcp.CallSiteResolver {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return nil
+	}
+	return symbolgraph.New(gopackages.New(cwd), &daemonResolutionStore{c: c}, &daemonQueryService{c: c})
 }

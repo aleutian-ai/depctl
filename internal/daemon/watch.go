@@ -76,13 +76,16 @@ func (s *Server) refreshProjects(ctx context.Context) {
 		return
 	}
 
+	var firstSight []watch.Project
 	s.watchedMu.Lock()
-	defer s.watchedMu.Unlock()
 	next := make(map[string]watch.Project, len(projects))
 	for _, p := range projects {
 		next[p.ID] = p
 		if _, ok := s.watched[p.ID]; !ok {
 			s.opts.Logf("watching %s (%s)", p.Root, baseNames(watch.WatchPaths(p)))
+			if s.watchSeeded && !s.opts.DisableAmbientSync {
+				firstSight = append(firstSight, p)
+			}
 		}
 	}
 	for id, p := range s.watched {
@@ -92,6 +95,21 @@ func (s *Server) refreshProjects(ctx context.Context) {
 	}
 	s.watcher.SetProjects(projects)
 	s.watched = next
+	s.watchSeeded = true
+	s.watchedMu.Unlock()
+
+	// A full sync starts on first registration (SCOPE-002) — the
+	// deliberate default, not something an operator has to remember. Only
+	// registrations that appear after the daemon's initial load count: at
+	// startup every already-registered project is new to the watcher, and
+	// re-syncing the whole fleet on each restart is not "first".
+	// Resolve is set because the project can become visible here before
+	// its resolution is persisted, and syncing an unresolved project
+	// silently does nothing.
+	for _, p := range firstSight {
+		s.opts.Logf("first sight of %s: starting a full sync", p.Root)
+		s.scheduler.Request(p.ID, SyncOptions{Resolve: true}, s.opts.Out)
+	}
 }
 
 // rootOf returns a watched project's root, for log lines.

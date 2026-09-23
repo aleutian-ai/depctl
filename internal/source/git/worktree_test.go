@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -260,4 +261,41 @@ func dirSize(t *testing.T, dir string) int64 {
 		t.Fatalf("walk %s: %v", dir, err)
 	}
 	return total
+}
+
+// TestMaterializeWorktreeConcurrentSparseOnOneMirror is the regression
+// for the POINT-002 live run: sparse-checkout init/set write the mirror's
+// shared config, so parallel worktrees of one repository (monorepo
+// submodules synced concurrently) failed with "could not lock config
+// file: File exists".
+func TestMaterializeWorktreeConcurrentSparseOnOneMirror(t *testing.T) {
+	requireGit(t)
+	c, repoPath := mirrorFixture(t)
+	v1, err := c.ResolveRef(context.Background(), repoPath, "v1.0.0")
+	if err != nil {
+		t.Fatalf("ResolveRef: %v", err)
+	}
+
+	const workers = 12
+	errs := make(chan error, workers)
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, cleanup, err := c.MaterializeWorktree(context.Background(), repoPath, v1, []string{"*.txt"})
+			if err != nil {
+				errs <- err
+				return
+			}
+			errs <- cleanup()
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Errorf("concurrent MaterializeWorktree: %v", err)
+		}
+	}
 }

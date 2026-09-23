@@ -4,7 +4,11 @@ Dependency-aware knowledge synchronization for AI coding agents.
 
 `ragctl` is a local-first daemon that detects the exact dependency versions a project uses, acquires version-matched technical knowledge (source, docs, release notes), keeps a retrieval index in sync as dependencies change, retains old versions still needed by other projects, and exposes version-correct knowledge to coding agents over MCP.
 
+ragctl is not the only locally-hosted or privacy-first option in this space, and it doesn't (yet) match some alternatives' acquisition breadth — arbitrary websites, PDFs, Office documents. Its bet is narrower and specific: automatic, validated synchronization with a repository's *actual resolved dependency state* — native dependency resolution, demand-driven sync, version-scoped retrieval, and explicit missing-knowledge states instead of a silent cross-version fallback — matters more for a coding agent than acquisition breadth.
+
 **Status:** early bootstrap, built CLI-first — commands are implemented one at a time, each pulling in only the domain/storage code it needs. See [docs/architecture.md](docs/architecture.md) for what's actually built, and [docs/tickets/](docs/tickets/README.md) for the roadmap.
+
+**Ecosystem coverage:** `ragctl` resolves dependencies for Go, Python, and Node projects, but resolving, syncing, and producing real API documentation are three different claims with three different maturity levels — Go is the only ecosystem where all three work today. See [docs/architecture.md](docs/architecture.md#ecosystem-coverage-resolve-acquire-and-document-are-three-different-claims) for the specifics.
 
 ## Requirements
 
@@ -46,11 +50,12 @@ Using [opencode](https://opencode.ai) specifically? See [docs/opencode-usage.md]
 
 ## Using ragctl through an MCP agent
 
-`ragctl serve` exposes a handful of tools to an agent — `scan_project`, `sync_project`, `search_dependency_docs`, and read-only lookups like `list_project_dependencies`. A few things worth knowing about how they behave:
+`ragctl serve` exposes a handful of tools to an agent — `scan_project`, `sync_project`, `search_dependency_docs`, `explain_call_site`, and read-only lookups like `list_project_dependencies`. A few things worth knowing about how they behave:
 
 - **`search_dependency_docs` syncs a missing dependency automatically.** If a project's dependency hasn't been indexed yet, asking about it triggers a sync scoped to just that one package and retries — no need to call `sync_project` first just to answer one question.
 - **`sync_project` never blocks past ~90 seconds**, no matter how long the underlying sync actually takes. A large first sync returns a `still_running` status instead of hanging past your client's own timeout, while the sync keeps going in the background — check back with `list_project_dependencies` or call the tool again rather than assuming it failed.
 - **A first sync only fetches what's actually needed.** `ragctl` clones each dependency blobless and sparse-checkout-scoped to the doc-shaped files its normalizers read (Markdown, plaintext, license, and source for godoc extraction) — not that repo's full working tree or history content.
+- **`explain_call_site` resolves a source location straight to version-correct evidence.** Give it a file/line/column instead of a dependency name and question, and it figures out what that call is actually referring to (via a real `go/packages` type-checked load, Go only for now) before searching — useful when an agent doesn't yet know *which* dependency a piece of code depends on. It resolves against whatever project the MCP server's own working directory is — no JIT-sync-on-miss like `search_dependency_docs`, and it can't resolve calls into the standard library (ragctl doesn't track that as a "dependency").
 
 ## Data persistence
 

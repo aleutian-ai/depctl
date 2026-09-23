@@ -204,6 +204,35 @@ func printStatusText(out io.Writer, st Status) {
 	fmt.Fprintf(out, "%-22s %s %s\n", "backend:", st.Backend.Name, health)
 	fmt.Fprintf(out, "%-22s %s\n", "last sync:", lastSync)
 	fmt.Fprintf(out, "%-22s %t\n", "gc running:", st.GCRunning)
+	printSyncActivity(out, st.Syncs)
+}
+
+// printSyncActivity shows each in-flight sync's overall count and, under
+// it, every dependency being built with its chunk progress — a coarse
+// count alone sits still for minutes while one large dependency embeds.
+func printSyncActivity(out io.Writer, syncs []api.ProjectSync) {
+	if len(syncs) == 0 {
+		return
+	}
+	fmt.Fprintf(out, "%-22s %d running\n", "syncs:", len(syncs))
+	for _, s := range syncs {
+		label := s.Root
+		if label == "" {
+			label = s.ProjectID
+		}
+		fmt.Fprintf(out, "  %s: %d of %d done", label, s.Done, s.Total)
+		if s.Failed > 0 {
+			fmt.Fprintf(out, ", %d failed", s.Failed)
+		}
+		fmt.Fprintln(out)
+		for _, d := range s.InFlight {
+			if d.ChunksTotal > 0 {
+				fmt.Fprintf(out, "    building %s: %d of %d chunks\n", d.Name, d.ChunksDone, d.ChunksTotal)
+			} else {
+				fmt.Fprintf(out, "    building %s\n", d.Name)
+			}
+		}
+	}
 }
 
 func formatBytes(n int64) string {

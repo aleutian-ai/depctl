@@ -5,19 +5,27 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
+	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"aleutian-ai/ragctl/internal/config"
+	bboltstore "aleutian-ai/ragctl/internal/control/bbolt"
+	"aleutian-ai/ragctl/internal/daemon"
+	badgerstore "aleutian-ai/ragctl/internal/data/badger"
 	"aleutian-ai/ragctl/internal/domain"
 	"aleutian-ai/ragctl/internal/planner"
 )
 
 func TestSyncDryRunPerformsNoWrites(t *testing.T) {
 	isolateEnv(t)
+	noAmbientSync(t)
 	requireGo(t)
 	runInitForTest(t)
 	useRealRagctlBinary(t)
@@ -54,6 +62,7 @@ func TestSyncDryRunPerformsNoWrites(t *testing.T) {
 
 func TestSyncOfflineSkipsSyncVersionButRecordsReference(t *testing.T) {
 	isolateEnv(t)
+	noAmbientSync(t)
 	requireGo(t)
 	runInitForTest(t)
 	useRealRagctlBinary(t)
@@ -495,4 +504,395 @@ func actionNames(actions []planner.Action) []string {
 		names[i] = a.Dependency.Dependency.Name
 	}
 	return names
+}
+
+// TestFallbackManifestScopesMonorepoModuleToItsSubdir is the POINT-002
+// regression: a module inside a monorepo (cloud.google.com/go/billing,
+// root cloud.google.com/go) must index only its own directory, not the
+// repo root shared by every sibling module.
+func TestFallbackManifestScopesMonorepoModuleToItsSubdir(t *testing.T) {
+	srv := fakeVanityImportServer(t, `<meta name="go-import" content="example.vanity/mono git https://github.com/example/mono">`)
+	redirectVanityImportClient(t, srv)
+
+	cases := map[string]string{
+		"example.vanity/mono":            "",
+		"example.vanity/mono/billing":    "billing",
+		"example.vanity/mono/a/b/v3":     "a/b",
+		"example.vanity/mono/v2":         "",
+		"github.com/org/repo":            "",
+		"github.com/org/repo/v4":         "",
+		"github.com/org/repo/sub/pkg/v2": "sub/pkg",
+	}
+	for name, want := range cases {
+		m, ok := fallbackManifest(context.Background(), domain.Dependency{Ecosystem: domain.EcosystemGo, Name: name})
+		if !ok {
+			t.Fatalf("%s: fallbackManifest = false", name)
+		}
+		if got := m.Sources[0].Subdir; got != want {
+			t.Errorf("%s: Subdir = %q, want %q", name, got, want)
+		}
+	}
+}
+
+func planActionsFor(names ...string) []planner.Action {
+	var actions []planner.Action
+	for _, n := range names {
+		actions = append(actions, planner.Action{
+			Kind:       planner.ActionSyncVersion,
+			Dependency: domain.DependencyVersion{Dependency: domain.Dependency{Ecosystem: domain.EcosystemGo, Name: n}, Version: "v1.0.0"},
+		})
+	}
+	return actions
+}
+
+// TestFlattenActionsFiltersToTheRequestedSet is SCOPE-003's RunSync-side
+// check: a set of names keeps exactly those dependencies, in plan order;
+// an empty set keeps everything; unknown names are a quiet no-op.
+func TestFlattenActionsFiltersToTheRequestedSet(t *testing.T) {
+	plans := []projectPlan{{Actions: planActionsFor("a", "b", "c", "d")}}
+	names := func(actions []planner.Action) []string {
+		var out []string
+		for _, a := range actions {
+			out = append(out, a.Dependency.Dependency.Name)
+		}
+		return out
+	}
+
+	if got := names(flattenActions(plans, []string{"c", "a"}, io.Discard)); !reflect.DeepEqual(got, []string{"a", "c"}) {
+		t.Errorf("set {c,a} kept %v, want [a c] in plan order", got)
+	}
+	if got := names(flattenActions(plans, nil, io.Discard)); len(got) != 4 {
+		t.Errorf("empty set kept %v, want everything", got)
+	}
+	if got := flattenActions(plans, []string{"nope"}, io.Discard); len(got) != 0 {
+		t.Errorf("unknown name kept %d actions, want none", len(got))
+	}
+}
+
+// TestFallbackManifestPinsTheVersionTag: a fallback source must resolve
+// the dependency version's own tag — "v1.2.3" for a repo-root module,
+// "<subdir>/v1.2.3" for a monorepo submodule — never a branch head.
+func TestFallbackManifestPinsTheVersionTag(t *testing.T) {
+	srv := fakeVanityImportServer(t, `<meta name="go-import" content="example.vanity/mono git https://github.com/example/mono">`)
+	redirectVanityImportClient(t, srv)
+
+	cases := map[string]string{
+		"example.vanity/mono":         "v${version}",
+		"example.vanity/mono/billing": "billing/v${version}",
+		"example.vanity/mono/a/b/v3":  "a/b/v${version}",
+		"github.com/org/repo":         "v${version}",
+		"github.com/org/repo/sub":     "sub/v${version}",
+	}
+	for name, want := range cases {
+		m, ok := fallbackManifest(context.Background(), domain.Dependency{Ecosystem: domain.EcosystemGo, Name: name})
+		if !ok {
+			t.Fatalf("%s: fallbackManifest = false", name)
+		}
+		if got := m.Sources[0].Ref; got != want {
+			t.Errorf("%s: Ref = %q, want %q", name, got, want)
+		}
+		if m.Sources[0].Ref == "HEAD" {
+			t.Errorf("%s: fallback source still resolves HEAD", name)
+		}
+	}
+}
+
+func fakeNpmRegistryServer(t *testing.T, body string) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, body)
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func redirectNpmRegistryClient(t *testing.T, srv *httptest.Server) {
+	t.Helper()
+	prev := npmRegistryHTTPClient
+	npmRegistryHTTPClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		redirected := req.Clone(req.Context())
+		redirected.URL.Scheme = "http"
+		redirected.URL.Host = strings.TrimPrefix(srv.URL, "http://")
+		return http.DefaultTransport.RoundTrip(redirected)
+	})}
+	t.Cleanup(func() { npmRegistryHTTPClient = prev })
+}
+
+func TestNpmGitURLNormalizesEveryShape(t *testing.T) {
+	cases := map[string]string{
+		"git+https://github.com/npm/node-semver.git":   "https://github.com/npm/node-semver",
+		"git://github.com/npm/node-semver.git":         "https://github.com/npm/node-semver",
+		"https://github.com/npm/node-semver.git":       "https://github.com/npm/node-semver",
+		"git+ssh://git@github.com/npm/node-semver.git": "https://github.com/npm/node-semver",
+		"github:npm/node-semver":                       "https://github.com/npm/node-semver",
+		"npm/node-semver":                              "https://github.com/npm/node-semver",
+	}
+	for raw, want := range cases {
+		got, ok := npmGitURL(raw)
+		if !ok || got != want {
+			t.Errorf("npmGitURL(%q) = %q, %v; want %q, true", raw, got, ok, want)
+		}
+	}
+	if _, ok := npmGitURL("not a url at all !!"); ok {
+		t.Error("npmGitURL accepted garbage")
+	}
+}
+
+func TestNpmRepositoryObjectShapeWithDirectory(t *testing.T) {
+	srv := fakeNpmRegistryServer(t, `{"repository":{"type":"git","url":"git+https://github.com/eslint/js.git","directory":"packages/eslint-visitor-keys"}}`)
+	redirectNpmRegistryClient(t, srv)
+
+	url, subdir, ok := npmRepository(context.Background(), "eslint-visitor-keys")
+	if !ok || url != "https://github.com/eslint/js" || subdir != "packages/eslint-visitor-keys" {
+		t.Errorf("npmRepository = %q, %q, %v", url, subdir, ok)
+	}
+}
+
+func TestNpmRepositoryStringShorthand(t *testing.T) {
+	srv := fakeNpmRegistryServer(t, `{"repository":"github:tj/commander.js"}`)
+	redirectNpmRegistryClient(t, srv)
+
+	url, subdir, ok := npmRepository(context.Background(), "commander")
+	if !ok || url != "https://github.com/tj/commander.js" || subdir != "" {
+		t.Errorf("npmRepository = %q, %q, %v", url, subdir, ok)
+	}
+}
+
+func TestNpmRepositoryMissingIsACleanMiss(t *testing.T) {
+	srv := fakeNpmRegistryServer(t, `{}`)
+	redirectNpmRegistryClient(t, srv)
+	if _, _, ok := npmRepository(context.Background(), "whatever"); ok {
+		t.Error("npmRepository succeeded with no repository field")
+	}
+}
+
+func TestNpmTagCandidatesForASinglePackageRepo(t *testing.T) {
+	got := npmTagCandidates("commander", "")
+	want := []string{"v${version}", "${version}", "commander@${version}", "commander-v${version}"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("npmTagCandidates = %v, want %v", got, want)
+	}
+}
+
+// TestNpmTagCandidatesForAMonorepoPackageExcludesBareTags is the direct
+// regression for the live-found eslint-visitor-keys bug: a bare version
+// tag in a monorepo can belong to an entirely different package sharing
+// the repo (verified live: github.com/eslint/js's "v3.4.3" is ESLint
+// core's own unrelated 2016 release, not eslint-visitor-keys 3.4.3) — so
+// once a monorepo directory is known, only package-scoped tag shapes are
+// ever offered as candidates.
+func TestNpmTagCandidatesForAMonorepoPackageExcludesBareTags(t *testing.T) {
+	got := npmTagCandidates("eslint-visitor-keys", "packages/eslint-visitor-keys")
+	want := []string{"eslint-visitor-keys@${version}", "eslint-visitor-keys-v${version}"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("npmTagCandidates = %v, want %v (no bare version tags for a monorepo package)", got, want)
+	}
+}
+
+func TestNpmFallbackManifestBuildsSourceWithSubdirAndTemplates(t *testing.T) {
+	srv := fakeNpmRegistryServer(t, `{"repository":{"type":"git","url":"git+https://github.com/eslint/js.git","directory":"packages/eslint-visitor-keys"}}`)
+	redirectNpmRegistryClient(t, srv)
+
+	m, ok := fallbackManifest(context.Background(), domain.Dependency{Ecosystem: domain.EcosystemNode, Name: "eslint-visitor-keys"})
+	if !ok {
+		t.Fatal("fallbackManifest = false")
+	}
+	src := m.Sources[0]
+	if src.URL != "https://github.com/eslint/js" || src.Subdir != "packages/eslint-visitor-keys" {
+		t.Errorf("source = %+v", src)
+	}
+	if len(src.RefTemplates) != 2 || src.Ref != "" {
+		t.Errorf("source RefTemplates=%v Ref=%q, want the 2 package-scoped templates only (no bare version tags — this dependency's own repository is a monorepo) and no singular Ref", src.RefTemplates, src.Ref)
+	}
+	for _, tmpl := range src.RefTemplates {
+		if !strings.Contains(tmpl, "eslint-visitor-keys") {
+			t.Errorf("RefTemplates contains a bare, unscoped template %q for a monorepo package", tmpl)
+		}
+	}
+}
+
+func TestNpmFallbackManifestFalseWithoutARepository(t *testing.T) {
+	srv := fakeNpmRegistryServer(t, `{}`)
+	redirectNpmRegistryClient(t, srv)
+	if _, ok := fallbackManifest(context.Background(), domain.Dependency{Ecosystem: domain.EcosystemNode, Name: "whatever"}); ok {
+		t.Error("fallbackManifest = true for an npm package with no repository field")
+	}
+}
+
+func redirectPypiRegistryClient(t *testing.T, srv *httptest.Server) {
+	t.Helper()
+	prev := pypiRegistryHTTPClient
+	pypiRegistryHTTPClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		redirected := req.Clone(req.Context())
+		redirected.URL.Scheme = "http"
+		redirected.URL.Host = strings.TrimPrefix(srv.URL, "http://")
+		return http.DefaultTransport.RoundTrip(redirected)
+	})}
+	t.Cleanup(func() { pypiRegistryHTTPClient = prev })
+}
+
+func TestPypiGitURLKeepsOnlyOrgAndRepo(t *testing.T) {
+	cases := map[string]string{
+		"https://github.com/pallets/flask":                "https://github.com/pallets/flask",
+		"https://github.com/pallets/flask.git":            "https://github.com/pallets/flask",
+		"https://github.com/pallets/flask/issues":         "https://github.com/pallets/flask",
+		"https://github.com/pallets/flask/tree/main/docs": "https://github.com/pallets/flask",
+		"https://gitlab.com/some-org/some-repo":           "https://gitlab.com/some-org/some-repo",
+	}
+	for raw, want := range cases {
+		got, ok := pypiGitURL(raw)
+		if !ok || got != want {
+			t.Errorf("pypiGitURL(%q) = %q, %v; want %q, true", raw, got, ok, want)
+		}
+	}
+	if _, ok := pypiGitURL("https://example.com/docs/flask"); ok {
+		t.Error("pypiGitURL accepted a non-git-hosting URL")
+	}
+	if _, ok := pypiGitURL("not a url"); ok {
+		t.Error("pypiGitURL accepted garbage")
+	}
+}
+
+func TestPypiRepositoryTriesProjectURLKeysInPriorityOrder(t *testing.T) {
+	srv := fakeNpmRegistryServer(t, `{"info":{"project_urls":{"Homepage":"https://flask.palletsprojects.com","Source":"https://github.com/pallets/flask"}}}`)
+	redirectPypiRegistryClient(t, srv)
+
+	url, ok := pypiRepository(context.Background(), "flask")
+	if !ok || url != "https://github.com/pallets/flask" {
+		t.Errorf("pypiRepository = %q, %v, want the Source key preferred over Homepage", url, ok)
+	}
+}
+
+func TestPypiRepositoryFallsBackToHomePage(t *testing.T) {
+	srv := fakeNpmRegistryServer(t, `{"info":{"home_page":"https://github.com/psf/requests"}}`)
+	redirectPypiRegistryClient(t, srv)
+
+	url, ok := pypiRepository(context.Background(), "requests")
+	if !ok || url != "https://github.com/psf/requests" {
+		t.Errorf("pypiRepository = %q, %v, want home_page used as a fallback", url, ok)
+	}
+}
+
+func TestPypiRepositoryNoGitShapedURLIsACleanMiss(t *testing.T) {
+	srv := fakeNpmRegistryServer(t, `{"info":{"project_urls":{"Homepage":"https://example.com/not-a-repo"},"home_page":"https://example.com/also-not-a-repo"}}`)
+	redirectPypiRegistryClient(t, srv)
+
+	if _, ok := pypiRepository(context.Background(), "whatever"); ok {
+		t.Error("pypiRepository succeeded with no git-hostable URL anywhere in the response")
+	}
+}
+
+func TestPypiFallbackManifestBuildsSourceWithTagTemplates(t *testing.T) {
+	srv := fakeNpmRegistryServer(t, `{"info":{"project_urls":{"Source":"https://github.com/pallets/flask"}}}`)
+	redirectPypiRegistryClient(t, srv)
+
+	m, ok := fallbackManifest(context.Background(), domain.Dependency{Ecosystem: domain.EcosystemPython, Name: "flask"})
+	if !ok {
+		t.Fatal("fallbackManifest = false")
+	}
+	src := m.Sources[0]
+	if src.URL != "https://github.com/pallets/flask" || src.Subdir != "" {
+		t.Errorf("source = %+v", src)
+	}
+	want := []string{"v${version}", "${version}"}
+	if !reflect.DeepEqual(src.RefTemplates, want) {
+		t.Errorf("RefTemplates = %v, want %v", src.RefTemplates, want)
+	}
+}
+
+func TestPypiFallbackManifestFalseWithoutARepository(t *testing.T) {
+	srv := fakeNpmRegistryServer(t, `{"info":{}}`)
+	redirectPypiRegistryClient(t, srv)
+	if _, ok := fallbackManifest(context.Background(), domain.Dependency{Ecosystem: domain.EcosystemPython, Name: "whatever"}); ok {
+		t.Error("fallbackManifest = true for a PyPI package with no usable repository URL")
+	}
+}
+
+// TestRunSyncDaemonSemBoundsConcurrencyAcrossSeparateCalls is the direct
+// regression for SCOPE-002's known risk: ambient sync fires one RunSync
+// call per project, each with its own worker pool, so nothing previously
+// bounded total concurrency across projects. Two separate RunSync calls
+// (simulating two projects' own scheduler-triggered syncs) share one
+// daemonSem; with it sized 1, their actions must never run at the same
+// time even though each call's own worker pool would otherwise let them.
+func TestRunSyncDaemonSemBoundsConcurrencyAcrossSeparateCalls(t *testing.T) {
+	ctx := context.Background()
+	store, err := bboltstore.Open(filepath.Join(t.TempDir(), "control.db"))
+	if err != nil {
+		t.Fatalf("bboltstore.Open: %v", err)
+	}
+	defer store.Close()
+	badgerStore, err := badgerstore.Open(filepath.Join(t.TempDir(), "badger"))
+	if err != nil {
+		t.Fatalf("badgerstore.Open: %v", err)
+	}
+	defer badgerStore.Close()
+
+	seedProject := func(suffix string, n int) string {
+		p := domain.Project{ID: "proj-" + suffix, Root: "/fake/" + suffix}
+		if err := store.PutProject(ctx, p); err != nil {
+			t.Fatalf("PutProject: %v", err)
+		}
+		var deps []domain.DependencyVersion
+		for i := 0; i < n; i++ {
+			deps = append(deps, domain.DependencyVersion{
+				Dependency: domain.Dependency{Ecosystem: domain.EcosystemGo, Name: fmt.Sprintf("example.com/dep%s%d", suffix, i)},
+				Version:    "v1.0.0",
+			})
+		}
+		if err := store.PutResolution(ctx, p.ID, domain.Resolution{Ecosystem: domain.EcosystemGo, Dependencies: deps}); err != nil {
+			t.Fatalf("PutResolution: %v", err)
+		}
+		return p.ID
+	}
+	projA := seedProject("a", 3)
+	projB := seedProject("b", 3)
+
+	cfg := config.Default(t.TempDir())
+	cfg.Sync.MaxConcurrency = 3 // each project's own pool would happily run all 3 actions at once
+
+	run := func(projectID string, sem chan struct{}) {
+		coordinator := daemon.NewBuildCoordinator()
+		RunSync(ctx, coordinator, store, badgerStore, cfg, projectID, nil, true /* offline */, false, io.Discard, nil, nil, nil, nil, sem)
+	}
+
+	checkBound := func(t *testing.T, sem chan struct{}, semSize int, wantOverlap bool) {
+		t.Helper()
+		var mu sync.Mutex
+		current, peak := 0, 0
+		prev := syncActionConcurrencyHook
+		syncActionConcurrencyHook = func() {
+			mu.Lock()
+			current++
+			if current > peak {
+				peak = current
+			}
+			mu.Unlock()
+			time.Sleep(20 * time.Millisecond) // long enough for a real overlap to be observed if the cap allows it
+			mu.Lock()
+			current--
+			mu.Unlock()
+		}
+		defer func() { syncActionConcurrencyHook = prev }()
+
+		var wg sync.WaitGroup
+		wg.Add(2)
+		go func() { defer wg.Done(); run(projA, sem) }()
+		go func() { defer wg.Done(); run(projB, sem) }()
+		wg.Wait()
+
+		if wantOverlap && peak <= semSize {
+			t.Errorf("peak concurrent actions = %d with no cap, want more than %d (test wasn't exercising real concurrency)", peak, semSize)
+		}
+		if !wantOverlap && peak > semSize {
+			t.Errorf("peak concurrent actions = %d, want at most %d (daemonSem of size %d must bound concurrency across both RunSync calls)", peak, semSize, semSize)
+		}
+	}
+
+	t.Run("capped at 1", func(t *testing.T) {
+		checkBound(t, make(chan struct{}, 1), 1, false)
+	})
+	t.Run("uncapped (nil) allows real overlap", func(t *testing.T) {
+		checkBound(t, nil, 1, true)
+	})
 }

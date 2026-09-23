@@ -34,6 +34,7 @@ type fakeControlStore struct {
 	resolutions map[string]domain.Resolution
 	active      map[string]domain.Generation // key: eco|pkg|backendName
 	refs        []domain.VersionReference
+	generations []domain.Generation // every generation ever seeded, any state — see seedChunk
 }
 
 func newFakeControlStore() *fakeControlStore {
@@ -81,6 +82,16 @@ func (s *fakeControlStore) ListReferences(ctx context.Context, ecosystem domain.
 	for _, r := range s.refs {
 		if r.Ecosystem == ecosystem && r.Package == pkg && r.Version == version {
 			out = append(out, r)
+		}
+	}
+	return out, nil
+}
+
+func (s *fakeControlStore) ListGenerationsByDependencyVersion(ctx context.Context, ecosystem domain.Ecosystem, pkg, version string) ([]domain.Generation, error) {
+	var out []domain.Generation
+	for _, g := range s.generations {
+		if g.Dependency.Dependency.Ecosystem == ecosystem && g.Dependency.Dependency.Name == pkg && g.Dependency.Version == version {
+			out = append(out, g)
 		}
 	}
 	return out, nil
@@ -172,7 +183,24 @@ func (e *testEnv) seedChunk(t *testing.T, ecosystem domain.Ecosystem, pkg, versi
 		t.Fatalf("Upsert: %v", err)
 	}
 	e.data.chunks[generationID+"|"+chunkID] = domain.Chunk{ID: chunkID, ObjectID: "ko_1", Content: []byte(content)}
-	e.control.active[string(ecosystem)+"|"+pkg+"|qdrant"] = domain.Generation{ID: generationID}
+	gen := domain.Generation{
+		ID:         generationID,
+		Dependency: domain.DependencyVersion{Dependency: domain.Dependency{Ecosystem: ecosystem, Name: pkg}, Version: version},
+		State:      domain.GenActive,
+	}
+	// The single active-pointer fixture entry (one per eco|pkg|backend —
+	// a second seedChunk call for a different version of the same
+	// dependency overwrites this, matching real active_generations
+	// semantics: only one generation is ever "the" active pointer).
+	e.control.active[string(ecosystem)+"|"+pkg+"|qdrant"] = gen
+	// The per-version promoted-generation history (every seedChunk call
+	// appends, never overwritten) — searchProject's real, correctly-
+	// scoped check (VALID-001) is "was THIS version ever promoted,"
+	// independent of whether it's still the current active pointer; see
+	// searchProject's own comment for why checking the active pointer's
+	// Version directly was tried and reverted (it broke VALID-002's
+	// multi-project scenario).
+	e.control.generations = append(e.control.generations, gen)
 }
 
 func testDep(pkg, version string) domain.DependencyVersion {
@@ -189,7 +217,14 @@ func TestSearchProjectModeResolvesActiveVersionFilter(t *testing.T) {
 	env.seedChunk(t, domain.EcosystemGo, "google.golang.org/grpc", "v1.67.0", "gen_1", "chk_1", "grpc docs content")
 	// A different version's chunk must never be returned for a project search.
 	env.seedChunk(t, domain.EcosystemGo, "google.golang.org/grpc", "v1.60.0", "gen_0", "chk_0", "old grpc docs")
-	env.control.active["go|google.golang.org/grpc|qdrant"] = domain.Generation{ID: "gen_1"} // re-assert current version is active
+	// re-assert current version is active (seedChunk's second call above
+	// overwrote the single active-pointer fixture entry) — Version must
+	// be set here too, matching what a real promote.Promote always
+	// populates.
+	env.control.active["go|google.golang.org/grpc|qdrant"] = domain.Generation{
+		ID:         "gen_1",
+		Dependency: domain.DependencyVersion{Dependency: domain.Dependency{Ecosystem: domain.EcosystemGo, Name: "google.golang.org/grpc"}, Version: "v1.67.0"},
+	}
 
 	result, err := env.svc.SearchKnowledge(context.Background(), Query{ProjectID: "proj_1", Text: "retry", Dependency: "google.golang.org/grpc", Mode: ModeProject})
 	if err != nil {
@@ -238,6 +273,32 @@ func TestSearchProjectModeNoActiveGenerationReturnsTypedError(t *testing.T) {
 	}
 }
 
+// TestSearchProjectModeVersionMismatchReturnsTypedErrorNotEmptyResult is
+// the regression test for a bug VALID-001's live testing found: the
+// project resolves a version with NO promoted generation of its own
+// (some *other* version of the same dependency is what's actually
+// active) — searchProject's old GetActiveGeneration check only verified
+// "does a generation exist for this ecosystem+package at all," not that
+// it matches the project's resolved version, so this case silently fell
+// through to an empty-but-successful search result (safe — never
+// cross-version content — but confusingly empty instead of an
+// actionable error, and WATCH-019's JIT-sync trigger, which
+// pattern-matches ErrNoActiveGeneration, never fired for it).
+func TestSearchProjectModeVersionMismatchReturnsTypedErrorNotEmptyResult(t *testing.T) {
+	env := newTestEnv(t)
+	env.control.projects["proj_1"] = domain.Project{ID: "proj_1", Root: "/repo"}
+	// The project resolves v1.68.0, but only v1.67.0 has ever been
+	// synced/promoted — a real scenario (e.g. a dependency upgrade whose
+	// sync hasn't completed yet).
+	env.control.resolutions["proj_1"] = domain.Resolution{Dependencies: []domain.DependencyVersion{testDep("google.golang.org/grpc", "v1.68.0")}}
+	env.seedChunk(t, domain.EcosystemGo, "google.golang.org/grpc", "v1.67.0", "gen_1", "chk_1", "old docs")
+
+	_, err := env.svc.SearchKnowledge(context.Background(), Query{ProjectID: "proj_1", Text: "x", Dependency: "google.golang.org/grpc", Mode: ModeProject})
+	if !errors.Is(err, ErrNoActiveGeneration) {
+		t.Errorf("err = %v, want ErrNoActiveGeneration — not a silent empty result", err)
+	}
+}
+
 func TestSearchCompareModeLabelsEachResultWithItsVersion(t *testing.T) {
 	env := newTestEnv(t)
 	env.control.projects["proj_1"] = domain.Project{ID: "proj_1", Root: "/repo"}
@@ -247,6 +308,14 @@ func TestSearchCompareModeLabelsEachResultWithItsVersion(t *testing.T) {
 		Ecosystem: domain.EcosystemGo, Package: "google.golang.org/grpc", Version: "v1.68.0", Reason: domain.ReferenceReasonLatest,
 	})
 	env.seedChunk(t, domain.EcosystemGo, "google.golang.org/grpc", "v1.68.0", "gen_2", "chk_2", "latest docs")
+	// seedChunk's second call above overwrote the single active-pointer
+	// fixture entry to gen_2/v1.68.0 — but the project's own resolved
+	// (active) version is v1.67.0/gen_1; v1.68.0 is reachable only via
+	// the "latest" reference, not the active pointer. Re-assert it.
+	env.control.active["go|google.golang.org/grpc|qdrant"] = domain.Generation{
+		ID:         "gen_1",
+		Dependency: domain.DependencyVersion{Dependency: domain.Dependency{Ecosystem: domain.EcosystemGo, Name: "google.golang.org/grpc"}, Version: "v1.67.0"},
+	}
 
 	result, err := env.svc.SearchKnowledge(context.Background(), Query{ProjectID: "proj_1", Text: "retry", Dependency: "google.golang.org/grpc", Mode: ModeCompare})
 	if err != nil {

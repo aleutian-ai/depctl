@@ -42,6 +42,9 @@ const (
 	// PathSync, which always either starts a new run or queues a
 	// follow-up; this one only ever affects a run already in flight.
 	PathSyncPriority = "/v1/sync/priority"
+	// PathSyncProgress reports one project's sync progress (SCOPE-001):
+	// live counters while a run is in flight, the last run's afterwards.
+	PathSyncProgress = "/v1/sync/progress"
 )
 
 // Health is what GET /v1/health reports: enough to identify the running
@@ -90,6 +93,16 @@ type Status struct {
 	Backend              BackendStatus `json:"backend"`
 	LastSync             *time.Time    `json:"last_sync"`
 	GCRunning            bool          `json:"gc_running"`
+	// Syncs lists every project with a sync in flight right now.
+	Syncs []ProjectSync `json:"syncs,omitempty"`
+}
+
+// ProjectSync is one project's in-flight sync, named so a human can
+// recognize it.
+type ProjectSync struct {
+	ProjectID string `json:"project_id"`
+	Root      string `json:"root"`
+	SyncProgress
 }
 
 // JobStats counts jobs by state class. RETRY counts as pending: it is
@@ -131,15 +144,54 @@ type ResolveResult struct {
 // SyncRequest is one `ragctl sync` invocation. An empty ProjectID means
 // every registered project, as the CLI's missing --project does.
 type SyncRequest struct {
-	ProjectID  string `json:"project_id,omitempty"`
-	Dependency string `json:"dependency,omitempty"`
-	Offline    bool   `json:"offline,omitempty"`
-	Force      bool   `json:"force,omitempty"`
+	ProjectID string `json:"project_id,omitempty"`
+	// Dependency is the original single-name filter; Dependencies is the
+	// set form. Both may be sent; DependencySet combines them.
+	Dependency   string   `json:"dependency,omitempty"`
+	Dependencies []string `json:"dependencies,omitempty"`
+	Offline      bool     `json:"offline,omitempty"`
+	Force        bool     `json:"force,omitempty"`
+}
+
+// DependencySet is every dependency name the request limits the sync to;
+// empty means everything.
+func (r SyncRequest) DependencySet() []string {
+	set := append([]string(nil), r.Dependencies...)
+	if r.Dependency != "" {
+		set = append(set, r.Dependency)
+	}
+	return set
 }
 
 // SyncResponse carries one result per project the request covered.
 type SyncResponse struct {
 	Results []SyncResult `json:"results"`
+}
+
+// SyncProgress is a project's sync progress at one moment (SCOPE-001).
+// Done, Failed and Total count planned actions — nearly all one per
+// dependency version. With Syncing false they describe the last run, or
+// are all zero if the project has never synced.
+type SyncProgress struct {
+	Syncing  bool                 `json:"syncing"`
+	Done     int                  `json:"done"`
+	Failed   int                  `json:"failed"`
+	Total    int                  `json:"total"`
+	InFlight []InFlightDependency `json:"in_flight,omitempty"`
+}
+
+// SyncProgressRequest asks for one project's SyncProgress.
+type SyncProgressRequest struct {
+	ProjectID string `json:"project_id"`
+}
+
+// InFlightDependency is one dependency being built right now, with how
+// many of its chunks are embedded (ChunksTotal is 0 until its chunks are
+// known).
+type InFlightDependency struct {
+	Name        string `json:"name"`
+	ChunksDone  int    `json:"chunks_done"`
+	ChunksTotal int    `json:"chunks_total"`
 }
 
 // SyncPriorityRequest asks the currently-running sync for ProjectID, if
@@ -164,6 +216,10 @@ type PlanRequest struct {
 // GCRequest is one `ragctl gc` invocation.
 type GCRequest struct {
 	DryRun bool `json:"dry_run"`
+	// Orphans selects GC-001/GC-002's orphan-generation eligibility path
+	// (FAILED/stuck-non-terminal generations) instead of the default
+	// reference-based path — never both in the same request.
+	Orphans bool `json:"orphans,omitempty"`
 }
 
 // GCResult summarizes a GC run.

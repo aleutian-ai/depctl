@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"aleutian-ai/ragctl/internal/mcp"
 	"bytes"
 	"context"
 	"errors"
@@ -163,6 +164,31 @@ func (q *daemonQueryService) SearchKnowledge(ctx context.Context, req query.Quer
 	return query.SearchResult{Chunks: chunks}, nil
 }
 
+// daemonResolutionStore implements symbolgraph.ControlStore over the
+// daemon's HTTP API, reusing the exact same /v1/deps route
+// daemonQueryService.GetProjectDependencies already calls — GRAPH-004
+// needs only Ecosystem/Name/Version out of a project's resolution, all
+// of which that route already returns.
+type daemonResolutionStore struct {
+	c *client.Client
+}
+
+func (s *daemonResolutionStore) GetResolution(ctx context.Context, projectID string) (domain.Resolution, error) {
+	resp, err := s.c.ProjectDependencies(ctx, projectID)
+	if err != nil {
+		return domain.Resolution{}, wrapQueryError(err)
+	}
+	deps := make([]domain.DependencyVersion, len(resp.Dependencies))
+	for i, d := range resp.Dependencies {
+		deps[i] = domain.DependencyVersion{
+			Dependency: domain.Dependency{Ecosystem: domain.Ecosystem(d.Ecosystem), Name: d.Name, Direct: d.Direct},
+			Version:    d.Version,
+			ResolvedBy: d.ResolvedBy,
+		}
+	}
+	return domain.Resolution{Dependencies: deps}, nil
+}
+
 // daemonSyncTrigger implements mcp.SyncTrigger over the daemon's HTTP
 // API, so the sync_project MCP tool goes through the same
 // Scheduler.Request every other sync trigger (CLI, watch) already does,
@@ -172,8 +198,8 @@ type daemonSyncTrigger struct {
 	c *client.Client
 }
 
-func (t *daemonSyncTrigger) SyncProject(ctx context.Context, projectID, dependency string, progress func(line string)) (synced, failed, skipped int, err error) {
-	resp, err := t.c.Sync(ctx, api.SyncRequest{ProjectID: projectID, Dependency: dependency}, lineWriter(progress))
+func (t *daemonSyncTrigger) SyncProject(ctx context.Context, projectID string, dependencies []string, progress func(line string)) (synced, failed, skipped int, err error) {
+	resp, err := t.c.Sync(ctx, api.SyncRequest{ProjectID: projectID, Dependencies: dependencies}, lineWriter(progress))
 	if err != nil {
 		return 0, 0, 0, err
 	}
@@ -194,6 +220,24 @@ type daemonPriorityBumper struct {
 
 func (b *daemonPriorityBumper) BumpSyncPriority(ctx context.Context, projectID, dependency string) (bool, error) {
 	return b.c.BumpSyncPriority(ctx, projectID, dependency)
+}
+
+// daemonProgressReader implements mcp.SyncProgressReader over the
+// daemon's HTTP API (SCOPE-001).
+type daemonProgressReader struct {
+	c *client.Client
+}
+
+func (r *daemonProgressReader) SyncProgress(ctx context.Context, projectID string) (mcp.SyncProgressOut, error) {
+	p, err := r.c.SyncProgress(ctx, projectID)
+	if err != nil {
+		return mcp.SyncProgressOut{}, err
+	}
+	out := mcp.SyncProgressOut{Syncing: p.Syncing, Done: p.Done, Failed: p.Failed, Total: p.Total}
+	for _, d := range p.InFlight {
+		out.InFlight = append(out.InFlight, mcp.InFlightDependencyOut{Name: d.Name, ChunksDone: d.ChunksDone, ChunksTotal: d.ChunksTotal})
+	}
+	return out, nil
 }
 
 // daemonScanTrigger implements mcp.ScanTrigger over the daemon's HTTP

@@ -38,7 +38,7 @@ type Engine interface {
 	Status(ctx context.Context) (api.Status, error)
 	Projects(ctx context.Context) ([]watch.Project, error)
 	ProjectIDs(ctx context.Context) ([]string, error)
-	Sync(ctx context.Context, projectID string, opts SyncOptions, out io.Writer) (api.SyncResult, error)
+	Sync(ctx context.Context, coordinator *BuildCoordinator, projectID string, opts SyncOptions, out io.Writer) (api.SyncResult, error)
 	// Scan discovers projects under root and persists each one's
 	// registration and resolution. lockProject must be held around one
 	// project's persist step (see Scheduler.LockProject) so two
@@ -47,6 +47,11 @@ type Engine interface {
 	Scan(ctx context.Context, root string, out io.Writer, lockProject func(projectID string) func()) ([]string, error)
 	Plan(ctx context.Context, projectID string) (any, error)
 	GC(ctx context.Context, dryRun bool, out io.Writer) (api.GCResult, error)
+	// OrphanGC runs GC-001/GC-002/GC-003's orphan-generation cleanup
+	// (FAILED or stuck-non-terminal generations, never promoted) — an
+	// entirely separate eligibility path from GC's reference-based one,
+	// never combined into the same report or deletion run.
+	OrphanGC(ctx context.Context, dryRun bool, out io.Writer) (api.GCResult, error)
 
 	// Search, ProjectDependencies, DependencyVersion, ReleaseChanges, and
 	// KnowledgeStatus back the MCP query tools (internal/mcp.QueryService),
@@ -87,14 +92,17 @@ type Engine interface {
 
 // Options configures a Server. Socket and Engine are required.
 type Options struct {
-	Engine         Engine
-	Socket         string
-	ControlPath    string
-	Version        string
-	WatchEnabled   bool
-	Debounce       time.Duration
-	MCPEnabled     bool
-	EnableSyncTool bool
+	// DisableAmbientSync turns off the full sync a newly registered
+	// project otherwise starts automatically (SCOPE-002).
+	DisableAmbientSync bool
+	Engine             Engine
+	Socket             string
+	ControlPath        string
+	Version            string
+	WatchEnabled       bool
+	Debounce           time.Duration
+	MCPEnabled         bool
+	EnableSyncTool     bool
 	// ConfigFingerprint is config.Config.Fingerprint() for the config
 	// this daemon loaded at startup — see api.Health.ConfigFingerprint.
 	ConfigFingerprint string
@@ -115,6 +123,10 @@ type Server struct {
 	watcher   *watch.Watcher
 	watchedMu sync.Mutex
 	watched   map[string]watch.Project
+	// watchSeeded is false until the first project-list load completes,
+	// so projects already registered at startup aren't mistaken for new
+	// registrations (SCOPE-002).
+	watchSeeded bool
 }
 
 // New returns a Server ready to Serve. It binds nothing yet.
@@ -209,6 +221,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST "+api.PathPlan, s.handlePlan)
 	mux.HandleFunc("POST "+api.PathSync, s.handleSync)
 	mux.HandleFunc("POST "+api.PathSyncPriority, s.handleSyncPriority)
+	mux.HandleFunc("POST "+api.PathSyncProgress, s.handleSyncProgress)
 	mux.HandleFunc("POST "+api.PathGC, s.handleGC)
 	mux.HandleFunc("POST "+api.PathSearch, s.handleSearch)
 	mux.HandleFunc("POST "+api.PathProjectDependencies, s.handleProjectDependencies)
@@ -249,6 +262,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	st.GCRunning = s.gcBusy()
+	st.Syncs = s.syncActivity(r.Context())
 	writeJSON(w, http.StatusOK, st)
 }
 

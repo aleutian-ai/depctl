@@ -1,7 +1,7 @@
 # NODE-003: pnpm resolver
 
 **Epic:** Node / JavaScript / TypeScript Resolver
-**Status:** planned
+**Status:** done
 **Depends on:** NODE-001
 **Estimated size:** medium
 
@@ -47,3 +47,6 @@ type pnpmLock struct {
 ## Acceptance criteria
 - [ ] Exact versions match `pnpm-lock.yaml` contents for fixture projects.
 - [ ] Workspace members correctly attributed direct dependencies.
+
+## Post-implementation note
+Built and tested (`internal/resolver/node`). Like the Python resolver (epic 20), this gives resolution only — resolved Node dependencies mostly can't *sync* yet, since the automatic fallback-manifest path is Go-only and almost no npm packages are curated in the registry. See `docs/tickets/planned/56-npm-pypi-fallback-manifest`.

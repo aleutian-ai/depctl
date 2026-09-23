@@ -1,6 +1,7 @@
 package badger
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -21,11 +22,51 @@ func chunkGenerationPrefix(generationID string) []byte {
 	return []byte(chunkKeyPrefix + generationID + "/")
 }
 
-// PutChunk upserts a chunk, keyed by its generation and chunk ID.
-func (s *Store) PutChunk(ctx context.Context, generationID string, c domain.Chunk) error {
-	data, err := json.Marshal(c)
+// storedChunk is a chunk's on-disk record. When a chunk's text is
+// byte-identical to its parent object's (every symbol chunk, and any
+// single-section document), ContentInObject is set and Content is left
+// out: the text is stored once, on the object, and restored on read.
+type storedChunk struct {
+	domain.Chunk
+	ContentInObject bool `json:",omitempty"`
+}
+
+func encodeChunk(c domain.Chunk, objectContent []byte) ([]byte, error) {
+	rec := storedChunk{Chunk: c}
+	if objectContent != nil && bytes.Equal(c.Content, objectContent) {
+		rec.Content = nil
+		rec.ContentInObject = true
+	}
+	data, err := json.Marshal(rec)
 	if err != nil {
-		return fmt.Errorf("marshal chunk %s: %w", c.ID, err)
+		return nil, fmt.Errorf("marshal chunk %s: %w", c.ID, err)
+	}
+	return data, nil
+}
+
+// decodeChunk parses a chunk record and, if its text lives on the parent
+// object, loads it within the same transaction.
+func decodeChunk(txn *bg.Txn, data []byte) (domain.Chunk, error) {
+	var rec storedChunk
+	if err := json.Unmarshal(data, &rec); err != nil {
+		return domain.Chunk{}, err
+	}
+	if rec.ContentInObject {
+		obj, err := getObject(txn, rec.ObjectID)
+		if err != nil {
+			return domain.Chunk{}, fmt.Errorf("chunk %s: parent object %s: %w", rec.ID, rec.ObjectID, err)
+		}
+		rec.Content = obj.Content
+	}
+	return rec.Chunk, nil
+}
+
+// PutChunk upserts a chunk with its text stored inline, keyed by its
+// generation and chunk ID.
+func (s *Store) PutChunk(ctx context.Context, generationID string, c domain.Chunk) error {
+	data, err := encodeChunk(c, nil)
+	if err != nil {
+		return err
 	}
 	return s.db.Update(func(txn *bg.Txn) error {
 		return txn.Set(chunkKey(generationID, c.ID), data)
@@ -45,7 +86,9 @@ func (s *Store) GetChunk(ctx context.Context, generationID, chunkID string) (dom
 			return err
 		}
 		return item.Value(func(val []byte) error {
-			return json.Unmarshal(val, &c)
+			var derr error
+			c, derr = decodeChunk(txn, val)
+			return derr
 		})
 	})
 	return c, err
@@ -64,7 +107,9 @@ func (s *Store) ListGenerationChunks(ctx context.Context, generationID string) (
 		for it.Seek(prefix); it.ValidForPrefix(prefix); it.Next() {
 			var c domain.Chunk
 			if err := it.Item().Value(func(val []byte) error {
-				return json.Unmarshal(val, &c)
+				var derr error
+				c, derr = decodeChunk(txn, val)
+				return derr
 			}); err != nil {
 				return fmt.Errorf("unmarshal chunk %s: %w", it.Item().Key(), err)
 			}

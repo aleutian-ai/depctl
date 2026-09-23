@@ -66,12 +66,19 @@ type VersionStrategy struct {
 
 // Source is one place knowledge can be acquired from, ranked by Authority.
 type Source struct {
-	ID        string `yaml:"id" json:"id"`
-	Type      string `yaml:"type" json:"type"` // git | godoc | website | github-releases
-	URL       string `yaml:"url,omitempty" json:"url,omitempty"`
-	Ref       string `yaml:"ref,omitempty" json:"ref,omitempty"`
-	Module    string `yaml:"module,omitempty" json:"module,omitempty"`
-	Authority int    `yaml:"authority" json:"authority"`
+	ID     string `yaml:"id" json:"id"`
+	Type   string `yaml:"type" json:"type"` // git | godoc | website | github-releases
+	URL    string `yaml:"url,omitempty" json:"url,omitempty"`
+	Ref    string `yaml:"ref,omitempty" json:"ref,omitempty"`
+	Module string `yaml:"module,omitempty" json:"module,omitempty"`
+	Subdir string `yaml:"subdir,omitempty" json:"subdir,omitempty"`
+	// RefTemplates, when non-empty, replaces Ref: each template is tried
+	// in acquisition order and the first that resolves to a real commit
+	// wins (POINT-002's "never fall back to an unverified ref" rule) —
+	// for ecosystems (npm) with more than one real-world tag convention,
+	// where a single Ref template like Go's isn't enough.
+	RefTemplates []string `yaml:"ref_templates,omitempty" json:"ref_templates,omitempty"`
+	Authority    int      `yaml:"authority" json:"authority"`
 }
 
 // ManifestError wraps a manifest that failed JSON Schema validation or

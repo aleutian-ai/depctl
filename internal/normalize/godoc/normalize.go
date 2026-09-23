@@ -91,15 +91,32 @@ func (n *Normalizer) Normalize(ctx context.Context, src domain.SourceSnapshot) (
 		for _, m := range t.Methods {
 			objects = append(objects, symbolObject(src, fset, docPkg.Name, m.Name, t.Name, m.Doc, m.Decl))
 		}
+		// go/doc groups a package-level function under the type it
+		// returns (Type.Funcs) rather than the package-level Doc.Funcs
+		// list — the extremely common Go constructor convention
+		// (NewFoo(), Open(), Connect() returning *Client, etc.). Missing
+		// this meant every such constructor function was silently never
+		// indexed at all, regardless of how prominent it is in a real
+		// dependency's API (found via VALID-004's live fixture, which
+		// specifically used a Connect(...) (*Client, error) constructor).
+		for _, fn := range t.Funcs {
+			objects = append(objects, symbolObject(src, fset, docPkg.Name, fn.Name, "", fn.Doc, fn.Decl))
+		}
 	}
 
 	return objects, nil
 }
 
-// singlePackage picks the non-"_test" package from parser.ParseDir's
+// singlePackage picks the package to document from parser.ParseDir's
 // result — a directory can also yield an external "foo_test" package,
-// which isn't the API surface being documented. ok is false if dir has
-// no non-test package (e.g. an integration-test-only directory).
+// which isn't the API surface being documented. A library directory can
+// also hold a build-ignored `package main` generator (//go:build ignore),
+// which ParseDir folds in as a second package: an importable package is
+// preferred over "main", since a generator is not part of the library's
+// API (choosing alphabetically documented the generator, and indexed
+// nothing, for any library named after "m"). A directory with only a main
+// package is a command and keeps it. ok is false if dir has no non-test
+// package (e.g. an integration-test-only directory).
 func singlePackage(pkgs map[string]*ast.Package) (pkg *ast.Package, ok bool) {
 	var names []string
 	for name := range pkgs {
@@ -108,11 +125,24 @@ func singlePackage(pkgs map[string]*ast.Package) (pkg *ast.Package, ok bool) {
 		}
 	}
 	sort.Strings(names)
+	for _, name := range names {
+		if name != "main" {
+			return pkgs[name], true
+		}
+	}
 	if len(names) == 0 {
 		return nil, false
 	}
 	return pkgs[names[0]], true
 }
+
+// maxSignatureBytes is the largest grouped declaration (a const/var/type
+// block) whose whole text is used as one symbol's signature. go/doc
+// reports a whole const block as one declaration, so every name in it
+// would otherwise carry the entire block: a generated table of N names
+// costs N*N text (2.4 GB live in one real dependency's build). Past this
+// size a name's signature is just its own spec.
+const maxSignatureBytes = 4 << 10
 
 // symbolObject builds the KnowledgeObject for one exported symbol.
 // receiver is set only for methods, naming the type they're associated
@@ -122,7 +152,7 @@ func symbolObject(src domain.SourceSnapshot, fset *token.FileSet, pkgName, name,
 		"package": pkgName,
 		"symbol":  name,
 	}
-	if sig := signature(fset, decl); sig != "" {
+	if sig := signature(fset, decl, name); sig != "" {
 		metadata["signature"] = sig
 	}
 	if receiver != "" {
@@ -142,10 +172,44 @@ func symbolObject(src domain.SourceSnapshot, fset *token.FileSet, pkgName, name,
 	}
 }
 
+// narrowLargeGroup reduces a grouped declaration bigger than
+// maxSignatureBytes to only the spec declaring name, sized from its
+// source span so the oversized block is never printed just to measure it.
+func narrowLargeGroup(decl ast.Node, name string) ast.Node {
+	gd, ok := decl.(*ast.GenDecl)
+	if !ok || len(gd.Specs) < 2 || int(gd.End()-gd.Pos()) <= maxSignatureBytes {
+		return decl
+	}
+	for _, spec := range gd.Specs {
+		if specDeclares(spec, name) {
+			single := *gd
+			single.Specs = []ast.Spec{spec}
+			single.Lparen, single.Rparen = token.NoPos, token.NoPos
+			return &single
+		}
+	}
+	return decl
+}
+
+func specDeclares(spec ast.Spec, name string) bool {
+	switch sp := spec.(type) {
+	case *ast.ValueSpec:
+		for _, n := range sp.Names {
+			if n.Name == name {
+				return true
+			}
+		}
+	case *ast.TypeSpec:
+		return sp.Name.Name == name
+	}
+	return false
+}
+
 // signature renders decl's declaration syntax (signature, or full type
 // definition for a type/const group) without its doc comment or —  for
 // a func — its body, via go/printer.
-func signature(fset *token.FileSet, decl ast.Node) string {
+func signature(fset *token.FileSet, decl ast.Node, name string) string {
+	decl = narrowLargeGroup(decl, name)
 	var toPrint ast.Node
 	switch d := decl.(type) {
 	case *ast.FuncDecl:

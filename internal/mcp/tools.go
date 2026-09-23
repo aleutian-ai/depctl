@@ -11,10 +11,13 @@ import (
 
 	"aleutian-ai/ragctl/internal/domain"
 	"aleutian-ai/ragctl/internal/query"
+	"aleutian-ai/ragctl/internal/symbolgraph"
 )
 
 // registerTools wires every MCP-003 tool onto sdk, backed by deps.
 func registerTools(sdk *sdkmcp.Server, deps Deps) {
+	jit := jitDeps{svc: deps.Query, sync: deps.Sync, priority: deps.Priority, enabled: deps.EnableSyncTool}
+
 	sdkmcp.AddTool(sdk, &sdkmcp.Tool{
 		Name:        "search_dependency_docs",
 		Description: "Search version-correct documentation/source for a project's dependency. Returns matched chunks with provenance. If the dependency hasn't been synced yet, this triggers a sync scoped to just that one dependency and retries automatically (when server.mcp.enable_sync_tool is true) — no need to call sync_project first for a single missing dependency.",
@@ -42,13 +45,28 @@ func registerTools(sdk *sdkmcp.Server, deps Deps) {
 
 	sdkmcp.AddTool(sdk, &sdkmcp.Tool{
 		Name:        "sync_project",
-		Description: "Trigger a knowledge sync for a project: builds/updates its searchable dependency documentation. Enabled by default (server.mcp.enable_sync_tool: false to disable for a read-only session). A first sync of a project with many dependencies clones and indexes each one, which can take a while — attach a progress token to the call to receive one notification per dependency as it completes. This call itself returns within a bounded time regardless: if the response has still_running: true, the sync did not fail and is continuing on the server — check list_project_dependencies/knowledge_status or call sync_project again rather than treating it as an error.",
+		Description: "Trigger a knowledge sync for a project: builds/updates its searchable dependency documentation. Enabled by default (server.mcp.enable_sync_tool: false to disable for a read-only session). A first sync of a project with many dependencies clones and indexes each one, which can take a while — attach a progress token to the call to receive one notification per dependency as it completes. This call itself returns within a bounded time regardless: if the response has still_running: true, the sync did not fail and is continuing on the server — call sync_progress to see how far along it is, or call sync_project again, rather than treating it as an error.",
 	}, syncProjectHandler(deps.Query, deps.Sync, deps.EnableSyncTool))
+
+	sdkmcp.AddTool(sdk, &sdkmcp.Tool{
+		Name:        "prioritize_file",
+		Description: "Tell ragctl which Go file you are about to work on, so the dependencies it imports are built next — ahead of the rest of the background sync — instead of waiting their turn. Pass the file (absolute, or relative to the project root). It reads the file's imports, matches them to the project's resolved dependencies, and requests exactly those, in one go. Returns within a bounded time: still_building: true means the rest of the file's dependencies are moving to the front and this did not fail — search for them or check sync_progress. A non-Go file, or one importing nothing from the project's dependencies, is a quiet no-op. Needs server.mcp.enable_sync_tool, like sync_project.",
+	}, prioritizeFileHandler(jit))
+
+	sdkmcp.AddTool(sdk, &sdkmcp.Tool{
+		Name:        "sync_progress",
+		Description: "Check how far along a project's background sync is, without waiting on it: how many dependencies are done of the total, and which are being built right now with how many of their chunks are embedded. Read-only and instant — call it whenever sync_project returned still_running, or before deciding whether to wait. It is a progress report, not a time estimate: dependencies vary from seconds to many minutes. Anything you search for that isn't ready yet is built next, ahead of the rest of the queue.",
+	}, syncProgressHandler(deps.Progress))
 
 	sdkmcp.AddTool(sdk, &sdkmcp.Tool{
 		Name:        "scan_project",
 		Description: "Discover and register the project(s) under a directory (default: the MCP server's own working directory, typically the project you're already in) so the other tools have a project_id to work with. Call this first whenever knowledge_status shows no matching project — it's always safe to (re-)run. Registration only; call sync_project afterward to actually build searchable knowledge.",
 	}, scanProjectHandler(deps.Scan))
+
+	sdkmcp.AddTool(sdk, &sdkmcp.Tool{
+		Name:        "explain_call_site",
+		Description: "Resolve one source call site (file/line/column) to the exact-version dependency evidence relevant to it — what it's calling, and version-correct documentation for that call, without having to already know the dependency's name.",
+	}, explainCallSiteHandler(deps.Symbols, jit))
 }
 
 // progressReporter returns nil (meaning "don't bother") when the call
@@ -146,7 +164,7 @@ func searchDependencyDocsHandler(svc QueryService, sync SyncTrigger, enableSync 
 				// original, well-understood error below rather than a
 				// confusing second one from a call the agent didn't know
 				// was happening.
-				if _, failed, _, syncErr := sync.SyncProject(ctx, in.ProjectID, in.Dependency, nil); syncErr == nil && failed == 0 {
+				if _, failed, _, syncErr := sync.SyncProject(ctx, in.ProjectID, []string{in.Dependency}, nil); syncErr == nil && failed == 0 {
 					result, err = svc.SearchKnowledge(ctx, q)
 				}
 			}
@@ -154,17 +172,25 @@ func searchDependencyDocsHandler(svc QueryService, sync SyncTrigger, enableSync 
 		if err != nil {
 			return nil, SearchDependencyDocsOut{}, toolError(err)
 		}
-		out := SearchDependencyDocsOut{Note: securityNote, Chunks: make([]SearchResultChunk, len(result.Chunks))}
-		for i, c := range result.Chunks {
-			out.Chunks[i] = SearchResultChunk{
-				ChunkID: c.ChunkID, Content: c.Content, Score: c.Score,
-				Ecosystem: c.Ecosystem, Dependency: c.Dependency, Version: c.Version,
-				Generation: c.Generation, SourceType: c.SourceType, Authority: c.Authority,
-				TrustClass: c.TrustClass,
-			}
-		}
+		out := SearchDependencyDocsOut{Note: securityNote, Chunks: resultChunks(result.Chunks)}
 		return nil, out, nil
 	}
+}
+
+// resultChunks maps query.ResultChunk to the MCP wire type, shared by
+// every tool that returns search results (search_dependency_docs,
+// explain_call_site) so the field mapping lives in exactly one place.
+func resultChunks(chunks []query.ResultChunk) []SearchResultChunk {
+	out := make([]SearchResultChunk, len(chunks))
+	for i, c := range chunks {
+		out[i] = SearchResultChunk{
+			ChunkID: c.ChunkID, Content: c.Content, Score: c.Score,
+			Ecosystem: c.Ecosystem, Dependency: c.Dependency, Version: c.Version,
+			Generation: c.Generation, SourceType: c.SourceType, Authority: c.Authority,
+			TrustClass: c.TrustClass,
+		}
+	}
+	return out
 }
 
 // --- get_dependency_version ---
@@ -335,7 +361,7 @@ type SyncProjectOut struct {
 // at all. A var, not a const, so tests can shorten it.
 var mcpSyncWaitBound = 90 * time.Second
 
-const syncStillRunningNote = "the sync is still running in the background and was not cancelled by this call returning — wait a bit and call list_project_dependencies or knowledge_status to check current state, or call sync_project again (concurrent requests for the same project collapse into one, so this is never wasted work)"
+const syncStillRunningNote = "the sync is still running in the background and was not cancelled by this call returning — wait a bit and call sync_progress to see how far along it is (or list_project_dependencies/knowledge_status for what is already searchable), or call sync_project again (concurrent requests for the same project collapse into one, so this is never wasted work)"
 
 func syncProjectHandler(query QueryService, sync SyncTrigger, enabled bool) sdkmcp.ToolHandlerFor[SyncProjectIn, SyncProjectOut] {
 	return func(ctx context.Context, req *sdkmcp.CallToolRequest, in SyncProjectIn) (*sdkmcp.CallToolResult, SyncProjectOut, error) {
@@ -370,7 +396,7 @@ func syncProjectHandler(query QueryService, sync SyncTrigger, enabled bool) sdkm
 		// same reasoning, one layer down.
 		bgCtx := context.WithoutCancel(ctx)
 		go func() {
-			synced, failed, skipped, err := sync.SyncProject(bgCtx, in.ProjectID, in.Dependency, progress)
+			synced, failed, skipped, err := sync.SyncProject(bgCtx, in.ProjectID, dependencySet(in.Dependency), progress)
 			done <- result{synced, failed, skipped, err}
 		}()
 
@@ -420,6 +446,72 @@ func scanProjectHandler(scan ScanTrigger) sdkmcp.ToolHandlerFor[ScanProjectIn, S
 	}
 }
 
+// --- explain_call_site ---
+
+type ExplainCallSiteIn struct {
+	ProjectID string `json:"project_id" jsonschema:"the registered project ID"`
+	File      string `json:"file" jsonschema:"path to the source file, relative to the project root"`
+	Line      int    `json:"line" jsonschema:"1-indexed line number of the call site"`
+	Column    int    `json:"column" jsonschema:"1-indexed column number of the call site"`
+	Query     string `json:"query,omitempty" jsonschema:"optional — what to ask about the resolved symbol; defaults to the symbol's own qualified name if omitted"`
+}
+
+type ResolvedSymbol struct {
+	Ecosystem     string `json:"ecosystem"`
+	Module        string `json:"module"`
+	Package       string `json:"package"`
+	QualifiedName string `json:"qualified_name"`
+	Version       string `json:"version"`
+}
+
+type ExplainCallSiteOut struct {
+	Symbol *ResolvedSymbol     `json:"symbol,omitempty"`
+	Chunks []SearchResultChunk `json:"chunks,omitempty"`
+	// StillBuilding means the dependency this call site uses is being
+	// built (SCOPE-004) but wasn't ready within the bounded wait — not a
+	// failure; retry shortly.
+	StillBuilding bool   `json:"still_building,omitempty"`
+	Note          string `json:"note"`
+}
+
+func explainCallSiteHandler(symbols CallSiteResolver, jit jitDeps) sdkmcp.ToolHandlerFor[ExplainCallSiteIn, ExplainCallSiteOut] {
+	return func(ctx context.Context, req *sdkmcp.CallToolRequest, in ExplainCallSiteIn) (*sdkmcp.CallToolResult, ExplainCallSiteOut, error) {
+		if symbols == nil {
+			return nil, ExplainCallSiteOut{}, errors.New("explain_call_site is not configured for this server")
+		}
+		site := symbolgraph.CallSite{File: in.File, Line: in.Line, Column: in.Column}
+
+		bundle, err := symbols.ResolveEvidence(ctx, in.ProjectID, site, in.Query)
+		var notSynced *symbolgraph.NotSyncedError
+		if errors.As(err, &notSynced) && jit.available() {
+			var still bool
+			bundle, still, err = justInTimeSyncedEvidence(ctx, jit, symbols, in.ProjectID, site, in.Query, notSynced)
+			if still {
+				return nil, ExplainCallSiteOut{
+					StillBuilding: true,
+					Note:          "the dependency this call site uses (" + notSynced.Dependency + ") was moved to the front of the build queue but is still building — retry in a little while, or call sync_progress; this call did not fail",
+				}, nil
+			}
+		}
+		if err != nil {
+			return nil, ExplainCallSiteOut{}, toolError(err)
+		}
+		if bundle == nil {
+			return nil, ExplainCallSiteOut{Note: "this call site refers to code inside the project, not an external dependency"}, nil
+		}
+
+		return nil, ExplainCallSiteOut{
+			Symbol: &ResolvedSymbol{
+				Ecosystem: bundle.Symbol.Ecosystem, Module: bundle.Symbol.Module,
+				Package: bundle.Symbol.Package, QualifiedName: bundle.Symbol.QualifiedName,
+				Version: bundle.Dependency.Version,
+			},
+			Chunks: resultChunks(bundle.Result.Chunks),
+			Note:   securityNote,
+		}, nil
+	}
+}
+
 // waitForDependencyGeneration polls SearchKnowledge until it stops
 // reporting ErrNoActiveGeneration (the bumped dependency became active)
 // or jitSyncPriorityWaitBound elapses — WATCH-020's counterpart to
@@ -440,9 +532,10 @@ func waitForDependencyGeneration(ctx context.Context, svc QueryService, q query.
 	}
 }
 
-// toolError maps query's typed errors to actionable tool-facing
-// messages (per MCP-003's failure-behavior requirement), falling back
-// to the error's own message for anything else.
+// toolError maps query's (and, for explain_call_site, symbolgraph's)
+// typed errors to actionable tool-facing messages (per MCP-003's
+// failure-behavior requirement), falling back to the error's own
+// message for anything else.
 func toolError(err error) error {
 	switch {
 	case errors.Is(err, query.ErrProjectNotFound):
@@ -451,7 +544,67 @@ func toolError(err error) error {
 		return fmt.Errorf("dependency not found for this project: %w", err)
 	case errors.Is(err, query.ErrNoActiveGeneration):
 		return fmt.Errorf("no synced knowledge for this version yet — run `ragctl sync`: %w", err)
+	case errors.Is(err, symbolgraph.ErrDependencyNotResolved):
+		return fmt.Errorf("this call site's dependency isn't in the project's resolved dependencies — call scan_project/sync_project, or the resolution may be stale: %w", err)
 	default:
 		return err
 	}
+}
+
+// --- sync_progress ---
+
+type SyncProgressIn struct {
+	ProjectID string `json:"project_id"`
+}
+
+// InFlightDependencyOut is one dependency being built right now.
+type InFlightDependencyOut struct {
+	Name        string `json:"name"`
+	ChunksDone  int    `json:"chunks_done"`
+	ChunksTotal int    `json:"chunks_total"`
+}
+
+// SyncProgressOut is sync_progress's result. Done, Failed and Total count
+// planned actions — nearly all one per dependency version.
+type SyncProgressOut struct {
+	Syncing  bool                    `json:"syncing"`
+	Done     int                     `json:"done"`
+	Failed   int                     `json:"failed"`
+	Total    int                     `json:"total"`
+	InFlight []InFlightDependencyOut `json:"in_flight,omitempty"`
+	Note     string                  `json:"note"`
+}
+
+func syncProgressHandler(reader SyncProgressReader) sdkmcp.ToolHandlerFor[SyncProgressIn, SyncProgressOut] {
+	return func(ctx context.Context, req *sdkmcp.CallToolRequest, in SyncProgressIn) (*sdkmcp.CallToolResult, SyncProgressOut, error) {
+		if reader == nil {
+			return nil, SyncProgressOut{}, errors.New("sync_progress is not configured in this server")
+		}
+		out, err := reader.SyncProgress(ctx, in.ProjectID)
+		if err != nil {
+			return nil, SyncProgressOut{}, toolError(err)
+		}
+		out.Note = syncProgressNote(out)
+		return nil, out, nil
+	}
+}
+
+func syncProgressNote(p SyncProgressOut) string {
+	switch {
+	case p.Syncing:
+		return fmt.Sprintf("a sync is running: %d of %d done (%d failed). This is progress, not a time estimate — one large dependency can take minutes. A dependency you search for that isn't done yet is built next, ahead of the rest of the queue.", p.Done, p.Total, p.Failed)
+	case p.Total > 0:
+		return fmt.Sprintf("no sync is running; the last run finished %d of %d (%d failed). Call sync_project to run another.", p.Done, p.Total, p.Failed)
+	default:
+		return "no sync has run for this project yet. Call sync_project to start one."
+	}
+}
+
+// dependencySet turns a tool's optional single dependency argument into
+// the sync scope: empty means the whole project.
+func dependencySet(dependency string) []string {
+	if dependency == "" {
+		return nil
+	}
+	return []string{dependency}
 }

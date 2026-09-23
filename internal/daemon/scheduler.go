@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sort"
 	"sync"
 	"time"
 
@@ -28,10 +29,12 @@ var maxActionDuration = 30 * time.Minute
 // watch-triggered requests, which re-resolve the project first; a plain
 // `ragctl sync` leaves it false and syncs the stored resolution.
 type SyncOptions struct {
-	Dependency string
-	Offline    bool
-	Force      bool
-	Resolve    bool
+	// Dependencies limits the run to exactly these dependency names; empty
+	// or nil means everything.
+	Dependencies []string
+	Offline      bool
+	Force        bool
+	Resolve      bool
 	// Priority is set by Scheduler.start for every run it launches
 	// (never by a caller of Request) — RunSync consults it between
 	// actions to let a concurrent BumpPriority call reorder this run's
@@ -40,6 +43,10 @@ type SyncOptions struct {
 	// (tests, and any future caller that bypasses the Scheduler) — a
 	// nil *SyncPriority is a valid, always-empty no-op.
 	Priority *SyncPriority
+	// Progress is set by Scheduler.start alongside Priority, for the same
+	// reason: RunSync updates it as actions finish and SyncProgress reads
+	// it back (SCOPE-001). Nil for anything constructed directly.
+	Progress *SyncProgress
 }
 
 // SyncPriority is a small FIFO of dependency names a concurrent caller
@@ -79,7 +86,12 @@ func (p *SyncPriority) Drain() []string {
 }
 
 // SyncFunc runs one sync to completion, writing progress to out.
-type SyncFunc func(ctx context.Context, projectID string, opts SyncOptions, out io.Writer) (api.SyncResult, error)
+// coordinator is the same instance Scheduler uses for GC exclusion
+// (ExcludeForGC) — RunSync is expected to route each actual generation
+// build through coordinator.Build, and each reference-state mutation
+// through coordinator.ProtectFromGC, since PlanGC reads that same state
+// directly (see COORD-001/002).
+type SyncFunc func(ctx context.Context, coordinator *BuildCoordinator, projectID string, opts SyncOptions, out io.Writer) (api.SyncResult, error)
 
 // GCFunc runs one GC pass to completion, writing progress to out.
 type GCFunc func(ctx context.Context, dryRun bool, out io.Writer) (api.GCResult, error)
@@ -107,16 +119,16 @@ type Scheduler struct {
 	runGC GCFunc
 	logf  func(format string, args ...any)
 
-	// global serializes sync and GC runs against each other, not just
-	// against runs of their own kind. Two reasons, not one: generations
-	// are shared between projects, so two projects could otherwise race
-	// to build the same one (ADR-011 §6) — and GC decides a generation is
-	// unreferenced by reading the same `references` state a concurrent
-	// sync can be actively adding to, so GC and sync racing risks deleting
-	// a generation a reference now points to. Per-project state above is
-	// deliberately independent of this, so dropping the restriction later
-	// means removing this lock, not reworking the state machine.
-	global sync.Mutex
+	// coordinator replaces what used to be a single global sync.Mutex
+	// (see epic 53/COORD-001..002): GC still needs excluding from every
+	// concurrent build and reference-state mutation (ADR-011 §6, PlanGC
+	// reads the same `references`/`active_generations` state a build can
+	// be actively mutating), but unrelated builds no longer need to
+	// exclude *each other* — only builds of the identical generation do,
+	// via coordinator.Build's singleflight coalescing. execute() no
+	// longer takes any lock of its own at all; RunSync (via SyncFunc's
+	// coordinator param) does the real per-action coordination.
+	coordinator *BuildCoordinator
 
 	mu       sync.Mutex
 	projects map[string]*projectState
@@ -162,6 +174,9 @@ type projectState struct {
 	// start and cleared by finish — nil whenever no sync is running for
 	// this project, which is exactly what BumpPriority checks.
 	priority *SyncPriority
+	// progress is the current run's counters, kept after the run ends so
+	// SyncProgress can report the last run's outcome.
+	progress *SyncProgress
 }
 
 // waiter is one caller's interest in the next run for a project: where
@@ -180,12 +195,13 @@ func NewScheduler(base context.Context, run SyncFunc, runGC GCFunc, logf func(st
 		logf = func(string, ...any) {}
 	}
 	return &Scheduler{
-		base:      base,
-		run:       run,
-		runGC:     runGC,
-		logf:      logf,
-		projects:  map[string]*projectState{},
-		scanLocks: map[string]*scanLock{},
+		base:        base,
+		run:         run,
+		runGC:       runGC,
+		logf:        logf,
+		coordinator: NewBuildCoordinator(),
+		projects:    map[string]*projectState{},
+		scanLocks:   map[string]*scanLock{},
 	}
 }
 
@@ -222,6 +238,41 @@ func (s *Scheduler) Request(projectID string, opts SyncOptions, out io.Writer) <
 	st.syncing = true
 	s.start(projectID, opts, []*waiter{w})
 	return w.done
+}
+
+// RequestOrphanGC runs one orphan GC pass (GC-001/GC-002), excluded from
+// every concurrent build/reference-mutation via the same
+// coordinator.ExcludeForGC executeGC's runs already use. Unlike
+// RequestGC, this has none of its request-coalescing sophistication —
+// reference-based GC needs that
+// because file-watch events can fire sync (and therefore, indirectly,
+// interest in GC) repeatedly in quick succession, but orphan GC is
+// deliberately manual/opt-in (epic 22's own non-goal: "no automatic/
+// implicit orphan cleanup"), so a caller always gets its own real run
+// and its own real result rather than being folded into someone else's.
+// run is GCFunc-shaped but orphan-specific (GC-002's runOrphanGC),
+// passed in rather than stored on Scheduler so this method needs no
+// change to NewScheduler's constructor or its existing tests.
+func (s *Scheduler) RequestOrphanGC(ctx context.Context, run GCFunc, dryRun bool, out io.Writer) (api.GCResult, error) {
+	if out == nil {
+		out = io.Discard // matches writerForGC's own nil-safety for RequestGC's callers
+	}
+
+	s.mu.Lock()
+	if s.stopped {
+		s.mu.Unlock()
+		return api.GCResult{}, ErrShuttingDown
+	}
+	s.inFlight.Add(1)
+	s.mu.Unlock()
+	defer s.inFlight.Done()
+
+	release := s.coordinator.ExcludeForGC()
+	defer release()
+
+	runCtx, cancel := context.WithTimeout(context.WithoutCancel(s.base), maxActionDuration)
+	defer cancel()
+	return run(runCtx, dryRun, out)
 }
 
 // RequestGC queues a GC run and returns a channel that receives the
@@ -344,10 +395,13 @@ func (s *Scheduler) Wait() { s.inFlight.Wait() }
 // so setting st.priority here is safe without a separate lock.
 func (s *Scheduler) start(projectID string, opts SyncOptions, waiters []*waiter) {
 	priority := &SyncPriority{}
+	progress := &SyncProgress{}
 	if st := s.projects[projectID]; st != nil {
 		st.priority = priority
+		st.progress = progress
 	}
 	opts.Priority = priority
+	opts.Progress = progress
 
 	s.inFlight.Add(1)
 	go func() {
@@ -356,6 +410,45 @@ func (s *Scheduler) start(projectID string, opts SyncOptions, waiters []*waiter)
 		deliver(waiters, result)
 		s.finish(projectID)
 	}()
+}
+
+// SyncingProjects returns the progress of every project with a sync in
+// flight right now, keyed by project ID.
+func (s *Scheduler) SyncingProjects() map[string]api.SyncProgress {
+	s.mu.Lock()
+	running := map[string]*SyncProgress{}
+	for id, st := range s.projects {
+		if st.syncing {
+			running[id] = st.progress
+		}
+	}
+	s.mu.Unlock()
+
+	out := make(map[string]api.SyncProgress, len(running))
+	for id, p := range running {
+		snap := p.Snapshot()
+		snap.Syncing = true
+		out[id] = snap
+	}
+	return out
+}
+
+// SyncProgress reports projectID's in-flight sync — or, when none is
+// running, its last run's final counters (all zero if it never synced).
+// A cheap read with no side effects.
+func (s *Scheduler) SyncProgress(projectID string) api.SyncProgress {
+	s.mu.Lock()
+	st := s.projects[projectID]
+	var progress *SyncProgress
+	syncing := false
+	if st != nil {
+		progress, syncing = st.progress, st.syncing
+	}
+	s.mu.Unlock()
+
+	snap := progress.Snapshot()
+	snap.Syncing = syncing
+	return snap
 }
 
 // BumpPriority asks the currently-running sync for projectID, if any,
@@ -384,23 +477,30 @@ func (s *Scheduler) execute(projectID string, opts SyncOptions, waiters []*waite
 		}
 	}()
 
-	s.global.Lock()
-	defer s.global.Unlock()
-
-	// context.WithoutCancel deliberately survives Shutdown (a sync
-	// already under way must finish, not leave a half-built generation —
-	// see the type doc). But "survives shutdown" and "runs forever" are
-	// different guarantees: without a ceiling, a single hung network call
-	// inside run (an unreachable embedder or vector backend) keeps this
-	// goroutine — and Scheduler.Wait, and therefore the whole daemon
-	// process — alive indefinitely. maxActionDuration bounds it generously
-	// (real syncs in this codebase's own corpus testing finished in well
-	// under a minute even for large repos) while still never cancelling
-	// a healthy, progressing sync early.
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(s.base), maxActionDuration)
-	defer cancel()
+	// No lock taken here at all, deliberately (epic 53/COORD-002): two
+	// different projects' runs no longer exclude each other just for
+	// existing — only builds of the identical generation coalesce
+	// (coordinator.Build), and GC excludes every build/mutation via
+	// coordinator.ExcludeForGC/ProtectFromGC, both inside s.run/RunSync
+	// itself now, not wrapped around the whole call here.
+	//
+	// No aggregate maxActionDuration wrap here either, as of epic 53/
+	// COORD-003 — deliberately, not an oversight. STRESS-005 found this
+	// ceiling was the wrong granularity for a large untargeted sync: one
+	// shared deadline for hundreds of dependencies meant a handful of
+	// genuinely slow ones could starve everything queued behind them.
+	// The real protection against "a hung network call keeps this
+	// goroutine alive forever" already exists at the right granularity
+	// without it: every individual network/subprocess call in the sync
+	// pipeline already carries its own bound (ollama's and qdrant's own
+	// http.Client.Timeout, executil.Run's per-call Timeout), and
+	// RunSync's own dependencySyncTimeout now bounds each
+	// SYNC_VERSION action specifically. context.WithoutCancel still
+	// deliberately survives Shutdown (a sync already under way must
+	// finish, not leave a half-built generation — see the type doc).
+	ctx := context.WithoutCancel(s.base)
 	out := writerFor(waiters)
-	res, err := s.run(ctx, projectID, opts, out)
+	res, err := s.run(ctx, s.coordinator, projectID, opts, out)
 	if err != nil {
 		s.logf("%s: %v", projectID, err)
 	}
@@ -445,10 +545,13 @@ func (s *Scheduler) startGC(dryRun bool, waiters []*gcWaiter) {
 }
 
 // executeGC runs one GC pass, turning a panic into an error so GC can
-// never take the daemon down with it. Mirrors execute: same global lock
-// (see the type doc for why GC and sync must exclude each other), same
-// maxActionDuration ceiling, same "survives shutdown, doesn't run
-// forever" reasoning.
+// never take the daemon down with it. coordinator.ExcludeForGC waits for
+// every currently in-flight build/reference-mutation across every
+// project before this runs, and blocks new ones from starting until
+// release is called (epic 53/COORD-001..002) — replacing what used to
+// be the same global sync.Mutex execute() took. Same maxActionDuration
+// ceiling and "survives shutdown, doesn't run forever" reasoning as
+// execute().
 func (s *Scheduler) executeGC(dryRun bool, waiters []*gcWaiter) (result GCOutcome) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -457,8 +560,8 @@ func (s *Scheduler) executeGC(dryRun bool, waiters []*gcWaiter) (result GCOutcom
 		}
 	}()
 
-	s.global.Lock()
-	defer s.global.Unlock()
+	release := s.coordinator.ExcludeForGC()
+	defer release()
 
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(s.base), maxActionDuration)
 	defer cancel()
@@ -493,18 +596,32 @@ func (s *Scheduler) finishGC() {
 
 // mergeOptions folds a request into the pending follow-up: anything one
 // caller asked to force or re-resolve happens, offline only survives if
-// every caller wanted it, and a dependency filter survives only while
-// every caller named the same one.
+// every caller wanted it, and dependency filters union — but a caller
+// with no filter wants everything, which absorbs any named set.
 func mergeOptions(pending, next SyncOptions) SyncOptions {
 	merged := SyncOptions{
 		Offline: pending.Offline && next.Offline,
 		Force:   pending.Force || next.Force,
 		Resolve: pending.Resolve || next.Resolve,
 	}
-	if pending.Dependency == next.Dependency {
-		merged.Dependency = pending.Dependency
+	if len(pending.Dependencies) > 0 && len(next.Dependencies) > 0 {
+		merged.Dependencies = unionNames(pending.Dependencies, next.Dependencies)
 	}
 	return merged
+}
+
+// unionNames returns the sorted, de-duplicated union of a and b.
+func unionNames(a, b []string) []string {
+	seen := make(map[string]bool, len(a)+len(b))
+	var out []string
+	for _, name := range append(append([]string{}, a...), b...) {
+		if !seen[name] {
+			seen[name] = true
+			out = append(out, name)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 func deliver(waiters []*waiter, r Result) {

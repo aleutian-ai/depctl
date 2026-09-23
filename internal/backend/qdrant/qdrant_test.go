@@ -96,6 +96,41 @@ func TestUpsertSendsPointsWithPayload(t *testing.T) {
 	}
 }
 
+// TestUpsertGivesEachGenerationItsOwnPointForIdenticalContent is the
+// regression test for the STRESS-005/COORD-003 finding: chunk IDs are
+// content-derived, so two generations holding byte-identical content
+// (sibling modules of one monorepo, or an unchanged file across two
+// versions) produced the same Qdrant point ID, and the later upsert
+// silently overwrote the earlier generation's payload — leaving it with
+// zero searchable points despite a "successful" sync. Each generation
+// must own its own point.
+func TestUpsertGivesEachGenerationItsOwnPointForIdenticalContent(t *testing.T) {
+	var got upsertRequest
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewDecoder(r.Body).Decode(&got)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL)
+	err := c.Upsert(context.Background(), backend.UpsertRequest{
+		Namespace: "ragctl",
+		Points: []backend.Point{
+			{ID: "chk_same", Vector: []float32{1}, Metadata: backend.PointMetadata{Dependency: "billing", Generation: "gen_A"}},
+			{ID: "chk_same", Vector: []float32{1}, Metadata: backend.PointMetadata{Dependency: "workflows", Generation: "gen_B"}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Upsert: %v", err)
+	}
+	if len(got.Points) != 2 {
+		t.Fatalf("got %d points, want 2", len(got.Points))
+	}
+	if got.Points[0].ID == got.Points[1].ID {
+		t.Errorf("both generations were assigned point ID %s — the second upsert would overwrite the first's payload", got.Points[0].ID)
+	}
+}
+
 func TestUpsertBatchesRequests(t *testing.T) {
 	var requestSizes []int
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -197,8 +232,8 @@ func TestDeleteByIDsAndFilterSendsTwoSeparateRequests(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("got %d requests, want 2 (one for IDs, one for filter)", len(got))
 	}
-	if len(got[0].Points) != 1 || got[0].Filter != nil {
-		t.Errorf("first request = %+v, want IDs only, no filter", got[0])
+	if got[0].Filter == nil || got[0].Filter.Must[0].Key != "_id" || len(got[0].Points) != 0 {
+		t.Errorf("first request = %+v, want a filter on the chunk's _id payload, no explicit points", got[0])
 	}
 	if got[1].Filter == nil || got[1].Filter.Must[0].Key != "generation" || len(got[1].Points) != 0 {
 		t.Errorf("second request = %+v, want filter only, no points", got[1])

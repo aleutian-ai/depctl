@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 
 	"aleutian-ai/ragctl/internal/daemon/api"
 )
@@ -54,6 +55,17 @@ func (s *Server) handleSyncPriority(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, api.SyncPriorityResponse{Bumped: bumped})
 }
 
+// handleSyncProgress reports a project's sync progress (SCOPE-001): a
+// cheap read of the scheduler's counters, so it never blocks or starts
+// anything.
+func (s *Server) handleSyncProgress(w http.ResponseWriter, r *http.Request) {
+	var req api.SyncProgressRequest
+	if !decodeBody(w, r, &req) {
+		return
+	}
+	writeJSON(w, http.StatusOK, s.scheduler.SyncProgress(req.ProjectID))
+}
+
 // handleSync queues sync work through the scheduler and waits for the
 // run that covers it, so a CLI sync and a watch-triggered sync can never
 // run at the same time for one project.
@@ -71,7 +83,7 @@ func (s *Server) handleSync(w http.ResponseWriter, r *http.Request) {
 				return nil, err
 			}
 		}
-		opts := SyncOptions{Dependency: req.Dependency, Offline: req.Offline, Force: req.Force}
+		opts := SyncOptions{Dependencies: req.DependencySet(), Offline: req.Offline, Force: req.Force}
 
 		resp := api.SyncResponse{}
 		for _, id := range ids {
@@ -220,9 +232,19 @@ func (s *Server) handleDoctor(w http.ResponseWriter, r *http.Request) {
 // GC never interleaves with one), is bounded by maxActionDuration so a
 // hung GC can't wedge every future sync, and a GC request that arrives
 // while one is already running collapses into a single follow-up.
+// req.Orphans selects GC-001/GC-002's separate orphan-generation path
+// instead (RequestOrphanGC) — no request-coalescing there, since orphan
+// GC is deliberately manual/opt-in, never fired automatically the way
+// sync (and therefore reference-based GC's own coalescing need) is.
 func (s *Server) handleGC(w http.ResponseWriter, r *http.Request) {
 	var req api.GCRequest
 	if !decodeBody(w, r, &req) {
+		return
+	}
+	if req.Orphans {
+		stream(w, func(out io.Writer) (any, error) {
+			return s.scheduler.RequestOrphanGC(r.Context(), s.opts.Engine.OrphanGC, req.DryRun, out)
+		})
 		return
 	}
 	stream(w, func(out io.Writer) (any, error) {
@@ -243,6 +265,27 @@ func (s *Server) gcBusy() bool {
 	s.scheduler.mu.Lock()
 	defer s.scheduler.mu.Unlock()
 	return s.scheduler.gc.running
+}
+
+// syncActivity names every in-flight sync for `ragctl status`. A project
+// the engine can't name (removed mid-sync) is shown by ID alone.
+func (s *Server) syncActivity(ctx context.Context) []api.ProjectSync {
+	running := s.scheduler.SyncingProjects()
+	if len(running) == 0 {
+		return nil
+	}
+	roots := map[string]string{}
+	if projects, err := s.opts.Engine.Projects(ctx); err == nil {
+		for _, p := range projects {
+			roots[p.ID] = p.Root
+		}
+	}
+	syncs := make([]api.ProjectSync, 0, len(running))
+	for id, progress := range running {
+		syncs = append(syncs, api.ProjectSync{ProjectID: id, Root: roots[id], SyncProgress: progress})
+	}
+	sort.Slice(syncs, func(i, j int) bool { return syncs[i].ProjectID < syncs[j].ProjectID })
+	return syncs
 }
 
 // busy reports whether a project is mid-sync, so the client can be told

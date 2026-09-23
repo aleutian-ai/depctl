@@ -47,6 +47,37 @@ func TestListGenerationsByDependencyVersion(t *testing.T) {
 	}
 }
 
+func TestListAllGenerations(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+
+	gens := []domain.Generation{
+		testGen("gen_1", "google.golang.org/grpc", "v1.67.0"),
+		testGen("gen_2", "github.com/pkg/errors", "v0.9.1"),
+		testGen("gen_3", "example.com/foo", "v1.0.0"),
+	}
+	for _, g := range gens {
+		if err := store.PutGeneration(ctx, g); err != nil {
+			t.Fatalf("PutGeneration: %v", err)
+		}
+	}
+
+	got, err := store.ListAllGenerations(ctx)
+	if err != nil {
+		t.Fatalf("ListAllGenerations: %v", err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("got %d generations, want 3", len(got))
+	}
+	ids := map[string]bool{}
+	for _, g := range got {
+		ids[g.ID] = true
+	}
+	if !ids["gen_1"] || !ids["gen_2"] || !ids["gen_3"] {
+		t.Errorf("got = %+v, want gen_1, gen_2, gen_3", got)
+	}
+}
+
 func TestDeleteGenerationRecord(t *testing.T) {
 	ctx := context.Background()
 	store := openTestStore(t)

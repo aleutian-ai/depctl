@@ -375,6 +375,29 @@ type engine struct {
 	fullQueryOnce sync.Once
 	fullQuery     *query.Service
 	fullQueryErr  error
+
+	// syncSem is the daemon-wide cap RunSync's daemonSem parameter
+	// enforces (SCOPE-002's known risk) — one instance shared by every
+	// project's Sync call for this engine's whole lifetime, sized once at
+	// construction from cfg.Sync.MaxTotalConcurrency.
+	syncSem chan struct{}
+}
+
+// newEngine constructs an engine with its daemon-wide sync semaphore
+// sized from cfg — the one place that decides the actual concurrency cap,
+// so every construction site (real daemon startup, tests) gets the same
+// "0 unmarshals as unset" default-substitution RunSync's own
+// MaxConcurrency already establishes, rather than each caller repeating it.
+func newEngine(store *bboltstore.Store, badgerStore *badgerstore.Store, cfg config.Config, controlPath, badgerPath string, embeddingReadiness *embeddingReadiness, vecReadiness *vectorReadiness) *engine {
+	maxTotal := cfg.Sync.MaxTotalConcurrency
+	if maxTotal < 1 {
+		maxTotal = 4
+	}
+	return &engine{
+		store: store, badgerStore: badgerStore, cfg: cfg, controlPath: controlPath, badgerPath: badgerPath,
+		embeddingReadiness: embeddingReadiness, vectorReadiness: vecReadiness,
+		syncSem: make(chan struct{}, maxTotal),
+	}
 }
 
 // baseQueryService returns e's memoized, stores-only query.Service —
@@ -443,14 +466,17 @@ func (e *engine) Projects(ctx context.Context) ([]watch.Project, error) {
 
 // Sync runs one project's sync, re-resolving first when the request came
 // from a manifest change. It is the function the scheduler runs, and it
-// calls exactly the same RunSync as `ragctl sync`.
-func (e *engine) Sync(ctx context.Context, projectID string, opts daemon.SyncOptions, out io.Writer) (api.SyncResult, error) {
+// calls exactly the same RunSync as `ragctl sync`. coordinator is the
+// same instance the scheduler uses for GC exclusion — forwarded straight
+// into RunSync, which is where the real per-action build coordination
+// happens (epic 53/COORD-001..002).
+func (e *engine) Sync(ctx context.Context, coordinator *daemon.BuildCoordinator, projectID string, opts daemon.SyncOptions, out io.Writer) (api.SyncResult, error) {
 	if opts.Resolve {
 		if err := resolveProject(ctx, e.store, projectID, out); err != nil {
 			return api.SyncResult{}, err
 		}
 	}
-	synced, failed, skipped, err := RunSync(ctx, e.store, e.badgerStore, e.cfg, projectID, opts.Dependency, opts.Offline, opts.Force, out, e.embeddingReadiness, e.vectorReadiness, opts.Priority)
+	synced, failed, skipped, err := RunSync(ctx, coordinator, e.store, e.badgerStore, e.cfg, projectID, opts.Dependencies, opts.Offline, opts.Force, out, e.embeddingReadiness, e.vectorReadiness, opts.Priority, opts.Progress, e.syncSem)
 	return api.SyncResult{ProjectID: projectID, Synced: synced, Failed: failed, Skipped: skipped}, err
 }
 
@@ -496,7 +522,30 @@ func (e *engine) Plan(ctx context.Context, projectID string) (any, error) {
 
 // GC plans and runs garbage collection.
 func (e *engine) GC(ctx context.Context, dryRun bool, out io.Writer) (api.GCResult, error) {
-	return RunGC(ctx, e.store, e.badgerStore, e.cfg, dryRun, out, e.vectorReadiness)
+	res, err := RunGC(ctx, e.store, e.badgerStore, e.cfg, dryRun, out, e.vectorReadiness)
+	e.reclaimValueLog(dryRun, out)
+	return res, err
+}
+
+// reclaimValueLog returns the disk space of just-deleted data: Badger
+// keeps large values in an append-only log that compaction doesn't
+// shrink. A failure only delays reclaiming space, so it is reported, not
+// returned.
+func (e *engine) reclaimValueLog(dryRun bool, out io.Writer) {
+	if dryRun {
+		return
+	}
+	if err := e.badgerStore.ReclaimValueLog(); err != nil {
+		fmt.Fprintf(out, "warning: %v\n", err)
+	}
+}
+
+// OrphanGC plans and runs GC-001/GC-002/GC-003's orphan-generation
+// cleanup — see RunOrphanGC.
+func (e *engine) OrphanGC(ctx context.Context, dryRun bool, out io.Writer) (api.GCResult, error) {
+	res, err := RunOrphanGC(ctx, e.store, e.badgerStore, e.cfg, dryRun, out, e.vectorReadiness)
+	e.reclaimValueLog(dryRun, out)
+	return res, err
 }
 
 // Search runs a knowledge search, the work behind the search_dependency_docs
@@ -825,17 +874,18 @@ func runDaemonRun(cmd *cobra.Command) error {
 	go checkVectorReadiness(ctx, cfg, vecReadiness, logf)
 
 	srv := daemon.New(daemon.Options{
-		Engine:            &engine{store: store, badgerStore: badgerStore, cfg: cfg, controlPath: controlPath, badgerPath: badgerPath, embeddingReadiness: readiness, vectorReadiness: vecReadiness},
-		Socket:            socket,
-		ControlPath:       controlPath,
-		Version:           ragctlVersion,
-		WatchEnabled:      cfg.Watch.Enabled,
-		Debounce:          cfg.Watch.Debounce,
-		MCPEnabled:        cfg.Server.MCP.Enabled,
-		EnableSyncTool:    cfg.Server.MCP.EnableSyncTool,
-		ConfigFingerprint: configFingerprint,
-		Logf:              logf,
-		Out:               out,
+		Engine:             newEngine(store, badgerStore, cfg, controlPath, badgerPath, readiness, vecReadiness),
+		Socket:             socket,
+		ControlPath:        controlPath,
+		Version:            ragctlVersion,
+		WatchEnabled:       cfg.Watch.Enabled,
+		DisableAmbientSync: cfg.Sync.DisableAmbient,
+		Debounce:           cfg.Watch.Debounce,
+		MCPEnabled:         cfg.Server.MCP.Enabled,
+		EnableSyncTool:     cfg.Server.MCP.EnableSyncTool,
+		ConfigFingerprint:  configFingerprint,
+		Logf:               logf,
+		Out:                out,
 	})
 	if err := srv.Serve(ctx); err != nil {
 		return err

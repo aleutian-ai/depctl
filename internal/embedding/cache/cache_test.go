@@ -142,3 +142,36 @@ func TestEmbedMixedHitsAndMissesPreservesOrder(t *testing.T) {
 		t.Errorf("inner.textsSeen = %d, want 3 (a,c primed + b missed)", got)
 	}
 }
+
+func TestVectorEncodingRoundTripsAndIsCompact(t *testing.T) {
+	v := make([]float32, 768)
+	for i := range v {
+		v[i] = float32(i)*0.001 - 0.3
+	}
+	data := encodeVector(v)
+	if len(data) != 1+4*768 {
+		t.Errorf("encoded length = %d, want %d", len(data), 1+4*768)
+	}
+	got, err := decodeVector(data)
+	if err != nil || len(got) != len(v) {
+		t.Fatalf("decode: %v (len %d)", err, len(got))
+	}
+	for i := range v {
+		if got[i] != v[i] {
+			t.Fatalf("dimension %d = %v, want %v", i, got[i], v[i])
+		}
+	}
+}
+
+// TestLegacyJSONEntriesStillDecode: caches written before the binary
+// format keep working, and a truncated binary entry is an error (a miss),
+// never a wrong vector.
+func TestLegacyJSONEntriesStillDecode(t *testing.T) {
+	got, err := decodeVector([]byte(`{"vector":[1.5,-2,0.25]}`))
+	if err != nil || len(got) != 3 || got[0] != 1.5 || got[1] != -2 || got[2] != 0.25 {
+		t.Errorf("legacy decode = %v (err %v)", got, err)
+	}
+	if _, err := decodeVector([]byte{binaryVectorTag, 1, 2, 3}); err == nil {
+		t.Error("truncated binary vector decoded without error")
+	}
+}
