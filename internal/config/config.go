@@ -88,6 +88,19 @@ type SyncConfig struct {
 	// time this shipped — see epic 53/COORD-003's own benchmark note
 	// for the real numbers this default was chosen from.
 	MaxConcurrency int `yaml:"max_concurrency"`
+	// MaxTotalConcurrency bounds how many SYNC_VERSION actions run at
+	// once across the whole daemon, not just one project's own RunSync
+	// call. SCOPE-002's own known risk: ambient sync fires per project on
+	// first registration, and each project's RunSync spins up its own
+	// MaxConcurrency workers — scanning a directory that registers many
+	// projects at once (a real polyglot monorepo: mem0's 22 sub-projects)
+	// multiplies concurrency to projects x MaxConcurrency with no daemon-
+	// wide bound, all contending for the same GitHub/Ollama/Qdrant
+	// capacity. Default 4, deliberately close to MaxConcurrency's own
+	// default rather than a large number — the goal is "bounded and
+	// visible," not "as fast as possible"; see RunSync's own doc comment
+	// for where this is actually enforced.
+	MaxTotalConcurrency int `yaml:"max_total_concurrency"`
 	// DisableAmbient stops the daemon starting a full sync automatically
 	// when a project is first registered (SCOPE-002). Off by default — the
 	// full sync is the deliberate default — for contexts that want only
@@ -171,7 +184,8 @@ func Default(dataDir string) Config {
 			Debounce: 2 * time.Second,
 		},
 		Sync: SyncConfig{
-			MaxConcurrency: 2,
+			MaxConcurrency:      2,
+			MaxTotalConcurrency: 4,
 		},
 		Server: ServerConfig{
 			MCP:  MCPServerConfig{Enabled: true, EnableSyncTool: true},
@@ -226,6 +240,9 @@ func (c Config) Validate() error {
 	}
 	if c.Sync.MaxConcurrency < 0 {
 		return errors.New("sync.max_concurrency: must be non-negative")
+	}
+	if c.Sync.MaxTotalConcurrency < 0 {
+		return errors.New("sync.max_total_concurrency: must be non-negative")
 	}
 	return nil
 }

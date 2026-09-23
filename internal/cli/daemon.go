@@ -375,6 +375,29 @@ type engine struct {
 	fullQueryOnce sync.Once
 	fullQuery     *query.Service
 	fullQueryErr  error
+
+	// syncSem is the daemon-wide cap RunSync's daemonSem parameter
+	// enforces (SCOPE-002's known risk) — one instance shared by every
+	// project's Sync call for this engine's whole lifetime, sized once at
+	// construction from cfg.Sync.MaxTotalConcurrency.
+	syncSem chan struct{}
+}
+
+// newEngine constructs an engine with its daemon-wide sync semaphore
+// sized from cfg — the one place that decides the actual concurrency cap,
+// so every construction site (real daemon startup, tests) gets the same
+// "0 unmarshals as unset" default-substitution RunSync's own
+// MaxConcurrency already establishes, rather than each caller repeating it.
+func newEngine(store *bboltstore.Store, badgerStore *badgerstore.Store, cfg config.Config, controlPath, badgerPath string, embeddingReadiness *embeddingReadiness, vecReadiness *vectorReadiness) *engine {
+	maxTotal := cfg.Sync.MaxTotalConcurrency
+	if maxTotal < 1 {
+		maxTotal = 4
+	}
+	return &engine{
+		store: store, badgerStore: badgerStore, cfg: cfg, controlPath: controlPath, badgerPath: badgerPath,
+		embeddingReadiness: embeddingReadiness, vectorReadiness: vecReadiness,
+		syncSem: make(chan struct{}, maxTotal),
+	}
 }
 
 // baseQueryService returns e's memoized, stores-only query.Service —
@@ -453,7 +476,7 @@ func (e *engine) Sync(ctx context.Context, coordinator *daemon.BuildCoordinator,
 			return api.SyncResult{}, err
 		}
 	}
-	synced, failed, skipped, err := RunSync(ctx, coordinator, e.store, e.badgerStore, e.cfg, projectID, opts.Dependencies, opts.Offline, opts.Force, out, e.embeddingReadiness, e.vectorReadiness, opts.Priority, opts.Progress)
+	synced, failed, skipped, err := RunSync(ctx, coordinator, e.store, e.badgerStore, e.cfg, projectID, opts.Dependencies, opts.Offline, opts.Force, out, e.embeddingReadiness, e.vectorReadiness, opts.Priority, opts.Progress, e.syncSem)
 	return api.SyncResult{ProjectID: projectID, Synced: synced, Failed: failed, Skipped: skipped}, err
 }
 
@@ -851,7 +874,7 @@ func runDaemonRun(cmd *cobra.Command) error {
 	go checkVectorReadiness(ctx, cfg, vecReadiness, logf)
 
 	srv := daemon.New(daemon.Options{
-		Engine:             &engine{store: store, badgerStore: badgerStore, cfg: cfg, controlPath: controlPath, badgerPath: badgerPath, embeddingReadiness: readiness, vectorReadiness: vecReadiness},
+		Engine:             newEngine(store, badgerStore, cfg, controlPath, badgerPath, readiness, vecReadiness),
 		Socket:             socket,
 		ControlPath:        controlPath,
 		Version:            ragctlVersion,

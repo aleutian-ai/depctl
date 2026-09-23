@@ -36,6 +36,16 @@ func SparsePatterns(ecosystem domain.Ecosystem) []string {
 		// misattributed as the root module's own content.
 		patterns = append(patterns, "*.go", "go.mod")
 	}
+	if ecosystem == domain.EcosystemNode {
+		// package.json is never itself normalized, but it's how
+		// generation.normalizeSources (and discoverNodeSubdir before it)
+		// detects a nested npm package boundary — see hasGoMod's go.mod
+		// comment for the equivalent Go reasoning. A few hundred bytes
+		// per package is negligible next to what skipping it costs for a
+		// monorepo whose registry metadata didn't report which
+		// subdirectory the target package actually lives in.
+		patterns = append(patterns, "package.json")
+	}
 	return patterns
 }
 

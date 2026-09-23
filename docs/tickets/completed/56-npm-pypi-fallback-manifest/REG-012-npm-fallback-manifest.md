@@ -1,9 +1,17 @@
 # REG-012: npm fallback manifest
 
 **Epic:** npm/PyPI fallback manifest
-**Status:** planned
+**Status:** done
 **Depends on:** none
 **Estimated size:** medium
+
+## Post-implementation note
+
+Built and shipped (`internal/cli/sync.go`'s `npmFallbackManifest`/`npmRepository`/`npmTagCandidates`), largely as designed — one live-found addition to the design's own risk section: **the four tag-candidate templates are only ever tried in their package-scoped form (`${package}@${version}`, `${package}-v${version}`) once `Subdir` is known**, never the bare `v${version}`/`${version}` templates in that case. Live-testing against a real monorepo package (`eslint-visitor-keys`, `github.com/eslint/js`) found that the bare template *did* resolve — to a real tag — but to an entirely unrelated package's release from years before the monorepo restructure (ESLint core's own 3.4.3), not this package's content. `npmTagCandidates(name, subdir string)` now takes `subdir` and drops the ambiguous bare candidates whenever it's non-empty; regression-tested (`TestNpmTagCandidatesForAMonorepoPackageExcludesBareTags`).
+
+A second, separate gap found afterward and fixed under the same epic, not this ticket's original design: npm's registry `repository.directory` field is sometimes simply absent for a package that's genuinely part of a monorepo (`@opentelemetry/api`, `open-telemetry/opentelemetry-js` — confirmed live: 72 objects indexed from across the whole repo before the fix, 2 after). Unlike the tag-ambiguity issue, this can't be caught by verifying against git — the wrong subdir (the whole repo) still verifies fine, it's just wrong. Fixed structurally, not by trusting registry metadata more carefully: `internal/data/generation/build.go`'s `discoverNodeSubdir` searches the repo tree at the resolved commit for the `package.json` that actually declares this package's name (via new `git.Cache.ListFiles`/`ReadFile` plumbing, no checkout needed), falling back cleanly to no scoping if none matches; a walk-time boundary check (`packageJSONNameAt`, mirroring the existing Go `hasGoMod` check) is the defense-in-depth backstop for whatever that discovery pass misses. See the epic's INDEX for why this is tracked as part of REG-012 rather than a new ticket.
+
+**Still not covered by this ticket, tracked separately:** no structured (function/type/signature-level) extraction exists for Node at all — a correctly-scoped sync only ever produces README/CHANGELOG/LICENSE content, the same as before this ticket. See `docs/architecture.md`'s ecosystem coverage note.
 
 ## Goal
 Let a Node dependency with no hand-curated manifest still sync, the same automatic way Go dependencies already do — without indexing the wrong content under a confident version label.

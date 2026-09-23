@@ -523,6 +523,69 @@ func TestBuildScopesToSourceSubdir(t *testing.T) {
 	}
 }
 
+// TestBuildDiscoversNodeSubdirWhenRegistryOmitsDirectory reproduces the
+// live-found @opentelemetry/api bug: the registry.Source has no Subdir
+// (npm's registry metadata didn't report a "directory"), but the package
+// genuinely lives under a subdirectory of a real npm monorepo. Build must
+// find and scope to that subdirectory itself, never falling back to
+// indexing every sibling package's content under this one's name.
+func TestBuildDiscoversNodeSubdirWhenRegistryOmitsDirectory(t *testing.T) {
+	requireGit(t)
+	ctx := context.Background()
+
+	dir := t.TempDir()
+	runGit(t, dir, "init", "-q", "-b", "main")
+	writeFile(t, dir, "README.md", "# Monorepo\n\nRoot readme, not any single package's docs.\n")
+	writeFile(t, dir, "api/package.json", `{"name": "@scope/api"}`)
+	writeFile(t, dir, "api/README.md", "# @scope/api\n\nThe API package's own docs.\n")
+	writeFile(t, dir, "core/package.json", `{"name": "@scope/core"}`)
+	writeFile(t, dir, "core/README.md", "# @scope/core\n\nAn unrelated sibling package's docs.\n")
+	runGit(t, dir, "add", ".")
+	runGit(t, dir, "commit", "-q", "-m", "initial")
+	runGit(t, dir, "tag", "v1.0.0")
+
+	store, badgerStore := testStores(t)
+	gitCache := git.NewCache(t.TempDir())
+	dep := domain.DependencyVersion{
+		Dependency: domain.Dependency{Ecosystem: domain.EcosystemNode, Name: "@scope/api"},
+		Version:    "v1.0.0",
+	}
+	// No Subdir set — the exact shape npmFallbackManifest produces when
+	// the registry response omitted "directory".
+	sources := []registry.Source{{ID: "repository", Type: "git", URL: dir, Ref: "v${version}", Authority: 100}}
+	gen, err := Create(ctx, store, badgerStore, dep)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if err := Build(ctx, gen, sources, gitCache, store, badgerStore); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	chunks, err := badgerStore.ListGenerationChunks(ctx, gen.ID)
+	if err != nil {
+		t.Fatalf("ListGenerationChunks: %v", err)
+	}
+	var sawSibling, sawOwn bool
+	for _, c := range chunks {
+		obj, err := badgerStore.GetKnowledgeObject(ctx, c.ObjectID)
+		if err != nil {
+			continue
+		}
+		if strings.Contains(string(obj.Content), "unrelated sibling") {
+			sawSibling = true
+		}
+		if strings.Contains(string(obj.Content), "API package's own docs") {
+			sawOwn = true
+		}
+	}
+	if sawSibling {
+		t.Error("indexed @scope/core's content under @scope/api — the exact scope-bleed bug this fix targets")
+	}
+	if !sawOwn {
+		t.Error("never indexed @scope/api's own README — discovery should have scoped the worktree to api/")
+	}
+}
+
 func TestRefCandidates(t *testing.T) {
 	root := registry.Source{ID: "r", Ref: "v${version}"}
 	sub := registry.Source{ID: "r", Ref: "billing/v${version}"}
@@ -744,5 +807,47 @@ func TestBuildFailsCleanlyWhenNoRefTemplateResolves(t *testing.T) {
 	err = Build(ctx, gen, sources, gitCache, store, badgerStore)
 	if !errors.Is(err, ErrAcquisition) || !strings.Contains(err.Error(), "v9.9.9 or 9.9.9") {
 		t.Errorf("err = %v, want an acquisition error naming both untried refs, no branch-head fallback", err)
+	}
+}
+
+func TestPackageJSONName(t *testing.T) {
+	if name, ok := packageJSONName([]byte(`{"name": "@scope/pkg", "version": "1.0.0"}`)); !ok || name != "@scope/pkg" {
+		t.Errorf("packageJSONName = %q, %v, want @scope/pkg, true", name, ok)
+	}
+	if _, ok := packageJSONName([]byte(`not json`)); ok {
+		t.Error("packageJSONName on malformed JSON = true, want false")
+	}
+	if _, ok := packageJSONName([]byte(`{"version": "1.0.0"}`)); ok {
+		t.Error("packageJSONName with no name field = true, want false")
+	}
+}
+
+func TestDiscoverNodeSubdirFindsTheMatchingPackageJSON(t *testing.T) {
+	requireGit(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+	runGit(t, dir, "init", "-q", "-b", "main")
+	writeFile(t, dir, "api/package.json", `{"name": "@scope/api"}`)
+	writeFile(t, dir, "core/package.json", `{"name": "@scope/core"}`)
+	runGit(t, dir, "add", ".")
+	runGit(t, dir, "commit", "-q", "-m", "initial")
+
+	gitCache := git.NewCache(t.TempDir())
+	repoPath, err := gitCache.EnsureMirror(ctx, dir)
+	if err != nil {
+		t.Fatalf("EnsureMirror: %v", err)
+	}
+	commit, err := gitCache.ResolveRef(ctx, repoPath, "HEAD")
+	if err != nil {
+		t.Fatalf("ResolveRef: %v", err)
+	}
+
+	subdir, err := discoverNodeSubdir(ctx, gitCache, repoPath, commit, "@scope/core")
+	if err != nil || subdir != "core" {
+		t.Errorf("discoverNodeSubdir(@scope/core) = %q, %v, want core, nil", subdir, err)
+	}
+	subdir, err = discoverNodeSubdir(ctx, gitCache, repoPath, commit, "@scope/nonexistent")
+	if err != nil || subdir != "" {
+		t.Errorf("discoverNodeSubdir(unmatched name) = %q, %v, want \"\", nil — never a guess", subdir, err)
 	}
 }

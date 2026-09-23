@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
 	"sync"
@@ -95,7 +96,27 @@ func runSync(cmd *cobra.Command, projectID string, dependencies []string, dryRun
 // and every reference-state mutation (ActionAddReference/DropReference)
 // against concurrent GC and against duplicate builds of the identical
 // generation — see daemon.BuildCoordinator and epic 53/COORD-001..002.
-func RunSync(ctx context.Context, coordinator *daemon.BuildCoordinator, store *bboltstore.Store, badgerStore *badgerstore.Store, cfg config.Config, projectID string, dependencies []string, offline, force bool, out io.Writer, readiness *embeddingReadiness, vecReadiness *vectorReadiness, priority *daemon.SyncPriority, progress *daemon.SyncProgress) (synced, failed, skipped int, err error) {
+//
+// daemonSem, if non-nil, is a daemon-wide semaphore (SCOPE-002's known
+// risk: ambient sync fires per project, and each project's own worker
+// pool below is unaware of every other project's) — one shared channel
+// the daemon's single `engine` instance owns across every RunSync call
+// for every project, sized by cfg.Sync.MaxTotalConcurrency. A worker
+// acquires it only around the actual action (build+replicate — the
+// network/GPU-bound work), never around the cheap local queue pop, so
+// total concurrent action processing across the whole daemon stays
+// bounded regardless of how many projects are syncing at once. nil (the
+// CLI's own direct test/tool call sites that don't construct a daemon
+// engine) means uncapped, matching this function's pre-existing behavior.
+// syncActionConcurrencyHook, if set, runs once per action while its
+// daemonSem slot is held — test-only instrumentation for proving the
+// daemon-wide cap actually bounds concurrency across separate RunSync
+// calls (simulating separate projects, each with its own worker pool),
+// since neither an offline SYNC_VERSION skip nor reference bookkeeping
+// normally takes long enough to observably overlap on their own.
+var syncActionConcurrencyHook = func() {}
+
+func RunSync(ctx context.Context, coordinator *daemon.BuildCoordinator, store *bboltstore.Store, badgerStore *badgerstore.Store, cfg config.Config, projectID string, dependencies []string, offline, force bool, out io.Writer, readiness *embeddingReadiness, vecReadiness *vectorReadiness, priority *daemon.SyncPriority, progress *daemon.SyncProgress, daemonSem chan struct{}) (synced, failed, skipped int, err error) {
 	plans, err := computePlans(ctx, store, cfg.Vector.Backend, projectID)
 	if err != nil {
 		return 0, 0, 0, err
@@ -202,7 +223,14 @@ func RunSync(ctx context.Context, coordinator *daemon.BuildCoordinator, store *b
 				if !ok {
 					return
 				}
+				if daemonSem != nil {
+					daemonSem <- struct{}{}
+				}
+				syncActionConcurrencyHook()
 				s, f, sk := runSyncAction(ctx, coordinator, store, badgerStore, reg, getPipeline, action, offline, force, progress, writeLine)
+				if daemonSem != nil {
+					<-daemonSem
+				}
 				mu.Lock()
 				synced += s
 				failed += f
@@ -414,6 +442,8 @@ func fallbackManifest(ctx context.Context, dep domain.Dependency) (registry.Mani
 		return goFallbackManifest(ctx, dep)
 	case domain.EcosystemNode:
 		return npmFallbackManifest(ctx, dep)
+	case domain.EcosystemPython:
+		return pypiFallbackManifest(ctx, dep)
 	default:
 		return registry.Manifest{}, false
 	}
@@ -572,6 +602,115 @@ func npmRepository(ctx context.Context, name string) (url, subdir string, ok boo
 		}
 	}
 	return "", "", false
+}
+
+// pypiFallbackManifest is REG-013: PyPI has no equivalent of npm's
+// registry-reported monorepo "directory" field, so there is no Subdir
+// support here at all — a package published from a monorepo subdirectory
+// isn't detectable from the PyPI API alone (unlike REG-012's npm case).
+// Otherwise the same shape: repository comes from a registry lookup, and
+// only a tag verified to actually resolve is ever trusted.
+func pypiFallbackManifest(ctx context.Context, dep domain.Dependency) (registry.Manifest, bool) {
+	url, ok := pypiRepository(ctx, dep.Name)
+	if !ok {
+		return registry.Manifest{}, false
+	}
+	return registry.Manifest{
+		Metadata: registry.Metadata{Name: dep.Name},
+		Match:    registry.Match{Ecosystems: []domain.Ecosystem{dep.Ecosystem}, Packages: []string{dep.Name}},
+		Version:  registry.VersionStrategy{Strategy: "none"},
+		Sources: []registry.Source{{
+			ID: "repository", Type: "git", URL: url, Authority: 0,
+			RefTemplates: []string{"v${version}", "${version}"},
+		}},
+	}, true
+}
+
+// pypiRegistryHTTPClient issues pypiRepository's lookup — a var so tests
+// can redirect it to a local httptest.Server, matching
+// npmRegistryHTTPClient's own convention.
+var pypiRegistryHTTPClient = http.DefaultClient
+
+// pypiRegistryDoc is the subset of PyPI's JSON API response this needs.
+type pypiRegistryDoc struct {
+	Info struct {
+		ProjectURLs map[string]string `json:"project_urls"`
+		HomePage    string            `json:"home_page"`
+	} `json:"info"`
+}
+
+// pypiProjectURLKeys is the priority order to search info.project_urls
+// under — verified live, real packages use these keys inconsistently, no
+// single one is universal.
+var pypiProjectURLKeys = []string{"Source", "Repository", "Source Code", "Code", "GitHub", "Homepage"}
+
+// pypiGitHosts are the hosts pypiGitURL treats as git-hostable — same
+// reasoning as REG-012's npm URL normalization, but PyPI's project_urls
+// are arbitrary homepage-shaped links (often with extra path segments
+// like /issues or /tree/main), not already-canonical clone URLs, so only
+// a known host's URL is trusted to mean "this is the repository," not
+// just any link a maintainer happened to put in project_urls.
+var pypiGitHosts = map[string]bool{"github.com": true, "gitlab.com": true, "bitbucket.org": true}
+
+// pypiGitURL extracts a plain "https://<host>/<org>/<repo>" clone URL from
+// an arbitrary project_urls/home_page link, keeping only the first two
+// path segments and discarding anything further (issue trackers, file
+// paths, branch refs).
+func pypiGitURL(raw string) (string, bool) {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return "", false
+	}
+	if !pypiGitHosts[strings.ToLower(u.Host)] {
+		return "", false
+	}
+	segments := strings.Split(strings.Trim(u.Path, "/"), "/")
+	if len(segments) < 2 || segments[0] == "" || segments[1] == "" {
+		return "", false
+	}
+	org, repo := segments[0], strings.TrimSuffix(segments[1], ".git")
+	return fmt.Sprintf("https://%s/%s/%s", u.Host, org, repo), true
+}
+
+// pypiRepository looks up name's repository via PyPI's public JSON API —
+// the same document `pip show`/PyPI's own web page read. Only a
+// recognized git-hostable URL is usable; anything else (no matching
+// project_urls key, an unrecognized host) is a clean miss, not an error.
+func pypiRepository(ctx context.Context, name string) (url string, ok bool) {
+	ctx, cancel := context.WithTimeout(ctx, vanityImportTimeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://pypi.org/pypi/"+name+"/json", nil)
+	if err != nil {
+		return "", false
+	}
+	resp, err := pypiRegistryHTTPClient.Do(req)
+	if err != nil {
+		return "", false
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", false
+	}
+	var doc pypiRegistryDoc
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&doc); err != nil {
+		return "", false
+	}
+
+	for _, key := range pypiProjectURLKeys {
+		for k, v := range doc.Info.ProjectURLs {
+			if !strings.EqualFold(k, key) {
+				continue
+			}
+			if gitURL, ok := pypiGitURL(v); ok {
+				return gitURL, true
+			}
+		}
+	}
+	if gitURL, ok := pypiGitURL(doc.Info.HomePage); ok {
+		return gitURL, true
+	}
+	return "", false
 }
 
 // moduleTagTemplate is the git tag a Go module's release is published

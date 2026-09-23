@@ -1,9 +1,13 @@
 # REG-013: PyPI fallback manifest
 
 **Epic:** npm/PyPI fallback manifest
-**Status:** planned
+**Status:** done
 **Depends on:** none
 **Estimated size:** small
+
+## Post-implementation note
+
+Built as designed (`internal/cli/sync.go`'s `pypiFallbackManifest`/`pypiRepository`/`pypiGitURL`), no live-found surprises the way REG-012 had — PyPI's `project_urls` inconsistency was already the ticket's own design center, and the priority-key search plus `pypiGitHosts` allowlist (only github.com/gitlab.com/bitbucket.org accepted, so an arbitrary `Homepage` link to a docs site is never mistaken for the repository) handled it as specified. No `Subdir` support, as designed — PyPI has no monorepo-directory signal to key off of at all.
 
 ## Goal
 Same as REG-012, for Python dependencies with no hand-curated manifest.

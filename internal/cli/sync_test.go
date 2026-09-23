@@ -8,12 +8,17 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"aleutian-ai/ragctl/internal/config"
+	bboltstore "aleutian-ai/ragctl/internal/control/bbolt"
+	"aleutian-ai/ragctl/internal/daemon"
+	badgerstore "aleutian-ai/ragctl/internal/data/badger"
 	"aleutian-ai/ragctl/internal/domain"
 	"aleutian-ai/ragctl/internal/planner"
 )
@@ -712,4 +717,182 @@ func TestNpmFallbackManifestFalseWithoutARepository(t *testing.T) {
 	if _, ok := fallbackManifest(context.Background(), domain.Dependency{Ecosystem: domain.EcosystemNode, Name: "whatever"}); ok {
 		t.Error("fallbackManifest = true for an npm package with no repository field")
 	}
+}
+
+func redirectPypiRegistryClient(t *testing.T, srv *httptest.Server) {
+	t.Helper()
+	prev := pypiRegistryHTTPClient
+	pypiRegistryHTTPClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		redirected := req.Clone(req.Context())
+		redirected.URL.Scheme = "http"
+		redirected.URL.Host = strings.TrimPrefix(srv.URL, "http://")
+		return http.DefaultTransport.RoundTrip(redirected)
+	})}
+	t.Cleanup(func() { pypiRegistryHTTPClient = prev })
+}
+
+func TestPypiGitURLKeepsOnlyOrgAndRepo(t *testing.T) {
+	cases := map[string]string{
+		"https://github.com/pallets/flask":                "https://github.com/pallets/flask",
+		"https://github.com/pallets/flask.git":            "https://github.com/pallets/flask",
+		"https://github.com/pallets/flask/issues":         "https://github.com/pallets/flask",
+		"https://github.com/pallets/flask/tree/main/docs": "https://github.com/pallets/flask",
+		"https://gitlab.com/some-org/some-repo":           "https://gitlab.com/some-org/some-repo",
+	}
+	for raw, want := range cases {
+		got, ok := pypiGitURL(raw)
+		if !ok || got != want {
+			t.Errorf("pypiGitURL(%q) = %q, %v; want %q, true", raw, got, ok, want)
+		}
+	}
+	if _, ok := pypiGitURL("https://example.com/docs/flask"); ok {
+		t.Error("pypiGitURL accepted a non-git-hosting URL")
+	}
+	if _, ok := pypiGitURL("not a url"); ok {
+		t.Error("pypiGitURL accepted garbage")
+	}
+}
+
+func TestPypiRepositoryTriesProjectURLKeysInPriorityOrder(t *testing.T) {
+	srv := fakeNpmRegistryServer(t, `{"info":{"project_urls":{"Homepage":"https://flask.palletsprojects.com","Source":"https://github.com/pallets/flask"}}}`)
+	redirectPypiRegistryClient(t, srv)
+
+	url, ok := pypiRepository(context.Background(), "flask")
+	if !ok || url != "https://github.com/pallets/flask" {
+		t.Errorf("pypiRepository = %q, %v, want the Source key preferred over Homepage", url, ok)
+	}
+}
+
+func TestPypiRepositoryFallsBackToHomePage(t *testing.T) {
+	srv := fakeNpmRegistryServer(t, `{"info":{"home_page":"https://github.com/psf/requests"}}`)
+	redirectPypiRegistryClient(t, srv)
+
+	url, ok := pypiRepository(context.Background(), "requests")
+	if !ok || url != "https://github.com/psf/requests" {
+		t.Errorf("pypiRepository = %q, %v, want home_page used as a fallback", url, ok)
+	}
+}
+
+func TestPypiRepositoryNoGitShapedURLIsACleanMiss(t *testing.T) {
+	srv := fakeNpmRegistryServer(t, `{"info":{"project_urls":{"Homepage":"https://example.com/not-a-repo"},"home_page":"https://example.com/also-not-a-repo"}}`)
+	redirectPypiRegistryClient(t, srv)
+
+	if _, ok := pypiRepository(context.Background(), "whatever"); ok {
+		t.Error("pypiRepository succeeded with no git-hostable URL anywhere in the response")
+	}
+}
+
+func TestPypiFallbackManifestBuildsSourceWithTagTemplates(t *testing.T) {
+	srv := fakeNpmRegistryServer(t, `{"info":{"project_urls":{"Source":"https://github.com/pallets/flask"}}}`)
+	redirectPypiRegistryClient(t, srv)
+
+	m, ok := fallbackManifest(context.Background(), domain.Dependency{Ecosystem: domain.EcosystemPython, Name: "flask"})
+	if !ok {
+		t.Fatal("fallbackManifest = false")
+	}
+	src := m.Sources[0]
+	if src.URL != "https://github.com/pallets/flask" || src.Subdir != "" {
+		t.Errorf("source = %+v", src)
+	}
+	want := []string{"v${version}", "${version}"}
+	if !reflect.DeepEqual(src.RefTemplates, want) {
+		t.Errorf("RefTemplates = %v, want %v", src.RefTemplates, want)
+	}
+}
+
+func TestPypiFallbackManifestFalseWithoutARepository(t *testing.T) {
+	srv := fakeNpmRegistryServer(t, `{"info":{}}`)
+	redirectPypiRegistryClient(t, srv)
+	if _, ok := fallbackManifest(context.Background(), domain.Dependency{Ecosystem: domain.EcosystemPython, Name: "whatever"}); ok {
+		t.Error("fallbackManifest = true for a PyPI package with no usable repository URL")
+	}
+}
+
+// TestRunSyncDaemonSemBoundsConcurrencyAcrossSeparateCalls is the direct
+// regression for SCOPE-002's known risk: ambient sync fires one RunSync
+// call per project, each with its own worker pool, so nothing previously
+// bounded total concurrency across projects. Two separate RunSync calls
+// (simulating two projects' own scheduler-triggered syncs) share one
+// daemonSem; with it sized 1, their actions must never run at the same
+// time even though each call's own worker pool would otherwise let them.
+func TestRunSyncDaemonSemBoundsConcurrencyAcrossSeparateCalls(t *testing.T) {
+	ctx := context.Background()
+	store, err := bboltstore.Open(filepath.Join(t.TempDir(), "control.db"))
+	if err != nil {
+		t.Fatalf("bboltstore.Open: %v", err)
+	}
+	defer store.Close()
+	badgerStore, err := badgerstore.Open(filepath.Join(t.TempDir(), "badger"))
+	if err != nil {
+		t.Fatalf("badgerstore.Open: %v", err)
+	}
+	defer badgerStore.Close()
+
+	seedProject := func(suffix string, n int) string {
+		p := domain.Project{ID: "proj-" + suffix, Root: "/fake/" + suffix}
+		if err := store.PutProject(ctx, p); err != nil {
+			t.Fatalf("PutProject: %v", err)
+		}
+		var deps []domain.DependencyVersion
+		for i := 0; i < n; i++ {
+			deps = append(deps, domain.DependencyVersion{
+				Dependency: domain.Dependency{Ecosystem: domain.EcosystemGo, Name: fmt.Sprintf("example.com/dep%s%d", suffix, i)},
+				Version:    "v1.0.0",
+			})
+		}
+		if err := store.PutResolution(ctx, p.ID, domain.Resolution{Ecosystem: domain.EcosystemGo, Dependencies: deps}); err != nil {
+			t.Fatalf("PutResolution: %v", err)
+		}
+		return p.ID
+	}
+	projA := seedProject("a", 3)
+	projB := seedProject("b", 3)
+
+	cfg := config.Default(t.TempDir())
+	cfg.Sync.MaxConcurrency = 3 // each project's own pool would happily run all 3 actions at once
+
+	run := func(projectID string, sem chan struct{}) {
+		coordinator := daemon.NewBuildCoordinator()
+		RunSync(ctx, coordinator, store, badgerStore, cfg, projectID, nil, true /* offline */, false, io.Discard, nil, nil, nil, nil, sem)
+	}
+
+	checkBound := func(t *testing.T, sem chan struct{}, semSize int, wantOverlap bool) {
+		t.Helper()
+		var mu sync.Mutex
+		current, peak := 0, 0
+		prev := syncActionConcurrencyHook
+		syncActionConcurrencyHook = func() {
+			mu.Lock()
+			current++
+			if current > peak {
+				peak = current
+			}
+			mu.Unlock()
+			time.Sleep(20 * time.Millisecond) // long enough for a real overlap to be observed if the cap allows it
+			mu.Lock()
+			current--
+			mu.Unlock()
+		}
+		defer func() { syncActionConcurrencyHook = prev }()
+
+		var wg sync.WaitGroup
+		wg.Add(2)
+		go func() { defer wg.Done(); run(projA, sem) }()
+		go func() { defer wg.Done(); run(projB, sem) }()
+		wg.Wait()
+
+		if wantOverlap && peak <= semSize {
+			t.Errorf("peak concurrent actions = %d with no cap, want more than %d (test wasn't exercising real concurrency)", peak, semSize)
+		}
+		if !wantOverlap && peak > semSize {
+			t.Errorf("peak concurrent actions = %d, want at most %d (daemonSem of size %d must bound concurrency across both RunSync calls)", peak, semSize, semSize)
+		}
+	}
+
+	t.Run("capped at 1", func(t *testing.T) {
+		checkBound(t, make(chan struct{}, 1), 1, false)
+	})
+	t.Run("uncapped (nil) allows real overlap", func(t *testing.T) {
+		checkBound(t, nil, 1, true)
+	})
 }

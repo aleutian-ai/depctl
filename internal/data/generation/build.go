@@ -2,6 +2,7 @@ package generation
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"os"
@@ -71,7 +72,7 @@ func Build(ctx context.Context, gen domain.Generation, sources []registry.Source
 		return err
 	}
 
-	acquired, err := acquireGitSources(ctx, gitCache, gen.Dependency.Version, gen.Dependency.Dependency.Ecosystem, sources)
+	acquired, err := acquireGitSources(ctx, gitCache, gen.Dependency.Dependency.Name, gen.Dependency.Version, gen.Dependency.Dependency.Ecosystem, sources)
 	defer cleanupAll(acquired)
 	if err != nil {
 		fail(ctx, store, &gen, err.Error())
@@ -111,7 +112,7 @@ func Build(ctx context.Context, gen domain.Generation, sources []registry.Source
 // (source trees in other languages, binary assets, vendored
 // dependencies) is never fetched at all, not just skipped during
 // normalization.
-func acquireGitSources(ctx context.Context, gitCache *git.Cache, version string, ecosystem domain.Ecosystem, sources []registry.Source) ([]acquiredSource, error) {
+func acquireGitSources(ctx context.Context, gitCache *git.Cache, depName, version string, ecosystem domain.Ecosystem, sources []registry.Source) ([]acquiredSource, error) {
 	basePatterns := normalize.SparsePatterns(ecosystem)
 	var acquired []acquiredSource
 	for _, s := range sources {
@@ -142,18 +143,35 @@ func acquireGitSources(ctx context.Context, gitCache *git.Cache, version string,
 			return acquired, fmt.Errorf("%w: source %s: resolve %s: %v", ErrAcquisition, s.ID, strings.Join(refs, " or "), err)
 		}
 
-		worktreeDir, cleanup, err := gitCache.MaterializeWorktree(ctx, repoPath, commit, normalize.ScopeToSubdir(basePatterns, s.Subdir))
+		subdir := s.Subdir
+		if subdir == "" && ecosystem == domain.EcosystemNode {
+			// npm's registry "directory" field (the only source Subdir is
+			// ever derived from for Node) is sometimes simply absent even
+			// for a package that genuinely lives in a subdirectory of a
+			// real monorepo (confirmed live: @opentelemetry/api in
+			// open-telemetry/opentelemetry-js). Unlike Go, whose import
+			// path IS the directory, npm gives no structural way to know
+			// this from the package name alone — so find it the same way
+			// a person would: search the tree for the package.json that
+			// actually claims this name.
+			found, findErr := discoverNodeSubdir(ctx, gitCache, repoPath, commit, depName)
+			if findErr == nil {
+				subdir = found
+			}
+		}
+
+		worktreeDir, cleanup, err := gitCache.MaterializeWorktree(ctx, repoPath, commit, normalize.ScopeToSubdir(basePatterns, subdir))
 		if err != nil {
 			return acquired, fmt.Errorf("%w: source %s: worktree: %v", ErrAcquisition, s.ID, err)
 		}
-		if s.Subdir != "" {
+		if subdir != "" {
 			// A module inside a monorepo owns only its own directory;
 			// walking from the repo root would index every sibling
 			// module's content under this dependency.
-			scoped := filepath.Join(worktreeDir, filepath.FromSlash(s.Subdir))
+			scoped := filepath.Join(worktreeDir, filepath.FromSlash(subdir))
 			if info, statErr := os.Stat(scoped); statErr != nil || !info.IsDir() {
 				cleanup()
-				return acquired, fmt.Errorf("%w: source %s: subdir %q not found at commit %s", ErrAcquisition, s.ID, s.Subdir, commit)
+				return acquired, fmt.Errorf("%w: source %s: subdir %q not found at commit %s", ErrAcquisition, s.ID, subdir, commit)
 			}
 			worktreeDir = scoped
 		}
@@ -161,6 +179,48 @@ func acquireGitSources(ctx context.Context, gitCache *git.Cache, version string,
 		acquired = append(acquired, acquiredSource{source: s, worktreeDir: worktreeDir, commit: commit, cleanup: cleanup})
 	}
 	return acquired, nil
+}
+
+// discoverNodeSubdir searches repoPath's tree at commit for the
+// package.json that actually declares depName, structurally rather than
+// trusting npm registry metadata (which sometimes omits "directory" even
+// for a genuine monorepo package — see acquireGitSources). A root-level
+// match returns "" (not a monorepo); no match returns "" too, since
+// there's nothing more specific to scope to — the walk-time check in
+// normalizeSources (packageJSONBoundary) is the remaining safety net in
+// that case.
+func discoverNodeSubdir(ctx context.Context, gitCache *git.Cache, repoPath, commit, depName string) (string, error) {
+	paths, err := gitCache.ListFiles(ctx, repoPath, commit, "package.json")
+	if err != nil {
+		return "", err
+	}
+	for _, p := range paths {
+		content, readErr := gitCache.ReadFile(ctx, repoPath, commit, p)
+		if readErr != nil {
+			continue
+		}
+		name, ok := packageJSONName(content)
+		if !ok || name != depName {
+			continue
+		}
+		dir := strings.TrimSuffix(p, "/package.json")
+		if dir == "package.json" {
+			return "", nil
+		}
+		return dir, nil
+	}
+	return "", nil
+}
+
+// packageJSONName extracts the "name" field from raw package.json content.
+func packageJSONName(content []byte) (string, bool) {
+	var doc struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(content, &doc); err != nil || doc.Name == "" {
+		return "", false
+	}
+	return doc.Name, true
 }
 
 // gitRef substitutes "${version}" in source.Ref with version, stripped of
@@ -255,6 +315,19 @@ func normalizeSources(ctx context.Context, dep domain.DependencyVersion, acquire
 				// packages' docs as dep's own.
 				if path != a.worktreeDir && hasGoMod(path) {
 					return filepath.SkipDir
+				}
+				// Mirrors the go.mod boundary above for npm monorepos:
+				// discoverNodeSubdir (in acquireGitSources) already tries
+				// to scope the worktree to the right subdirectory, but
+				// this is the safety net for when it couldn't (registry
+				// metadata missing and no matching package.json found, or
+				// a nested package the discovery pass didn't reach) — a
+				// directory that names a *different* package than dep
+				// itself is never this dependency's content.
+				if dep.Dependency.Ecosystem == domain.EcosystemNode && path != a.worktreeDir {
+					if name, ok := packageJSONNameAt(path); ok && name != dep.Dependency.Name {
+						return filepath.SkipDir
+					}
 				}
 				if hasGoFiles(path) {
 					objs, err := normalizeOne(ctx, gd, a, path)
@@ -365,6 +438,16 @@ func hasGoFiles(dir string) bool {
 func hasGoMod(dir string) bool {
 	info, err := os.Stat(filepath.Join(dir, "go.mod"))
 	return err == nil && !info.IsDir()
+}
+
+// packageJSONNameAt reads dir's own package.json (if any) from the
+// checked-out worktree and returns its "name" field.
+func packageJSONNameAt(dir string) (string, bool) {
+	content, err := os.ReadFile(filepath.Join(dir, "package.json"))
+	if err != nil {
+		return "", false
+	}
+	return packageJSONName(content)
 }
 
 // indexObjects fingerprints, dedups (GEN-003), chunks, and stores every

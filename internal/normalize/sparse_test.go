@@ -47,6 +47,22 @@ func TestSparsePatternsIncludesGoModForNestedModuleBoundaryDetection(t *testing.
 	}
 }
 
+// TestSparsePatternsIncludesPackageJSONForNodeBoundaryDetection covers
+// the npm equivalent of the go.mod case above: generation.build's
+// discoverNodeSubdir and its walk-time defense both need package.json
+// present in the checked-out worktree to find/verify an npm monorepo
+// package boundary.
+func TestSparsePatternsIncludesPackageJSONForNodeBoundaryDetection(t *testing.T) {
+	nodePatterns := SparsePatterns(domain.EcosystemNode)
+	if !contains(nodePatterns, "package.json") {
+		t.Errorf("SparsePatterns(node) = %v, want it to include package.json", nodePatterns)
+	}
+	goPatterns := SparsePatterns(domain.EcosystemGo)
+	if contains(goPatterns, "package.json") {
+		t.Errorf("SparsePatterns(go) = %v, want it to NOT include package.json", goPatterns)
+	}
+}
+
 func contains(patterns []string, p string) bool {
 	for _, x := range patterns {
 		if x == p {
