@@ -600,6 +600,59 @@ func TestBuildDiscoversNodeSubdirWhenRegistryOmitsDirectory(t *testing.T) {
 	}
 }
 
+// TestBuildFailsCleanlyWhenNodePackageCannotBeLocatedInAMultiPackageRepo
+// is the live-found regression this session's own investigation
+// surfaced: @babel/plugin-syntax-object-rest-spread's npm registry entry
+// names a repository/directory that simply doesn't exist at that
+// version's actual git tag (upstream metadata drift), and the repo's own
+// root package.json belongs to an entirely different package (the
+// monorepo's private tooling root) — silently falling back to indexing
+// that root content under the dependency's name would be confidently
+// wrong, not just unscoped, the same failure class as the scope-bleed
+// bug above but via broken metadata instead of merely incomplete
+// metadata. Must fail acquisition cleanly instead.
+func TestBuildFailsCleanlyWhenNodePackageCannotBeLocatedInAMultiPackageRepo(t *testing.T) {
+	requireGit(t)
+	ctx := context.Background()
+
+	dir := t.TempDir()
+	runGit(t, dir, "init", "-q", "-b", "main")
+	writeFile(t, dir, "package.json", `{"name": "monorepo-root-tooling"}`)
+	writeFile(t, dir, "README.md", "# Monorepo\n\nGeneric root docs — must never be mistaken for any one package's own docs.\n")
+	writeFile(t, dir, "packages/widget/package.json", `{"name": "@scope/widget"}`)
+	writeFile(t, dir, "packages/widget/README.md", "# widget\n")
+	runGit(t, dir, "add", ".")
+	runGit(t, dir, "commit", "-q", "-m", "initial")
+	runGit(t, dir, "tag", "v1.0.0")
+
+	store, badgerStore := testStores(t)
+	gitCache := git.NewCache(t.TempDir())
+	dep := domain.DependencyVersion{
+		// Registry metadata (simulated) points at this repo for a
+		// package that was never actually published from it — the exact
+		// upstream-drift shape found live.
+		Dependency: domain.Dependency{Ecosystem: domain.EcosystemNode, Name: "@scope/does-not-exist-here"},
+		Version:    "v1.0.0",
+	}
+	sources := []registry.Source{{ID: "repository", Type: "git", URL: dir, Ref: "v${version}", Authority: 100}}
+	gen, err := Create(ctx, store, badgerStore, dep)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	err = Build(ctx, gen, sources, gitCache, store, badgerStore)
+	if !errors.Is(err, ErrAcquisition) || !strings.Contains(err.Error(), "@scope/does-not-exist-here") {
+		t.Fatalf("Build err = %v, want an ErrAcquisition naming @scope/does-not-exist-here", err)
+	}
+
+	chunks, listErr := badgerStore.ListGenerationChunks(ctx, gen.ID)
+	if listErr != nil {
+		t.Fatalf("ListGenerationChunks: %v", listErr)
+	}
+	if len(chunks) != 0 {
+		t.Errorf("ListGenerationChunks = %d, want 0 — the monorepo root's generic README must never be indexed under this dependency's name", len(chunks))
+	}
+}
+
 // TestBuildExtractsStructuredTypeScriptDocsAndNeverLeaksASiblingsSymbols
 // is NORM-008's own golden-fixture acceptance test: real exported
 // signatures/docs extracted correctly, a private class member excluded,
@@ -987,12 +1040,80 @@ func TestDiscoverNodeSubdirFindsTheMatchingPackageJSON(t *testing.T) {
 		t.Fatalf("ResolveRef: %v", err)
 	}
 
-	subdir, err := discoverNodeSubdir(ctx, gitCache, repoPath, commit, "@scope/core")
-	if err != nil || subdir != "core" {
-		t.Errorf("discoverNodeSubdir(@scope/core) = %q, %v, want core, nil", subdir, err)
+	subdir, verified, ambiguous, err := discoverNodeSubdir(ctx, gitCache, repoPath, commit, "@scope/core")
+	if err != nil || !verified || ambiguous || subdir != "core" {
+		t.Errorf("discoverNodeSubdir(@scope/core) = %q, verified=%v, ambiguous=%v, %v, want core, true, false, nil", subdir, verified, ambiguous, err)
 	}
-	subdir, err = discoverNodeSubdir(ctx, gitCache, repoPath, commit, "@scope/nonexistent")
-	if err != nil || subdir != "" {
-		t.Errorf("discoverNodeSubdir(unmatched name) = %q, %v, want \"\", nil — never a guess", subdir, err)
+
+	// Two package.json files exist (api, core), but neither names this
+	// package — a genuine multi-package repo where it truly can't be
+	// found, not a single-package repo with unusual metadata.
+	subdir, verified, ambiguous, err = discoverNodeSubdir(ctx, gitCache, repoPath, commit, "@scope/nonexistent")
+	if err != nil || verified || !ambiguous || subdir != "" {
+		t.Errorf("discoverNodeSubdir(unmatched name, multi-package repo) = %q, verified=%v, ambiguous=%v, %v, want \"\", false, true, nil", subdir, verified, ambiguous, err)
+	}
+}
+
+// TestDiscoverNodeSubdirAmbiguousEvenForASingleMismatchedPackageJSON is
+// the audit-found regression for the exact shape REG-012's own
+// eslint-visitor-keys finding was: a resolved commit with only ONE
+// package.json in the whole tree (not a multi-package repo at all), but
+// its name doesn't match the target — a real, live-found signal of a
+// wrong repo/commit, not an unusual-but-harmless layout. A looser
+// "ambiguous only when more than one package.json exists" check would
+// have missed exactly this case (eslint-visitor-keys' bad match was a
+// single-package commit predating the monorepo restructure).
+func TestDiscoverNodeSubdirAmbiguousEvenForASingleMismatchedPackageJSON(t *testing.T) {
+	requireGit(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+	runGit(t, dir, "init", "-q", "-b", "main")
+	writeFile(t, dir, "package.json", `{"name": "some-other-name"}`)
+	runGit(t, dir, "add", ".")
+	runGit(t, dir, "commit", "-q", "-m", "initial")
+
+	gitCache := git.NewCache(t.TempDir())
+	repoPath, err := gitCache.EnsureMirror(ctx, dir)
+	if err != nil {
+		t.Fatalf("EnsureMirror: %v", err)
+	}
+	commit, err := gitCache.ResolveRef(ctx, repoPath, "HEAD")
+	if err != nil {
+		t.Fatalf("ResolveRef: %v", err)
+	}
+
+	_, verified, ambiguous, err := discoverNodeSubdir(ctx, gitCache, repoPath, commit, "target-package")
+	if err != nil || verified || !ambiguous {
+		t.Errorf("discoverNodeSubdir(single mismatched package.json) = verified=%v, ambiguous=%v, %v, want false, true, nil", verified, ambiguous, err)
+	}
+}
+
+// TestDiscoverNodeSubdirNotAmbiguousWhenNoPackageJSONExistsAtAll covers
+// the one genuinely safe fallback case left: a commit with literally no
+// package.json anywhere carries no name signal to contradict at all —
+// irreducible uncertainty, not a known mismatch, so falling back to the
+// root stays acceptable.
+func TestDiscoverNodeSubdirNotAmbiguousWhenNoPackageJSONExistsAtAll(t *testing.T) {
+	requireGit(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+	runGit(t, dir, "init", "-q", "-b", "main")
+	writeFile(t, dir, "README.md", "no package.json in this repo at all\n")
+	runGit(t, dir, "add", ".")
+	runGit(t, dir, "commit", "-q", "-m", "initial")
+
+	gitCache := git.NewCache(t.TempDir())
+	repoPath, err := gitCache.EnsureMirror(ctx, dir)
+	if err != nil {
+		t.Fatalf("EnsureMirror: %v", err)
+	}
+	commit, err := gitCache.ResolveRef(ctx, repoPath, "HEAD")
+	if err != nil {
+		t.Fatalf("ResolveRef: %v", err)
+	}
+
+	_, verified, ambiguous, err := discoverNodeSubdir(ctx, gitCache, repoPath, commit, "target-package")
+	if err != nil || verified || ambiguous {
+		t.Errorf("discoverNodeSubdir(no package.json anywhere) = verified=%v, ambiguous=%v, %v, want false, false, nil", verified, ambiguous, err)
 	}
 }

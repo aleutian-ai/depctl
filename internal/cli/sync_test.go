@@ -638,6 +638,25 @@ func TestNpmGitURLNormalizesEveryShape(t *testing.T) {
 	}
 }
 
+// TestNpmGitURLStripsAGitHubBrowseURLDownToTheCloneURL is the direct
+// regression for a live-found bug (a real mem0 sync): some npm packages'
+// repository.url is a GitHub browse link ("/tree/<ref>/<path>") instead
+// of a clone URL — git clone --mirror can't clone that at all. Every
+// real case found live is covered here, not just a synthetic shape.
+func TestNpmGitURLStripsAGitHubBrowseURLDownToTheCloneURL(t *testing.T) {
+	cases := map[string]string{
+		"https://github.com/babel/babel/tree/master/packages/babel-plugin-syntax-object-rest-spread": "https://github.com/babel/babel",
+		"https://github.com/nodelib/nodelib/tree/master/packages/fs/fs.scandir":                       "https://github.com/nodelib/nodelib",
+		"git+https://github.com/babel/babel.git/tree/master/packages/babel-core":                      "https://github.com/babel/babel",
+	}
+	for raw, want := range cases {
+		got, ok := npmGitURL(raw)
+		if !ok || got != want {
+			t.Errorf("npmGitURL(%q) = %q, %v; want %q, true", raw, got, ok, want)
+		}
+	}
+}
+
 func TestNpmRepositoryObjectShapeWithDirectory(t *testing.T) {
 	srv := fakeNpmRegistryServer(t, `{"repository":{"type":"git","url":"git+https://github.com/eslint/js.git","directory":"packages/eslint-visitor-keys"}}`)
 	redirectNpmRegistryClient(t, srv)

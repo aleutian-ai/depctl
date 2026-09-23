@@ -156,9 +156,17 @@ func acquireGitSources(ctx context.Context, gitCache *git.Cache, depName, versio
 			// this from the package name alone — so find it the same way
 			// a person would: search the tree for the package.json that
 			// actually claims this name.
-			found, findErr := discoverNodeSubdir(ctx, gitCache, repoPath, commit, depName)
-			if findErr == nil {
+			found, verified, ambiguous, findErr := discoverNodeSubdir(ctx, gitCache, repoPath, commit, depName)
+			if findErr == nil && verified {
 				subdir = found
+			} else if findErr == nil && ambiguous {
+				// A genuine multi-package repo where this dependency's own
+				// package.json couldn't be found anywhere at this commit —
+				// live-found upstream metadata drift, not a scoping gap.
+				// Indexing repo-root content under this dependency's name
+				// would be confidently wrong, not just unscoped — fail
+				// cleanly instead, same principle as a missing git tag.
+				return acquired, fmt.Errorf("%w: source %s: could not locate %s's own package.json within a multi-package repository at commit %s", ErrAcquisition, s.ID, depName, commit)
 			}
 		}
 
@@ -186,15 +194,29 @@ func acquireGitSources(ctx context.Context, gitCache *git.Cache, depName, versio
 // discoverNodeSubdir searches repoPath's tree at commit for the
 // package.json that actually declares depName, structurally rather than
 // trusting npm registry metadata (which sometimes omits "directory" even
-// for a genuine monorepo package — see acquireGitSources). A root-level
-// match returns "" (not a monorepo); no match returns "" too, since
-// there's nothing more specific to scope to — the walk-time check in
-// normalizeSources (packageJSONBoundary) is the remaining safety net in
-// that case.
-func discoverNodeSubdir(ctx context.Context, gitCache *git.Cache, repoPath, commit, depName string) (string, error) {
+// for a genuine monorepo package — see acquireGitSources).
+//
+// verified is true only when a package.json exactly matching depName was
+// found — dir is "" for a root-level match, the subdirectory otherwise.
+// verified is false when no match was found; ambiguous then distinguishes
+// two very different situations: a single-package repo where nothing
+// else exists to accidentally blend in (ambiguous false — safe to fall
+// back to the root) versus a genuine multi-package repo where this
+// specific dependency's own location simply couldn't be confirmed
+// (ambiguous true) — live-found: @babel/plugin-syntax-object-rest-spread's
+// registry-reported repository URL names a subdirectory that doesn't
+// exist at that version's actual tag (upstream metadata drift, not a
+// ragctl bug), and babel/babel's own root package.json is a different,
+// unrelated package ("babel", the private monorepo-tooling root) —
+// falling back to indexing root-level content under the dependency's
+// name in that case would be exactly the wrong-content-under-a-
+// confident-label failure class BOUND-001/REG-012 already exist to
+// prevent, just via a different root cause (broken upstream metadata
+// rather than merely incomplete metadata).
+func discoverNodeSubdir(ctx context.Context, gitCache *git.Cache, repoPath, commit, depName string) (dir string, verified, ambiguous bool, err error) {
 	paths, err := gitCache.ListFiles(ctx, repoPath, commit, "package.json")
 	if err != nil {
-		return "", err
+		return "", false, false, err
 	}
 	for _, p := range paths {
 		content, readErr := gitCache.ReadFile(ctx, repoPath, commit, p)
@@ -205,13 +227,24 @@ func discoverNodeSubdir(ctx context.Context, gitCache *git.Cache, repoPath, comm
 		if !ok || name != depName {
 			continue
 		}
-		dir := strings.TrimSuffix(p, "/package.json")
-		if dir == "package.json" {
-			return "", nil
+		d := strings.TrimSuffix(p, "/package.json")
+		if d == "package.json" {
+			return "", true, false, nil
 		}
-		return dir, nil
+		return d, true, false, nil
 	}
-	return "", nil
+	// Not found anywhere. Any package.json existing at all (even just
+	// one, at the root) and NOT naming this dependency is a real red
+	// flag, not just an unusual layout — this is precisely the shape
+	// REG-012's own eslint-visitor-keys finding was: a bare tag resolved
+	// to a real, single-package commit that predated a monorepo
+	// restructure, whose one root package.json had an entirely
+	// different, unrelated name. len(paths) > 1 alone would have missed
+	// that exact case (only one package.json existed at that commit).
+	// Only a commit with literally zero package.json files anywhere
+	// carries no name signal to contradict at all — falling back there
+	// is irreducible uncertainty, not a known mismatch.
+	return "", false, len(paths) > 0, nil
 }
 
 // packageJSONName extracts the "name" field from raw package.json content.

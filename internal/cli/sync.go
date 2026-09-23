@@ -539,6 +539,21 @@ type npmRepositoryObject struct {
 // repository-field shorthand.
 var npmShorthandRepo = regexp.MustCompile(`^(?:github:)?([\w.-]+)/([\w.-]+?)(?:\.git)?$`)
 
+// githubTreePath matches a GitHub *browse* URL pointing at a ref/path
+// within a repo ("/tree/<ref>/<path...>") rather than the repo itself.
+// Live-found scanning a real monorepo (mem0): some npm packages'
+// repository.url field is set to exactly this convenience link instead
+// of the proper clone URL (e.g. @babel/plugin-syntax-object-rest-spread
+// → "https://github.com/babel/babel/tree/master/packages/babel-plugin-
+// syntax-object-rest-spread") — `git clone --mirror` can't clone a
+// browse URL at all, it just fails outright, every time, for every
+// version. Stripping it to the bare repo clone URL and letting
+// discoverNodeSubdir (already built for REG-012's own monorepo case)
+// recover the directory from the tree itself — rather than trying to
+// parse a ref/path out of this URL directly — reuses already-tested
+// machinery instead of adding a second scoping path.
+var githubTreePath = regexp.MustCompile(`^(https://github\.com/[\w.-]+/[\w.-]+?)(?:\.git)?/tree/.*$`)
+
 // npmGitURL normalizes npm's several repository.url shapes
 // ("git+https://...", "git://...", "git+ssh://git@...", a bare
 // "https://...", or shorthand) to a plain https clone URL.
@@ -551,6 +566,9 @@ func npmGitURL(raw string) (string, bool) {
 	raw = strings.TrimSuffix(raw, ".git")
 	switch {
 	case strings.HasPrefix(raw, "https://"), strings.HasPrefix(raw, "http://"):
+		if m := githubTreePath.FindStringSubmatch(raw); m != nil {
+			return m[1], true
+		}
 		return raw, true
 	case strings.HasPrefix(raw, "git://"):
 		return "https://" + strings.TrimPrefix(raw, "git://"), true

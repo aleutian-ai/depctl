@@ -20,6 +20,9 @@ This requires three things that don't fully exist yet, found by enumerating ever
 - No change to `sync_project`'s existing single-dependency behavior or its bounded-wait/still-running contract — SCOPE-003/004 add a new *set*-shaped path alongside it, they don't replace what's already correct.
 
 ## Status
-SCOPE-001..004 are implemented and unit/integration tested (see each ticket's post-implementation notes, including two deliberate deviations: a `sync_progress` tool rather than a resource, and a `sync.disable_ambient` opt-out). The epic stays in `planned/` until every one of the four is verified against a real daemon and a real agent client.
+All four tickets are implemented, unit/integration tested, and now verified live against a real daemon and a real agent client.
 
-**2026-09: half verified live.** The mem0 end-to-end run (`docs/tickets/completed/56-npm-pypi-fallback-manifest`'s own real-world validation) exercised SCOPE-002 directly — `ragctl scan` against a real 22-sub-project repo fired ambient sync automatically, with no separate `ragctl sync` call — and SCOPE-001 alongside it, via repeated real `ragctl status` calls showing accurate live per-project progress throughout a 15-minute run. **SCOPE-003 and SCOPE-004 remain unverified live** — that run never exercised `prioritize_file` or `explain_call_site`'s JIT path through a real MCP client, only the ambient full-sync path. Closing this epic still needs that.
+- SCOPE-001/SCOPE-002: verified via the mem0 end-to-end run (`docs/tickets/completed/56-npm-pypi-fallback-manifest`) — `ragctl scan` against a real 22-sub-project repo fired ambient sync automatically, with real `ragctl status` calls showing accurate live per-project progress throughout a 15-minute run.
+- SCOPE-003/SCOPE-004: verified via `TestPrioritizeFileAndExplainCallSiteOverARealDaemon` (`internal/cli/scope_004_live_test.go`) — a real `ragctl serve` subprocess, a real MCP client over stdio, and two genuinely different real Go modules. `explain_call_site` triggered a fresh JIT sync and returned real evidence for a never-synced dependency; `prioritize_file` then correctly matched and synced both of a file's real imports as one set, with the newly-synced one confirmed independently searchable afterward.
+
+**Epic moves to `completed/`.**
