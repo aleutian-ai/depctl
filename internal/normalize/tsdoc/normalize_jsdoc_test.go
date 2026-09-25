@@ -245,6 +245,53 @@ func TestResolveEntryFallsBackToJSDocWhenNoDTS(t *testing.T) {
 	}
 }
 
+// TestNormalizePackageDocTitleUsesPackageJSONNameNotWorktreeDirName is a
+// live-found regression: package_doc's Title used to be
+// filepath.Base(src.LocalPath) — for a package with no Subdir scoping,
+// src.LocalPath IS the worktree's own randomly-named temp directory
+// (confirmed live: real mem0-sourced packages `debug`/`ms` produced a
+// package_doc titled literally "ragctl-worktree-1160938559" instead of
+// their own name). package.json's "name" field is the one authoritative
+// source and is now used instead (packageDisplayName, entrypoint.go).
+func TestNormalizePackageDocTitleUsesPackageJSONNameNotWorktreeDirName(t *testing.T) {
+	requireNode(t)
+	// A directory name deliberately shaped like a real worktree temp dir
+	// — filepath.Base(dir) would return exactly this if the old bug were
+	// still present.
+	base := t.TempDir()
+	dir := filepath.Join(base, "ragctl-worktree-1160938559")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(`{"name": "@scope/real-package-name", "main": "index.js"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "index.js"), []byte("/**\n * The real package's own module doc.\n */\n\n/**\n * f does something.\n */\nexport function f() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	n := New()
+	objs, err := n.Normalize(context.Background(), domain.SourceSnapshot{LocalPath: dir})
+	if err != nil {
+		t.Fatalf("Normalize: %v", err)
+	}
+	var pkgDoc *domain.KnowledgeObject
+	for i := range objs {
+		if objs[i].ContentType == "package_doc" {
+			pkgDoc = &objs[i]
+		}
+	}
+	if pkgDoc == nil {
+		t.Fatal("no package_doc object produced")
+	}
+	if pkgDoc.Title != "@scope/real-package-name" {
+		t.Errorf("package_doc.Title = %q, want the real package.json name %q — not the worktree directory name", pkgDoc.Title, "@scope/real-package-name")
+	}
+	if pkgDoc.Metadata["package"] != "@scope/real-package-name" {
+		t.Errorf("package_doc.Metadata[package] = %q, want %q", pkgDoc.Metadata["package"], "@scope/real-package-name")
+	}
+}
+
 // TestSupportsTrueForJSDocFallback proves the fallback is actually wired
 // into Supports/Normalize's shared entry point, not just directly
 // testable in isolation.

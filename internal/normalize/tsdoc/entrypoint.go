@@ -8,12 +8,36 @@ import (
 )
 
 // packageJSONFields is the subset of package.json entryDeclarationFile/
-// entryJSFile need to find a package's published entry points.
+// entryJSFile/packageDisplayName need.
 type packageJSONFields struct {
+	Name    string `json:"name"`
 	Types   string `json:"types"`
 	Typings string `json:"typings"` // older alias for "types"
 	Main    string `json:"main"`
 	Module  string `json:"module"`
+}
+
+// packageDisplayName resolves dir's real published package name from
+// package.json's own "name" field — live-found: the previous fallback,
+// filepath.Base(dir), returns the worktree's own randomly-named temp
+// directory when a package has no Subdir scoping (nothing meaningful to
+// base a name on), and even when a subdir IS present, a directory
+// basename can still disagree with the package's real name (nested path
+// segments, or simply not matching) and can never represent a scoped
+// package ("@foo/bar") correctly at all. package.json's "name" is the
+// one authoritative source for what the package actually calls itself,
+// already read for other purposes elsewhere in this package — reused
+// here, with the old directory-basename behavior kept only as a
+// last-resort fallback for the (rare) case package.json is unreadable
+// or declares no name.
+func packageDisplayName(dir string) string {
+	if data, err := os.ReadFile(filepath.Join(dir, "package.json")); err == nil {
+		var pkg packageJSONFields
+		if err := json.Unmarshal(data, &pkg); err == nil && pkg.Name != "" {
+			return pkg.Name
+		}
+	}
+	return filepath.Base(dir)
 }
 
 // entryDeclarationFile resolves dir's published .d.ts entry point:

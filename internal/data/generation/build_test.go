@@ -850,6 +850,78 @@ func TestBuildExtractsStructuredPythonDocsThroughTheFullPipeline(t *testing.T) {
 	}
 }
 
+// TestBuildFindsPydanticShapedPackageInASameNamedSubdirectory is
+// SUBDIR-001's own full-pipeline acceptance test: a real git fixture
+// shaped exactly like real pydantic — the package's __init__.py sits in
+// a same-named subdirectory of the repo root, README/LICENSE sit at the
+// true repo root (not duplicated inside the source subdirectory,
+// exactly like real pydantic's own repo) — synced end to end, must
+// produce BOTH real structured symbol_doc objects AND the root-level
+// README content, instead of the zero-everything this session's live
+// mem0 check found. That live check went through two real bugs, not
+// one: first, the same-named-subdirectory layout wasn't discovered at
+// all (the original, narrower version of this test caught that); then,
+// once discovery was fixed, scoping doc-shaped sparse patterns to the
+// discovered subdirectory too silently excluded the real root-level
+// README/LICENSE (real pydantic's own `pydantic/` source directory has
+// no README/LICENSE inside it at all) — this fixture's own root
+// README.md is what catches that second regression; the original
+// fixture had none, so it couldn't have. A decoy root-level .py file is
+// included to prove the fallback path doesn't accidentally still win.
+func TestBuildFindsPydanticShapedPackageInASameNamedSubdirectory(t *testing.T) {
+	requireGit(t)
+	requirePython(t)
+	ctx := context.Background()
+
+	dir := t.TempDir()
+	runGit(t, dir, "init", "-q", "-b", "main")
+	writeFile(t, dir, "README.md", "# widget\n\nThe widget package's real root-level README — not duplicated inside the source subdirectory, matching real pydantic's own repo shape.\n")
+	writeFile(t, dir, "widget/__init__.py", "\"\"\"The widget package does something useful.\"\"\"\n\n\ndef Do(x: str) -> int:\n    \"\"\"Do performs the widget's core action.\"\"\"\n    return len(x)\n")
+	writeFile(t, dir, "setup.py", "# a decoy root-level .py file — must never be mistaken for the real package\n")
+	runGit(t, dir, "add", ".")
+	runGit(t, dir, "commit", "-q", "-m", "initial")
+	runGit(t, dir, "tag", "1.0.0")
+
+	store, badgerStore := testStores(t)
+	gitCache := git.NewCache(t.TempDir())
+	dep := domain.DependencyVersion{
+		Dependency: domain.Dependency{Ecosystem: domain.EcosystemPython, Name: "widget"},
+		Version:    "1.0.0",
+	}
+	sources := []registry.Source{{ID: "repository", Type: "git", URL: dir, Ref: "${version}", Authority: 100}}
+	gen, err := Create(ctx, store, badgerStore, dep)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if err := Build(ctx, gen, sources, gitCache, store, badgerStore); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	chunks, err := badgerStore.ListGenerationChunks(ctx, gen.ID)
+	if err != nil {
+		t.Fatalf("ListGenerationChunks: %v", err)
+	}
+	var sawDo, sawReadme bool
+	for _, c := range chunks {
+		obj, err := badgerStore.GetKnowledgeObject(ctx, c.ObjectID)
+		if err != nil {
+			continue
+		}
+		if obj.ContentType == "symbol_doc" && obj.Title == "Do" && strings.Contains(string(obj.Content), "performs the widget's core action") {
+			sawDo = true
+		}
+		if strings.Contains(string(obj.Content), "real root-level README") {
+			sawReadme = true
+		}
+	}
+	if !sawDo {
+		t.Error("never extracted widget's own Do() signature/doc — the same-named-subdirectory layout (real pydantic's own shape) wasn't discovered")
+	}
+	if !sawReadme {
+		t.Error("never indexed the root-level README — doc-shaped patterns were wrongly scoped to the discovered source subdirectory too (real pydantic's own repo has no README inside its pydantic/ source directory at all)")
+	}
+}
+
 func TestRefCandidates(t *testing.T) {
 	root := registry.Source{ID: "r", Ref: "v${version}"}
 	sub := registry.Source{ID: "r", Ref: "billing/v${version}"}
@@ -1181,5 +1253,136 @@ func TestDiscoverNodeSubdirNotAmbiguousWhenNoPackageJSONExistsAtAll(t *testing.T
 	_, verified, ambiguous, err := discoverNodeSubdir(ctx, gitCache, repoPath, commit, "target-package")
 	if err != nil || verified || ambiguous {
 		t.Errorf("discoverNodeSubdir(no package.json anywhere) = verified=%v, ambiguous=%v, %v, want false, false, nil", verified, ambiguous, err)
+	}
+}
+
+func TestNormalizePythonName(t *testing.T) {
+	cases := map[string]string{
+		"pydantic":           "pydantic",
+		"typing-extensions":  "typing_extensions",
+		"Flask-SQLAlchemy":   "flask_sqlalchemy",
+		"zope.interface":     "zope_interface",
+		"ALREADY_UNDERSCORE": "already_underscore",
+	}
+	for in, want := range cases {
+		if got := normalizePythonName(in); got != want {
+			t.Errorf("normalizePythonName(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// TestDiscoverPythonSubdirFindsTheSameNamedSubdirectory is SUBDIR-001's
+// direct regression for real pydantic's own shape: the package's
+// __init__.py sits in a same-named subdirectory of the repo root, not
+// at the root itself.
+func TestDiscoverPythonSubdirFindsTheSameNamedSubdirectory(t *testing.T) {
+	requireGit(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+	runGit(t, dir, "init", "-q", "-b", "main")
+	writeFile(t, dir, "pydantic/__init__.py", "\"\"\"pydantic's real module doc.\"\"\"\n")
+	writeFile(t, dir, "README.md", "not the package itself\n")
+	runGit(t, dir, "add", ".")
+	runGit(t, dir, "commit", "-q", "-m", "initial")
+
+	gitCache := git.NewCache(t.TempDir())
+	repoPath, err := gitCache.EnsureMirror(ctx, dir)
+	if err != nil {
+		t.Fatalf("EnsureMirror: %v", err)
+	}
+	commit, err := gitCache.ResolveRef(ctx, repoPath, "HEAD")
+	if err != nil {
+		t.Fatalf("ResolveRef: %v", err)
+	}
+
+	subdir, verified, err := discoverPythonSubdir(ctx, gitCache, repoPath, commit, "pydantic")
+	if err != nil || !verified || subdir != "pydantic" {
+		t.Errorf("discoverPythonSubdir(pydantic) = %q, verified=%v, %v, want pydantic, true, nil", subdir, verified, err)
+	}
+}
+
+// TestDiscoverPythonSubdirFindsTheSrcLayoutWithNoSpecialCasing proves
+// the depth-independent rule catches the PyPA-recommended src/<pkg>/
+// layout via the exact same single rule as the root-adjacent shape
+// above — no src/-specific branch anywhere in discoverPythonSubdir.
+func TestDiscoverPythonSubdirFindsTheSrcLayoutWithNoSpecialCasing(t *testing.T) {
+	requireGit(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+	runGit(t, dir, "init", "-q", "-b", "main")
+	writeFile(t, dir, "src/widget/__init__.py", "\"\"\"widget's real module doc, src layout.\"\"\"\n")
+	runGit(t, dir, "add", ".")
+	runGit(t, dir, "commit", "-q", "-m", "initial")
+
+	gitCache := git.NewCache(t.TempDir())
+	repoPath, err := gitCache.EnsureMirror(ctx, dir)
+	if err != nil {
+		t.Fatalf("EnsureMirror: %v", err)
+	}
+	commit, err := gitCache.ResolveRef(ctx, repoPath, "HEAD")
+	if err != nil {
+		t.Fatalf("ResolveRef: %v", err)
+	}
+
+	subdir, verified, err := discoverPythonSubdir(ctx, gitCache, repoPath, commit, "widget")
+	if err != nil || !verified || subdir != "src/widget" {
+		t.Errorf("discoverPythonSubdir(widget, src layout) = %q, verified=%v, %v, want src/widget, true, nil", subdir, verified, err)
+	}
+}
+
+// TestDiscoverPythonSubdirFallsBackWhenNoMatchExists covers the
+// unchanged, existing baseline: nothing found means the caller acquires
+// at the repo root exactly as it always has.
+func TestDiscoverPythonSubdirFallsBackWhenNoMatchExists(t *testing.T) {
+	requireGit(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+	runGit(t, dir, "init", "-q", "-b", "main")
+	writeFile(t, dir, "__init__.py", "\"\"\"already at the root — nothing to discover.\"\"\"\n")
+	runGit(t, dir, "add", ".")
+	runGit(t, dir, "commit", "-q", "-m", "initial")
+
+	gitCache := git.NewCache(t.TempDir())
+	repoPath, err := gitCache.EnsureMirror(ctx, dir)
+	if err != nil {
+		t.Fatalf("EnsureMirror: %v", err)
+	}
+	commit, err := gitCache.ResolveRef(ctx, repoPath, "HEAD")
+	if err != nil {
+		t.Fatalf("ResolveRef: %v", err)
+	}
+
+	subdir, verified, err := discoverPythonSubdir(ctx, gitCache, repoPath, commit, "widget")
+	if err != nil || verified || subdir != "" {
+		t.Errorf("discoverPythonSubdir(widget, no match) = %q, verified=%v, %v, want \"\", false, nil", subdir, verified, err)
+	}
+}
+
+// TestDiscoverPythonSubdirAmbiguousNeverGuesses covers two different
+// directories both normalizing to the same name — must never pick one
+// arbitrarily.
+func TestDiscoverPythonSubdirAmbiguousNeverGuesses(t *testing.T) {
+	requireGit(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+	runGit(t, dir, "init", "-q", "-b", "main")
+	writeFile(t, dir, "widget/__init__.py", "\"\"\"one candidate.\"\"\"\n")
+	writeFile(t, dir, "vendor/widget/__init__.py", "\"\"\"a different, unrelated candidate with the same name.\"\"\"\n")
+	runGit(t, dir, "add", ".")
+	runGit(t, dir, "commit", "-q", "-m", "initial")
+
+	gitCache := git.NewCache(t.TempDir())
+	repoPath, err := gitCache.EnsureMirror(ctx, dir)
+	if err != nil {
+		t.Fatalf("EnsureMirror: %v", err)
+	}
+	commit, err := gitCache.ResolveRef(ctx, repoPath, "HEAD")
+	if err != nil {
+		t.Fatalf("ResolveRef: %v", err)
+	}
+
+	subdir, verified, err := discoverPythonSubdir(ctx, gitCache, repoPath, commit, "widget")
+	if err != nil || verified || subdir != "" {
+		t.Errorf("discoverPythonSubdir(widget, ambiguous) = %q, verified=%v, %v, want \"\", false, nil — must never guess among ambiguous candidates", subdir, verified, err)
 	}
 }

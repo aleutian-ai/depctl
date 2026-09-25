@@ -19,7 +19,7 @@ Same as REG-012, for Python dependencies with no hand-curated manifest.
 
 ## Non-goals
 - Same as REG-012: no tarball-based acquisition (sdist/wheel download), no private index support (only pypi.org).
-- No `Subdir` support — unlike npm, there's no equivalent registry-provided monorepo-directory field to key off of; a Python package published from a monorepo subdirectory isn't detectable from the PyPI API alone.
+- No `Subdir` support — unlike npm, there's no equivalent registry-provided monorepo-directory field to key off of; a Python package published from a monorepo subdirectory isn't detectable from the PyPI API alone. Live-found real consequence, not just theoretical: `docs/tickets/completed/59-python-package-subdir-discovery` (a real, common layout — package lives in a same-named subdirectory of the repo root — silently produces zero structured docs for otherwise-successful packages like `pydantic`).
 
 ## Tests
 - A `project_urls` response with the repo under each of the known keys resolves correctly, in priority order.

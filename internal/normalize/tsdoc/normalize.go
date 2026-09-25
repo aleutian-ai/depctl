@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
-	"path/filepath"
 
 	"aleutian-ai/ragctl/internal/domain"
 	"aleutian-ai/ragctl/internal/normalize"
@@ -53,7 +52,7 @@ func (n *Normalizer) Normalize(ctx context.Context, src domain.SourceSnapshot) (
 		return nil, fmt.Errorf("tsdoc: %s: %w", entry, err)
 	}
 
-	pkgName := filepath.Base(src.LocalPath)
+	pkgName := packageDisplayName(src.LocalPath)
 	var objects []domain.KnowledgeObject
 	if mod.Doc != "" {
 		objects = append(objects, domain.KnowledgeObject{

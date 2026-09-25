@@ -19,7 +19,7 @@ import "aleutian-ai/ragctl/internal/domain"
 // it exactly, not just rely on git's core.ignorecase (which defaults to
 // true on macOS but false on Linux).
 func SparsePatterns(ecosystem domain.Ecosystem) []string {
-	patterns := []string{"*.md", "*.mdx", "*.txt", "*.rst", "LICENSE*", "license*"}
+	patterns := append([]string{}, DocPatterns()...)
 	if ecosystem == domain.EcosystemGo {
 		// godoc.Normalizer needs the actual .go source, not just files an
 		// extension/filename matcher like markdown/plaintext would catch.
@@ -61,9 +61,33 @@ func SparsePatterns(ecosystem domain.Ecosystem) []string {
 		// entry-point-only two-phase acquisition the way NORM-008's
 		// deferred JSDoc fallback would — is a reasonable, direct
 		// analog of *.go's own precedent above.
-		patterns = append(patterns, "*.py", "*.pyi")
+		patterns = append(patterns, PythonSourcePatterns()...)
 	}
 	return patterns
+}
+
+// DocPatterns returns the doc-shaped file patterns every ecosystem gets
+// regardless of any subdirectory scoping — split out from SparsePatterns
+// so SUBDIR-001's acquisition (build.go's acquireGitSources) can keep
+// these unscoped at the repo root even when Python source patterns are
+// scoped to a discovered subdirectory. That split matters because a
+// Python package found in a same-named subdirectory (SUBDIR-001) is
+// usually not a monorepo submodule the way a Node discoverNodeSubdir
+// match is — it's one package whose source happens to be nested, but
+// whose real README/LICENSE/CHANGELOG still live at the true repo root,
+// describing the package as a whole. Scoping doc patterns to the
+// subdirectory too would silently exclude them, live-found: real
+// pydantic's own repo has no README/LICENSE inside its `pydantic/`
+// source directory at all.
+func DocPatterns() []string {
+	return []string{"*.md", "*.mdx", "*.txt", "*.rst", "LICENSE*", "license*"}
+}
+
+// PythonSourcePatterns returns just NORM-009's structured-extraction
+// input patterns, split out from SparsePatterns for the same reason
+// DocPatterns is — see its own doc comment.
+func PythonSourcePatterns() []string {
+	return []string{"*.py", "*.pyi"}
 }
 
 // ScopeToSubdir narrows patterns to files under subdir (a repo-relative
