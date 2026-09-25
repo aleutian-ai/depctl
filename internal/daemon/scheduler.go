@@ -174,9 +174,19 @@ type projectState struct {
 	// start and cleared by finish — nil whenever no sync is running for
 	// this project, which is exactly what BumpPriority checks.
 	priority *SyncPriority
-	// progress is the current run's counters, kept after the run ends so
-	// SyncProgress can report the last run's outcome.
+	// progress is the *currently in-flight* run's live counters — start
+	// replaces it with a fresh object every time a new run begins, so it
+	// is only meaningful while syncing is true.
 	progress *SyncProgress
+	// lastMeaningful is the most recent *meaningful* run's final outcome
+	// (Total > 0 — it actually planned and attempted something), updated
+	// only in finish(), never touched by start(). MCP-004: a run that
+	// finds nothing to do (Total == 0 — the common, correct case once
+	// everything is already synced) leaves this alone rather than
+	// clobbering a real prior failure with empty counters just because
+	// it happened to start and finish first. SyncProgress reads this
+	// (not a fresh progress object) once syncing is false.
+	lastMeaningful api.SyncProgress
 }
 
 // waiter is one caller's interest in the next run for a project: where
@@ -240,19 +250,23 @@ func (s *Scheduler) Request(projectID string, opts SyncOptions, out io.Writer) <
 	return w.done
 }
 
-// RequestOrphanGC runs one orphan GC pass (GC-001/GC-002), excluded from
-// every concurrent build/reference-mutation via the same
-// coordinator.ExcludeForGC executeGC's runs already use. Unlike
-// RequestGC, this has none of its request-coalescing sophistication —
-// reference-based GC needs that
-// because file-watch events can fire sync (and therefore, indirectly,
-// interest in GC) repeatedly in quick succession, but orphan GC is
-// deliberately manual/opt-in (epic 22's own non-goal: "no automatic/
-// implicit orphan cleanup"), so a caller always gets its own real run
-// and its own real result rather than being folded into someone else's.
-// run is GCFunc-shaped but orphan-specific (GC-002's runOrphanGC),
-// passed in rather than stored on Scheduler so this method needs no
-// change to NewScheduler's constructor or its existing tests.
+// RequestOrphanGC runs one manual, non-coalesced GC pass — named for its
+// original caller (GC-001/GC-002's orphan-generation cleanup), but
+// generic enough in shape that POINT-004's superseded-duplicate cleanup
+// reuses it unchanged too, passing Engine.SupersededDuplicatesGC as run
+// instead. Excluded from every concurrent build/reference-mutation via
+// the same coordinator.ExcludeForGC executeGC's runs already use.
+// Unlike RequestGC, this has none of its request-coalescing
+// sophistication — reference-based GC needs that because file-watch
+// events can fire sync (and therefore, indirectly, interest in GC)
+// repeatedly in quick succession, but every caller of this method is
+// deliberately manual/opt-in (epic 22's own non-goal for orphan GC: "no
+// automatic/implicit orphan cleanup" — POINT-004's cleanup is the same
+// kind of deliberate, explicit-trigger-only operation), so a caller
+// always gets its own real run and its own real result rather than
+// being folded into someone else's. run is GCFunc-shaped, passed in
+// rather than stored on Scheduler so this method needs no change to
+// NewScheduler's constructor or its existing tests for either caller.
 func (s *Scheduler) RequestOrphanGC(ctx context.Context, run GCFunc, dryRun bool, out io.Writer) (api.GCResult, error) {
 	if out == nil {
 		out = io.Discard // matches writerForGC's own nil-safety for RequestGC's callers
@@ -434,19 +448,26 @@ func (s *Scheduler) SyncingProjects() map[string]api.SyncProgress {
 }
 
 // SyncProgress reports projectID's in-flight sync — or, when none is
-// running, its last run's final counters (all zero if it never synced).
+// running, the last *meaningful* run's final counters (all zero if
+// nothing has ever actually attempted work for this project). MCP-004:
+// deliberately reads lastMeaningful, not a fresh/just-replaced progress
+// object, once syncing is false — see projectState's own doc comment.
 // A cheap read with no side effects.
 func (s *Scheduler) SyncProgress(projectID string) api.SyncProgress {
 	s.mu.Lock()
 	st := s.projects[projectID]
-	var progress *SyncProgress
+	var snap api.SyncProgress
 	syncing := false
 	if st != nil {
-		progress, syncing = st.progress, st.syncing
+		syncing = st.syncing
+		if syncing {
+			snap = st.progress.Snapshot()
+		} else {
+			snap = st.lastMeaningful
+		}
 	}
 	s.mu.Unlock()
 
-	snap := progress.Snapshot()
 	snap.Syncing = syncing
 	return snap
 }
@@ -516,6 +537,20 @@ func (s *Scheduler) finish(projectID string) {
 	st := s.projects[projectID]
 	if st == nil {
 		return
+	}
+	// MCP-004: capture the run that's *just now* finishing before
+	// deciding what happens next — unconditionally, not only on the
+	// "truly idle" path below. The dirty-coalescing branch immediately
+	// starts a follow-up run without ever setting st.syncing = false in
+	// between (by design — a queued change means the project was never
+	// really idle), so putting this capture after that branch's early
+	// return meant a coalesced follow-up silently discarded whatever
+	// real result the run it's replacing just produced — live-found:
+	// exactly this sequence (a real, failing ambient sync, immediately
+	// followed by a coalesced no-op request) is what produced the
+	// original bug report's stale "0 failed" result in the first place.
+	if snap := st.progress.Snapshot(); snap.Total > 0 {
+		st.lastMeaningful = snap
 	}
 	if st.dirty && !s.stopped {
 		st.dirty = false

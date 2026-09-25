@@ -40,6 +40,6 @@ Let a Node dependency with no hand-curated manifest still sync, the same automat
 - Live: `semver`, `commander` (plain `v${version}` tags) and a monorepo package with a `directory` field sync successfully with no hand-curated manifest.
 
 ## Acceptance criteria
-- [ ] A real, uncurated npm package syncs via the automatic fallback.
-- [ ] A monorepo npm package (registry `repository.directory` set) indexes only its own subdirectory.
-- [ ] A package with no matching tag fails cleanly, listing what was tried.
+- [x] A real, uncurated npm package syncs via the automatic fallback. Verified live: `semver`, `commander` (see this ticket's own post-implementation note).
+- [x] A monorepo npm package (registry `repository.directory` set) indexes only its own subdirectory. Verified live: `eslint-visitor-keys`, `@opentelemetry/api` (post-implementation note, gaps 1-2).
+- [x] A package with no matching tag fails cleanly, listing what was tried. Verified live: `@babel/plugin-syntax-object-rest-spread` (post-implementation note, gap 4).

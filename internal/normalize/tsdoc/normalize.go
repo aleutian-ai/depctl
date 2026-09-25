@@ -32,16 +32,18 @@ type extractedModule struct {
 }
 
 // Normalize extracts src.LocalPath's Node package's published .d.ts
-// entry point into one package_doc object (the file's own leading
-// comment, if any) plus one symbol_doc object per exported declaration.
-// A dependency with no resolvable entry point, or no `node` on PATH,
-// never reaches here — Supports already returned false for both. A
-// `node` present but the embedded extract.js itself failing to run is
-// distinct from either: a ragctl packaging defect, not this dependency's
-// own documentation gap, so it's returned as a real error rather than
-// silently producing zero objects.
+// entry point — or, when none exists, JSDoc comments over its plain .js
+// entry point (resolveEntry, entrypoint.go) — into one package_doc
+// object (the file's own leading comment, if any) plus one symbol_doc
+// object per exported declaration. A dependency with no resolvable
+// entry point, or no `node` on PATH, never reaches here — Supports
+// already returned false for both. A `node` present but the embedded
+// extract.js itself failing to run is distinct from either: a ragctl
+// packaging defect, not this dependency's own documentation gap, so
+// it's returned as a real error rather than silently producing zero
+// objects.
 func (n *Normalizer) Normalize(ctx context.Context, src domain.SourceSnapshot) ([]domain.KnowledgeObject, error) {
-	entry, ok := entryDeclarationFile(src.LocalPath)
+	entry, _, ok := resolveEntry(src.LocalPath)
 	if !ok {
 		return nil, nil
 	}

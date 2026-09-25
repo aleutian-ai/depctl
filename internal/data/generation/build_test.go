@@ -718,6 +718,72 @@ func TestBuildExtractsStructuredTypeScriptDocsAndNeverLeaksASiblingsSymbols(t *t
 	}
 }
 
+// TestBuildExtractsStructuredJSDocFallbackThroughTheFullPipeline is
+// NORM-008's own deferred-scope acceptance test, closed here: a Node
+// package with NO .d.ts at all — real exported signatures/docs pulled
+// from JSDoc comments over plain .js instead, through real acquisition
+// (proving nodeJSEntryPatterns actually gets the entry file into the
+// sparse checkout, not just that tsdoc's own unit tests can read a file
+// already sitting on disk) — and, mirroring the .d.ts test above, a
+// sibling package's symbols must never leak in.
+func TestBuildExtractsStructuredJSDocFallbackThroughTheFullPipeline(t *testing.T) {
+	requireGit(t)
+	requireNode(t)
+	ctx := context.Background()
+
+	dir := t.TempDir()
+	runGit(t, dir, "init", "-q", "-b", "main")
+	writeFile(t, dir, "api/package.json", `{"name": "@scope/api", "main": "index.js"}`)
+	writeFile(t, dir, "api/index.js", "/**\n * Do performs the api package's core action.\n */\nexport function Do(x) {\n  return x.length;\n}\n")
+	writeFile(t, dir, "core/package.json", `{"name": "@scope/core", "main": "index.js"}`)
+	writeFile(t, dir, "core/index.js", "/**\n * SiblingOnly must never appear in @scope/api's own structured docs.\n */\nexport function SiblingOnly() {}\n")
+	runGit(t, dir, "add", ".")
+	runGit(t, dir, "commit", "-q", "-m", "initial")
+	runGit(t, dir, "tag", "v1.0.0")
+
+	store, badgerStore := testStores(t)
+	gitCache := git.NewCache(t.TempDir())
+	dep := domain.DependencyVersion{
+		Dependency: domain.Dependency{Ecosystem: domain.EcosystemNode, Name: "@scope/api"},
+		Version:    "v1.0.0",
+	}
+	sources := []registry.Source{{ID: "repository", Type: "git", URL: dir, Ref: "v${version}", Authority: 100}}
+	gen, err := Create(ctx, store, badgerStore, dep)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if err := Build(ctx, gen, sources, gitCache, store, badgerStore); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	chunks, err := badgerStore.ListGenerationChunks(ctx, gen.ID)
+	if err != nil {
+		t.Fatalf("ListGenerationChunks: %v", err)
+	}
+	var sawDo, sawSibling bool
+	for _, c := range chunks {
+		obj, err := badgerStore.GetKnowledgeObject(ctx, c.ObjectID)
+		if err != nil {
+			continue
+		}
+		if obj.ContentType != "symbol_doc" {
+			continue
+		}
+		if obj.Title == "Do" && strings.Contains(string(obj.Content), "performs the api package's core action") {
+			sawDo = true
+		}
+		if obj.Title == "SiblingOnly" || strings.Contains(string(obj.Content), "must never appear") {
+			sawSibling = true
+		}
+	}
+	if !sawDo {
+		t.Error("never extracted @scope/api's own JSDoc Do() signature/doc through real acquisition — either the entry file never made it into the sparse checkout, or structured extraction didn't run")
+	}
+	if sawSibling {
+		t.Error("@scope/core's SiblingOnly symbol leaked into @scope/api's structured docs")
+	}
+}
+
 // TestBuildExtractsStructuredPythonDocsThroughTheFullPipeline is
 // NORM-009's own golden-fixture acceptance test, run through real
 // acquisition/chunking/storage rather than just the pydoc package's own

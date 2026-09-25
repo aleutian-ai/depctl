@@ -188,7 +188,31 @@ func RunSync(ctx context.Context, coordinator *daemon.BuildCoordinator, store *b
 	// whatever's left, ahead of any other action kind too — "prioritize"
 	// means it runs next, not just next among other syncs.
 	actions := flattenActions(plans, dependencies, out)
-	progress.SetTotal(len(actions))
+	// MCP-004: Total/Done/Failed are specifically about *syncing a
+	// dependency's content* — only ActionSyncVersion represents that.
+	// NOOP ("nothing changed, nothing to plan") and the reference-
+	// bookkeeping kinds (ADD_REFERENCE/DROP_REFERENCE/GC_CANDIDATE) carry
+	// no information about sync success at all, so they must never count
+	// toward it — live-found: a re-sync of two dependencies whose real
+	// SYNC_VERSION attempt had just failed replanned as two NOOP actions
+	// (their reference hadn't changed), and the old "count every action"
+	// accounting reported that as "2 of 2 done, 0 failed" — indistinguishable
+	// from a real success. runSyncAction's own progress.Finish call below
+	// is scoped to match (only for ActionSyncVersion, mirroring
+	// progress.Begin's own existing scoping).
+	syncVersionCount := 0
+	var syncVersionNames []string
+	for _, a := range actions {
+		if a.Kind == planner.ActionSyncVersion {
+			syncVersionCount++
+			syncVersionNames = append(syncVersionNames, a.Dependency.Dependency.Name)
+		}
+	}
+	progress.SetTotal(syncVersionCount)
+	// BATCH-001 Option D: the full remaining-scope list, distinct from
+	// the plain count above — see SyncProgress.SetPlanned's own doc
+	// comment.
+	progress.SetPlanned(syncVersionNames)
 
 	// N workers pull from the same queue concurrently (epic 53/
 	// COORD-003) — bounded by cfg.Sync.MaxConcurrency, defaulting to 2
@@ -207,6 +231,8 @@ func RunSync(ctx context.Context, coordinator *daemon.BuildCoordinator, store *b
 
 	queue := newSyncQueue(actions)
 	var mu, outMu sync.Mutex
+	var completed int
+	var budgetExceeded sync.Once
 	writeLine := func(format string, args ...any) {
 		outMu.Lock()
 		defer outMu.Unlock()
@@ -219,6 +245,31 @@ func RunSync(ctx context.Context, coordinator *daemon.BuildCoordinator, store *b
 		go func() {
 			defer wg.Done()
 			for {
+				// BATCH-001 Option C: the shared batch context
+				// (internal/daemon/scheduler.go's maxActionDuration) bounds
+				// this whole RunSync call, not any single action —
+				// dependencySyncTimeout above only stops one huge
+				// dependency from starving the rest of the batch's share
+				// of that same clock. Once the aggregate clock itself is
+				// gone, every worker would otherwise pop and immediately
+				// fail its next action with the same generic "context
+				// deadline exceeded," cascading into a wall of messages
+				// that look like independent per-dependency failures
+				// (STRESS-005/epic 51's live-found bug: 407 of 561 this
+				// way in one real run). Checked here, before popping, so
+				// a worker stops cleanly instead of doing that — and
+				// budgetExceeded.Do ensures exactly one aggregate message
+				// is written regardless of how many workers notice at
+				// once.
+				if ctx.Err() != nil {
+					budgetExceeded.Do(func() {
+						mu.Lock()
+						done := completed
+						mu.Unlock()
+						writeLine("\nsync time budget exceeded after %d of %d actions completed; re-run to continue with the remaining %d\n", done, len(actions), len(actions)-done)
+					})
+					return
+				}
 				action, ok := queue.next(priority)
 				if !ok {
 					return
@@ -235,13 +286,16 @@ func RunSync(ctx context.Context, coordinator *daemon.BuildCoordinator, store *b
 				synced += s
 				failed += f
 				skipped += sk
+				completed++
 				mu.Unlock()
 			}
 		}()
 	}
 	wg.Wait()
 
-	writeLine("\n%d synced, %d failed, %d skipped\n", synced, failed, skipped)
+	if ctx.Err() == nil {
+		writeLine("\n%d synced, %d failed, %d skipped\n", synced, failed, skipped)
+	}
 	return synced, failed, skipped, nil
 }
 
@@ -320,8 +374,13 @@ func runSyncAction(ctx context.Context, coordinator *daemon.BuildCoordinator, st
 	if action.Kind == planner.ActionSyncVersion {
 		progress.Begin(name)
 		ctx = generation.WithProgress(ctx, func(done, total int) { progress.SetChunks(name, done, total) })
+		// MCP-004: scoped to match progress.Begin and SetTotal's own
+		// scoping above — Finish must only fire for the action kind that
+		// actually represents "syncing a dependency," or Done/Total drift
+		// out of sync with each other (Total no longer counts NOOP/
+		// bookkeeping actions, so Finish must not either).
+		defer func() { progress.Finish(name, failed > 0) }()
 	}
-	defer func() { progress.Finish(name, failed > 0) }()
 
 	switch action.Kind {
 	case planner.ActionSyncVersion:
@@ -856,6 +915,28 @@ func syncVersion(ctx context.Context, store *bboltstore.Store, badgerStore *badg
 		}
 	}
 
+	// POINT-004: re-check right before committing to a build. computePlans's
+	// own active-generation check (internal/cli/plan.go) is a stale,
+	// unlocked snapshot taken before this action was even queued, and
+	// BuildCoordinator's singleflight only coalesces callers still in
+	// flight together — it does nothing once the first caller has already
+	// returned. Two projects resolving the identical dependency+version
+	// can each pass computePlans's check and each reach here; re-checking
+	// immediately before generation.Create closes that window: if the
+	// exact version we're about to build has already been promoted by
+	// someone else since we planned, there is nothing left to do.
+	var prior *domain.Generation
+	var priorManifest *generation.Manifest
+	if p, err := store.GetActiveGeneration(ctx, dep.Dependency.Ecosystem, dep.Dependency.Name, vb.Name()); err == nil {
+		if p.Dependency.Version == dep.Version {
+			return nil
+		}
+		prior = &p
+		if pm, err := readGenerationManifest(ctx, badgerStore, p.ID); err == nil {
+			priorManifest = &pm
+		}
+	}
+
 	gen, err := generation.Create(ctx, store, badgerStore, dep)
 	if err != nil {
 		return fmt.Errorf("create generation: %w", err)
@@ -884,15 +965,11 @@ func syncVersion(ctx context.Context, store *bboltstore.Store, badgerStore *badg
 		return fmt.Errorf("read replica: %w", err)
 	}
 
-	var prior *domain.Generation
-	var priorManifest *generation.Manifest
-	if p, err := store.GetActiveGeneration(ctx, dep.Dependency.Ecosystem, dep.Dependency.Name, vb.Name()); err == nil {
-		prior = &p
-		if pm, err := readGenerationManifest(ctx, badgerStore, p.ID); err == nil {
-			priorManifest = &pm
-		}
-	}
-
+	// prior/priorManifest were already fetched above, right before
+	// generation.Create, as part of POINT-004's re-check — reused here for
+	// validate.Run's version-correctness drift comparison rather than
+	// re-fetched, since a build in between wouldn't change which
+	// generation was active *before* this one started.
 	validateStart := time.Now()
 	gen, report, err := validate.Run(ctx, gen, genManifest, replica, prior, priorManifest, validate.DefaultSanityConfig(), embedder, vb, ns, store, badgerStore)
 	timings.Validate = time.Since(validateStart)

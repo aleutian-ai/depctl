@@ -305,6 +305,77 @@ func TestSameDependencyAcrossProjectsCoalescesIntoOneRealBuild(t *testing.T) {
 	}
 }
 
+// TestSameDependencyAcrossProjectsSequentialRaceProducesOneGeneration is
+// POINT-004's regression: unlike
+// TestSameDependencyAcrossProjectsCoalescesIntoOneRealBuild above (where
+// the two builds genuinely overlap and singleflight coalesces them),
+// this proves the *sequential* case, found live at full scale — project
+// A's build finishes and returns completely before project B's request
+// for the identical dependency+version even begins. BuildCoordinator's
+// singleflight key is forgotten the moment A's call returns
+// (coordinator_test.go's own TestBuildAllowsFreshAttemptAfterEarlierOneFinishes
+// establishes this), so B's syncVersion call runs as a genuinely fresh
+// invocation with no coalescing to rely on. Before the fix, B would
+// blindly call generation.Create and produce a second, redundant
+// generation for content that's already active — exactly the mechanism
+// behind POINT-004's measured 62.2% duplicate-point bucket at full
+// scale. The fix (syncVersion's re-check immediately before
+// generation.Create) must make B a no-op instead.
+func TestSameDependencyAcrossProjectsSequentialRaceProducesOneGeneration(t *testing.T) {
+	requireGitForAtomicPromotionTest(t)
+	ctx := context.Background()
+	f := newCrossProjectTestFixture(t)
+
+	repo := atomicPromotionFixtureRepo(t)
+	reg := atomicPromotionTestRegistry(t, repo)
+	dep := domain.DependencyVersion{
+		Dependency: domain.Dependency{Ecosystem: domain.EcosystemGo, Name: "example.com/widget"},
+		Version:    "v1.0.0",
+	}
+	actionFromA := planner.Action{Kind: planner.ActionSyncVersion, ProjectID: "proj_a", Dependency: dep}
+	actionFromB := planner.Action{Kind: planner.ActionSyncVersion, ProjectID: "proj_b", Dependency: dep}
+
+	fastEmbedder := &atomicPromotionFakeEmbedder{dims: 4}
+
+	// Project A's build runs to completion first, entirely on its own —
+	// no second call is even in flight yet, so there is nothing for
+	// singleflight to coalesce.
+	if err := f.coordinator.Build(dep, func() error {
+		return syncVersion(ctx, f.store, f.badgerStore, f.gitCache, fastEmbedder, f.vb, f.ns, reg, actionFromA, false)
+	}); err != nil {
+		t.Fatalf("project A's build: %v", err)
+	}
+
+	activeAfterA, err := f.store.GetActiveGeneration(ctx, domain.EcosystemGo, "example.com/widget", f.vb.Name())
+	if err != nil || activeAfterA.State != domain.GenActive {
+		t.Fatalf("after A: GetActiveGeneration = %+v, err=%v, want an ACTIVE generation", activeAfterA, err)
+	}
+
+	// Project B's request arrives after A has already fully returned —
+	// the exact non-overlapping shape singleflight cannot help with.
+	if err := f.coordinator.Build(dep, func() error {
+		return syncVersion(ctx, f.store, f.badgerStore, f.gitCache, fastEmbedder, f.vb, f.ns, reg, actionFromB, false)
+	}); err != nil {
+		t.Fatalf("project B's build: %v", err)
+	}
+
+	activeAfterB, err := f.store.GetActiveGeneration(ctx, domain.EcosystemGo, "example.com/widget", f.vb.Name())
+	if err != nil {
+		t.Fatalf("after B: GetActiveGeneration: %v", err)
+	}
+	if activeAfterB.ID != activeAfterA.ID {
+		t.Errorf("active generation ID changed from %q to %q — B built a redundant new generation instead of recognizing A's as already active", activeAfterA.ID, activeAfterB.ID)
+	}
+
+	all, err := f.store.ListGenerationsByDependencyVersion(ctx, domain.EcosystemGo, "example.com/widget", "v1.0.0")
+	if err != nil {
+		t.Fatalf("ListGenerationsByDependencyVersion: %v", err)
+	}
+	if len(all) != 1 {
+		t.Errorf("generations for example.com/widget@v1.0.0 = %d, want exactly 1 — B's sequential, non-overlapping request must recognize A's already-active generation instead of creating its own", len(all))
+	}
+}
+
 // TestSyncVersionPhaseTimingsReflectRealDelay proves onSyncPhaseTimings
 // (COORD-002's other required instrumentation, alongside
 // BuildCoordinator's GateWait/Work split) actually measures each real

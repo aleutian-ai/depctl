@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -170,7 +171,15 @@ func acquireGitSources(ctx context.Context, gitCache *git.Cache, depName, versio
 			}
 		}
 
-		worktreeDir, cleanup, err := gitCache.MaterializeWorktree(ctx, repoPath, commit, normalize.ScopeToSubdir(basePatterns, subdir))
+		patterns := basePatterns
+		if ecosystem == domain.EcosystemNode {
+			// NORM-008's JSDoc fallback: fold the plain-.js entry point
+			// into this same single sparse-checkout call — see
+			// nodeJSEntryPatterns' own doc comment for why this avoids a
+			// second materialize.
+			patterns = append(append([]string{}, basePatterns...), nodeJSEntryPatterns(ctx, gitCache, repoPath, commit, subdir)...)
+		}
+		worktreeDir, cleanup, err := gitCache.MaterializeWorktree(ctx, repoPath, commit, normalize.ScopeToSubdir(patterns, subdir))
 		if err != nil {
 			return acquired, fmt.Errorf("%w: source %s: worktree: %v", ErrAcquisition, s.ID, err)
 		}
@@ -256,6 +265,60 @@ func packageJSONName(content []byte) (string, bool) {
 		return "", false
 	}
 	return doc.Name, true
+}
+
+// nodeJSEntryPatterns returns extra sparse-checkout patterns (relative to
+// subdir, git-path style forward slashes) covering the plain-.js entry
+// point tsdoc's JSDoc fallback (NORM-008's deferred scope) reads once a
+// worktree exists — reusing this package's own no-checkout
+// gitCache.ReadFile plumbing (already built for discoverNodeSubdir above)
+// to read package.json's "module"/"main" fields *before* the one
+// MaterializeWorktree call below, so the entry file is actually present
+// in the sparse checkout rather than requiring a second, costlier
+// materialize (the "two-phase acquisition" NORM-008's own ticket
+// originally assumed was necessary — avoided here since the plumbing to
+// read package.json pre-worktree already existed for a different
+// purpose). Errors reading/parsing package.json are not fatal here —
+// package.json is already in basePatterns and gets its own real
+// acquisition error later if genuinely missing; this only ever narrows
+// or defaults the extra pattern, never blocks acquisition. A
+// non-matching sparse pattern is harmless (git simply fetches nothing
+// for it), so no existence check is needed before returning —
+// tsdoc.entryJSFile's own on-disk fileExists checks are what actually
+// decide which candidate, if any, is real.
+func nodeJSEntryPatterns(ctx context.Context, gitCache *git.Cache, repoPath, commit, subdir string) []string {
+	pkgPath := "package.json"
+	if subdir != "" {
+		pkgPath = subdir + "/package.json"
+	}
+	content, err := gitCache.ReadFile(ctx, repoPath, commit, pkgPath)
+	if err != nil {
+		return []string{"index.js"}
+	}
+	var pkg struct {
+		Main   string `json:"main"`
+		Module string `json:"module"`
+	}
+	if err := json.Unmarshal(content, &pkg); err != nil {
+		return []string{"index.js"}
+	}
+
+	var patterns []string
+	for _, c := range []string{pkg.Module, pkg.Main} {
+		if c == "" {
+			continue
+		}
+		c = strings.TrimPrefix(path.Clean(c), "./")
+		patterns = append(patterns, c)
+		if path.Ext(c) == "" {
+			// package.json's "main" is commonly extensionless — Node
+			// itself resolves that to "<main>.js"; mirror that one
+			// bounded case (matches tsdoc.entryJSFile's own local-disk
+			// version of this same fallback).
+			patterns = append(patterns, c+".js")
+		}
+	}
+	return append(patterns, "index.js")
 }
 
 // gitRef substitutes "${version}" in source.Ref with version, stripped of

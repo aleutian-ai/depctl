@@ -18,25 +18,29 @@ import (
 )
 
 func newGCCmd() *cobra.Command {
-	var dryRun, orphans bool
+	var dryRun, orphans, supersededDuplicates bool
 	cmd := &cobra.Command{
 		Use:   "gc",
 		Short: "Garbage-collect unreferenced versions",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runGC(cmd, dryRun, orphans)
+			return runGC(cmd, dryRun, orphans, supersededDuplicates)
 		},
 	}
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "print GC candidates without deleting anything")
 	cmd.Flags().BoolVar(&orphans, "orphans", false, "target FAILED/stuck generations instead of unreferenced versions (see GC-001)")
+	cmd.Flags().BoolVar(&supersededDuplicates, "superseded-duplicates", false, "target SUPERSEDED generations left behind by a same-version build race, still sharing an ACTIVE sibling (see POINT-004)")
 	return cmd
 }
 
-func runGC(cmd *cobra.Command, dryRun, orphans bool) error {
+func runGC(cmd *cobra.Command, dryRun, orphans, supersededDuplicates bool) error {
+	if orphans && supersededDuplicates {
+		return fmt.Errorf("--orphans and --superseded-duplicates are separate GC passes and cannot be combined in one run")
+	}
 	c, err := ensureDaemon(cmd.Context())
 	if err != nil {
 		return err
 	}
-	res, err := c.GC(cmd.Context(), dryRun, orphans, cmd.OutOrStdout())
+	res, err := c.GC(cmd.Context(), dryRun, orphans, supersededDuplicates, cmd.OutOrStdout())
 	if err != nil {
 		return err
 	}
@@ -88,6 +92,60 @@ func RunGC(ctx context.Context, store *bboltstore.Store, badgerStore *badgerstor
 		} else {
 			result.Failed++
 			fmt.Fprintf(out, "FAIL  %s %s: %s\n", r.Candidate.Package, r.Candidate.Version, r.Error)
+		}
+	}
+
+	fmt.Fprintf(out, "\n%d deleted, %d failed\n", result.Deleted, result.Failed)
+	return result, nil
+}
+
+// RunSupersededDuplicatesGC plans and executes POINT-004's cleanup —
+// SUPERSEDED generations that share their exact dependency+version with
+// a currently ACTIVE generation, left behind by a check-then-create
+// build race — a third, separate eligibility path from both RunGC's
+// reference-based one and RunOrphanGC's never-promoted one, never
+// combined into the same report or deletion run. It runs inside the
+// daemon, against the stores it holds open, exactly like RunGC/RunOrphanGC.
+func RunSupersededDuplicatesGC(ctx context.Context, store *bboltstore.Store, badgerStore *badgerstore.Store, cfg config.Config, dryRun bool, out io.Writer, vecReadiness *vectorReadiness) (api.GCResult, error) {
+	candidates, err := retention.PlanSupersededDuplicateGC(ctx, store)
+	if err != nil {
+		return api.GCResult{}, fmt.Errorf("plan superseded-duplicate GC: %w", err)
+	}
+
+	result := api.GCResult{Candidates: len(candidates), DryRun: dryRun}
+	if len(candidates) == 0 {
+		fmt.Fprintln(out, "nothing eligible for superseded-duplicate garbage collection")
+		return result, nil
+	}
+	for _, c := range candidates {
+		fmt.Fprintf(out, "%-8s %-45s %-15s %s\n", c.Ecosystem, c.Package, c.Version, c.GenerationID)
+	}
+
+	if dryRun {
+		return result, nil
+	}
+
+	if err := vecReadiness.checkReady(); err != nil {
+		return result, err
+	}
+	vb, err := buildVectorBackend(cfg)
+	if err != nil {
+		return result, err
+	}
+	ns := backend.Namespace{Name: cfg.Vector.Collection}
+
+	results, err := gc.RunSupersededDuplicates(ctx, store, badgerStore, vb, ns, candidates)
+	if err != nil {
+		return result, fmt.Errorf("run superseded-duplicate GC: %w", err)
+	}
+
+	for _, r := range results {
+		if r.Succeeded {
+			result.Deleted++
+			fmt.Fprintf(out, "OK    %s %s %s\n", r.Candidate.Package, r.Candidate.Version, r.Candidate.GenerationID)
+		} else {
+			result.Failed++
+			fmt.Fprintf(out, "FAIL  %s %s %s: %s\n", r.Candidate.Package, r.Candidate.Version, r.Candidate.GenerationID, r.Error)
 		}
 	}
 

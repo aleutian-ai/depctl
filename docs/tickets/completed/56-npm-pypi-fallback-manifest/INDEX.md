@@ -25,7 +25,7 @@ npm and PyPI have no equivalent guarantee. A package name doesn't encode a repos
 - No registry-coverage curation push (hand-writing more manifests) — this epic is about the automatic path, not adding entries to `internal/registry/builtin`.
 
 ## Acceptance criteria
-- [ ] A real npm package with a real GitHub repo and a real, standard tag (e.g. `semver`, `commander`) syncs successfully via the automatic fallback, with no hand-curated manifest.
-- [ ] A real PyPI package in the same shape syncs successfully.
-- [ ] A package whose repo has no matching tag for the resolved version fails acquisition cleanly, naming what it tried — never falls back to a branch head or any other unverified ref.
-- [ ] Re-run against mem0 (or an equivalent real Node/Python project) and record the before/after sync success rate.
+- [x] A real npm package with a real GitHub repo and a real, standard tag (e.g. `semver`, `commander`) syncs successfully via the automatic fallback, with no hand-curated manifest. Verified live — see REG-012's post-implementation note (`semver`, `commander`, plus a monorepo package with a `directory` field).
+- [x] A real PyPI package in the same shape syncs successfully. Verified live — see REG-013's own Tests section.
+- [x] A package whose repo has no matching tag for the resolved version fails acquisition cleanly, naming what it tried — never falls back to a branch head or any other unverified ref. Verified live multiple times over — see REG-012's post-implementation note (`eslint-visitor-keys` bare-tag ambiguity, `@babel/plugin-syntax-object-rest-spread`'s upstream metadata drift).
+- [ ] Re-run against mem0 (or an equivalent real Node/Python project) and record the before/after sync success rate. **Still open** — the one real remaining task in this epic; everything else above is checkbox bookkeeping that was already true but unchecked.

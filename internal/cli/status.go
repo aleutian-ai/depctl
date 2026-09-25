@@ -225,6 +225,18 @@ func printSyncActivity(out io.Writer, syncs []api.ProjectSync) {
 			fmt.Fprintf(out, ", %d failed", s.Failed)
 		}
 		fmt.Fprintln(out)
+		// BATCH-001 Option D: observed timing + a labeled-confidence
+		// estimate, once enough of the run has actually completed to say
+		// anything — never a bare number with no sample-size context.
+		if s.Estimate != nil {
+			fmt.Fprintf(out, "    observed: median %.0fs/dep, p90 %.0fs (%d samples) — est. %.0fs remaining, confidence %s\n",
+				s.Observed.MedianDependencySeconds, s.Observed.P90DependencySeconds, s.Observed.Samples, s.Estimate.RemainingSeconds, s.Estimate.Confidence)
+		}
+		// s.Pending (the full remaining-dependency list) deliberately
+		// isn't printed here — this is a human terminal status view,
+		// where hundreds of names would be noise; it's exposed through
+		// sync_progress (MCP) and api.SyncProgress directly for a caller
+		// that actually wants to act on the list.
 		for _, d := range s.InFlight {
 			if d.ChunksTotal > 0 {
 				fmt.Fprintf(out, "    building %s: %d of %d chunks\n", d.Name, d.ChunksDone, d.ChunksTotal)

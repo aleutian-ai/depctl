@@ -1,7 +1,7 @@
 # POINT-002: Shared-content storage cost
 
 **Epic:** Vector Point Identity
-**Status:** options 2 and version-exact refs done and measured on a 13-dependency subset; full-scale re-measurement and a migration for old generations open (see Results)
+**Status:** done. Options 2 and version-exact refs shipped and measured; full-scale re-measurement complete (71.25% residual duplication, `Ref: "HEAD"` hypothesis refuted); migration path resolved with no new code (see Results). The residual duplication itself continues as [POINT-004](POINT-004-cross-project-generation-reuse.md), a distinct mechanism.
 
 ## Problem
 POINT-001 is correct but stores one row per (generation, chunk). On the 167-dependency terraform slice, **91% of rows are duplicates** (101,032 points, 9,668 distinct chunks): ~280 MB of extra vectors at 768 dims × 4 bytes = 3 KB each. The duplication is concentrated in monorepo submodules, e.g. ~100 `cloud.google.com/go/*` dependencies each storing ~600 identical repo-root points.
@@ -43,4 +43,19 @@ Verify the suspicion, then do option 2. Consider option 5 separately once measur
 
 ## Full-scale re-measurement (2026-09)
 
-Re-ran the same real terraform corpus (11 Go modules, the same fixture as the original measurement) end to end with version-exact refs as the default (no code change needed — that's already how `goFallbackManifest` works since the earlier fix). See the live run's own results once complete.
+Re-ran the same real terraform corpus (11 Go modules, the same fixture as the original measurement) end to end with version-exact refs as the default (no code change needed — that's already how `goFallbackManifest` works since the earlier fix).
+
+**(a) resolved, and the hypothesis is refuted — the residual duplication got worse under version-exact refs, not better.**
+
+Measured directly against the real Qdrant collection after the full run completed: **2,943,286 total points, 846,099 distinct chunk IDs — 71.25% duplicate points**, up from 33.9% in the original `Ref: "HEAD"` measurement. Version-exact refs alone did not fix this; something else dominates at full 11-project scale.
+
+Broke the duplicate points down by cause, using each chunk's owning `(dependency, version)` and `generation` payload fields:
+
+| Cause | Extra points | % of total |
+|---|---|---|
+| Same `(dependency, version)` stored under **multiple different `generation` IDs** | 1,831,688 | **62.2%** |
+| Different dependencies/versions whose content happens to be byte-identical (shared `LICENSE`/doc boilerplate across many real `cloud.google.com/go/*` submodules, etc.) | 265,499 | 9.0% |
+
+The second bucket is not a bug — genuinely distinct packages legitimately sharing identical text. The first bucket is the real, still-open problem, and it is a *bigger* version of the original hypothesis's own shape (the same content re-synced repeatedly), not a new one. Concrete example: `cloud.google.com/go/appengine@v1.9.7` — one exact dependency@version — has **6,735 points spread across at least 5 different `generation` IDs**, confirmed via `points/count` and a payload sample. It should be one generation, reused by every one of the 11 terraform projects that references that exact version; instead each project's own sync appears to create its own independent generation for identical content.
+
+**Revised hypothesis, not yet confirmed:** generation reuse/dedup happens (if at all) only *within* a single project's own sync, not *across* projects. With 11 projects in this corpus sharing many common dependencies, that gap compounds heavily at this scale — which is also consistent with why the earlier 13-dependency subset measurement (0.7% duplicates, single-project) didn't surface it. Filed as [POINT-004](POINT-004-cross-project-generation-reuse.md) to investigate the actual code path and design a fix; not folded into this ticket since it's a distinct mechanism from the `Ref: "HEAD"` bug this ticket was originally about.

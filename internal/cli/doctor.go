@@ -209,7 +209,31 @@ func runDoctorViaDaemon(ctx context.Context, c *client.Client) ([]CheckResult, e
 
 	cfgSev, cfgDetail := checkConfigFreshness(ctx, c)
 	results = append(results, CheckResult{Name: "config matches running daemon", Severity: cfgSev, Detail: cfgDetail})
+
+	verSev, verDetail := checkVersionFreshness(ctx, c)
+	results = append(results, CheckResult{Name: "daemon build matches this command", Severity: verSev, Detail: verDetail})
 	return results, nil
+}
+
+// checkVersionFreshness is doctor's client-side check that the running
+// daemon (ADR-011: one long-running process, reused by every later
+// command) was built from the same revision as the binary running this
+// check — an upgrade (git pull + rebuild, a new release) leaves the old
+// daemon running until explicitly stopped, silently missing any route
+// or tool added since. Live-found: an MCP session hitting an
+// unexplained 404 on a real tool call, with no obvious cause until this
+// was traced back to daemon/binary drift. Same shape as
+// checkConfigFreshness, not a *doctorEnv check — it needs the daemon's
+// Health, not local state.
+func checkVersionFreshness(ctx context.Context, c *client.Client) (Severity, string) {
+	health, err := c.Health(ctx)
+	if err != nil {
+		return SeverityUnhealthy, err.Error()
+	}
+	if versionStaleWarning(health.PID, health.Version, ragctlVersion) != "" {
+		return SeverityWarning, fmt.Sprintf("daemon build %s, this command's build %s; run `ragctl daemon stop` to pick it up", health.Version, ragctlVersion)
+	}
+	return SeverityOK, "matches"
 }
 
 // checkConfigFreshness is doctor's client-side check that config.yaml

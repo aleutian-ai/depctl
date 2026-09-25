@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"syscall"
@@ -29,8 +30,44 @@ import (
 	"aleutian-ai/ragctl/internal/watch"
 )
 
-// ragctlVersion is reported by the daemon over /v1/health.
-const ragctlVersion = "v0.1.0"
+// ragctlVersion identifies this specific binary build, reported by the
+// daemon over /v1/health. Previously a hardcoded "v0.1.0" that never
+// changed across builds — meaningless for detecting a stale daemon
+// (ADR-011: one long-running process reused by every later command),
+// since every build reported the exact same string. Go automatically
+// stamps VCS revision info into a binary built with `go build` inside a
+// git working tree (Go 1.18+, via -buildvcs=auto by default) — reading
+// it back via debug.ReadBuildInfo needs no change to any build tooling
+// (Makefile, hack/run.sh, CI). Falls back to "unknown" (never "v0.1.0"
+// again — a fixed fallback string would silently reintroduce this exact
+// bug for any two builds that both hit the fallback) when build info
+// genuinely isn't available (e.g. `go run`, or a working tree with no
+// VCS), so a mismatch there is real too, just less informative.
+var ragctlVersion = detectBuildVersion()
+
+func detectBuildVersion() string {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return "unknown"
+	}
+	var revision string
+	var dirty bool
+	for _, s := range info.Settings {
+		switch s.Key {
+		case "vcs.revision":
+			revision = s.Value
+		case "vcs.modified":
+			dirty = s.Value == "true"
+		}
+	}
+	if revision == "" {
+		return "unknown"
+	}
+	if dirty {
+		return revision + "-dirty"
+	}
+	return revision
+}
 
 // stopWait bounds how long `ragctl daemon stop` waits for the socket to
 // go away after the daemon accepts the request.
@@ -92,6 +129,7 @@ func ensureDaemon(ctx context.Context) (*client.Client, error) {
 	c, err := client.Dial(ctx, socket)
 	if err == nil {
 		warnIfConfigStale(ctx, c)
+		warnIfVersionStale(ctx, c)
 		return c, nil
 	}
 	if !errors.Is(err, client.ErrNotRunning) {
@@ -134,6 +172,45 @@ func warnIfConfigStale(ctx context.Context, c *client.Client) {
 	fmt.Fprintf(os.Stderr, "warning: config.yaml has changed since the running daemon (pid %d) started; the change won't take effect until it restarts — run `ragctl daemon stop` (the next command auto-starts a fresh one)\n", health.PID)
 }
 
+// warnIfVersionStale prints a one-line warning to stderr if the running
+// daemon (ADR-011: one long-running process, reused by every later
+// command) was built from a different revision than the binary making
+// this call — e.g. `ragctl` was upgraded (git pull + rebuild, or a new
+// release) but the daemon it auto-started earlier is still running the
+// old build. A tool/route added since that daemon started genuinely
+// doesn't exist on it — an unexplained 404 from a real MCP session is
+// exactly this: a live-found symptom, not a hypothetical (live-found
+// running a fresh mem0 sync attempt where sync_progress 404'd with no
+// obvious cause). Warn only, matching warnIfConfigStale's own
+// precedent — auto-restarting here would silently kill whatever the
+// stale daemon is mid-sync, which is worse than a confusing error the
+// user can act on.
+func warnIfVersionStale(ctx context.Context, c *client.Client) {
+	health, err := c.Health(ctx)
+	if err != nil {
+		return
+	}
+	if msg := versionStaleWarning(health.PID, health.Version, ragctlVersion); msg != "" {
+		fmt.Fprintln(os.Stderr, msg)
+	}
+}
+
+// versionStaleWarning is warnIfVersionStale's pure decision: given the
+// running daemon's own reported build version and this command's own
+// build version, returns the warning to print, or "" for nothing to
+// warn about. "unknown" (build info genuinely unavailable, e.g. `go
+// run`) never triggers a warning on its own — comparing two "unknown"s
+// would be a guaranteed false negative, but so would treating one real
+// "unknown" as automatically stale; there's no reliable signal either
+// way, so silence is the honest answer, matching configIsStale's own
+// "can't tell, so don't claim to" precedent for its own error path.
+func versionStaleWarning(pid int, daemonVersion, currentVersion string) string {
+	if daemonVersion == "" || daemonVersion == "unknown" || currentVersion == "unknown" || daemonVersion == currentVersion {
+		return ""
+	}
+	return fmt.Sprintf("warning: the running daemon (pid %d) was built from a different ragctl revision (%s) than this command (%s) — a tool or route added since it started may not exist yet; run `ragctl daemon stop` (the next command auto-starts a fresh one matching this build)", pid, daemonVersion, currentVersion)
+}
+
 // configIsStale reports whether config.yaml's current fingerprint
 // differs from daemonFingerprint (a Health response's ConfigFingerprint).
 func configIsStale(daemonFingerprint string) (bool, error) {
@@ -146,6 +223,17 @@ func configIsStale(daemonFingerprint string) (bool, error) {
 		return false, err
 	}
 	return current != daemonFingerprint, nil
+}
+
+// versionFreshnessLabel is versionStaleWarning's decision rendered for
+// `ragctl daemon status`'s "version:" line — the same daemonVersion,
+// currentVersion comparison, just formatted for a status line instead
+// of a one-shot warning.
+func versionFreshnessLabel(daemonVersion string) string {
+	if daemonVersion == "" || daemonVersion == "unknown" || ragctlVersion == "unknown" || daemonVersion == ragctlVersion {
+		return daemonVersion
+	}
+	return fmt.Sprintf("%s (stale — this command is %s; run `ragctl daemon stop`)", daemonVersion, ragctlVersion)
 }
 
 // configFreshnessLabel is configIsStale rendered for `ragctl daemon
@@ -548,6 +636,14 @@ func (e *engine) OrphanGC(ctx context.Context, dryRun bool, out io.Writer) (api.
 	return res, err
 }
 
+// SupersededDuplicatesGC plans and runs POINT-004's cleanup — see
+// RunSupersededDuplicatesGC.
+func (e *engine) SupersededDuplicatesGC(ctx context.Context, dryRun bool, out io.Writer) (api.GCResult, error) {
+	res, err := RunSupersededDuplicatesGC(ctx, e.store, e.badgerStore, e.cfg, dryRun, out, e.vectorReadiness)
+	e.reclaimValueLog(dryRun, out)
+	return res, err
+}
+
 // Search runs a knowledge search, the work behind the search_dependency_docs
 // MCP tool.
 func (e *engine) Search(ctx context.Context, req api.SearchRequest) (api.SearchResponse, error) {
@@ -935,7 +1031,7 @@ func runDaemonStatus(cmd *cobra.Command) error {
 	fmt.Fprintf(out, "%-14s running (pid %d)\n", "daemon:", h.PID)
 	fmt.Fprintf(out, "%-14s %s\n", "socket:", h.Socket)
 	fmt.Fprintf(out, "%-14s %s\n", "control db:", h.ControlPath)
-	fmt.Fprintf(out, "%-14s %s\n", "version:", h.Version)
+	fmt.Fprintf(out, "%-14s %s\n", "version:", versionFreshnessLabel(h.Version))
 	fmt.Fprintf(out, "%-14s %s\n", "uptime:", time.Since(h.StartedAt).Truncate(time.Second))
 	fmt.Fprintf(out, "%-14s %t\n", "watching:", h.Watching)
 	fmt.Fprintf(out, "%-14s %s\n", "config:", configFreshnessLabel(h.ConfigFingerprint))

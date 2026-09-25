@@ -564,6 +564,21 @@ type InFlightDependencyOut struct {
 	ChunksTotal int    `json:"chunks_total"`
 }
 
+// ObservedTimingOut mirrors api.ObservedTiming — see its own doc
+// comment for why median/p90, not a mean.
+type ObservedTimingOut struct {
+	Samples                 int     `json:"samples"`
+	MedianDependencySeconds float64 `json:"median_dependency_seconds"`
+	P90DependencySeconds    float64 `json:"p90_dependency_seconds"`
+}
+
+// SyncEstimateOut mirrors api.SyncEstimate — a rough projection only,
+// weight it by Confidence, never treat RemainingSeconds as precise.
+type SyncEstimateOut struct {
+	RemainingSeconds float64 `json:"remaining_seconds"`
+	Confidence       string  `json:"confidence"`
+}
+
 // SyncProgressOut is sync_progress's result. Done, Failed and Total count
 // planned actions — nearly all one per dependency version.
 type SyncProgressOut struct {
@@ -572,7 +587,15 @@ type SyncProgressOut struct {
 	Failed   int                     `json:"failed"`
 	Total    int                     `json:"total"`
 	InFlight []InFlightDependencyOut `json:"in_flight,omitempty"`
-	Note     string                  `json:"note"`
+	// BATCH-001 Option D: agent-facing scope-planning information — see
+	// ObservedTimingOut/SyncEstimateOut. Use this, alongside Pending, to
+	// decide whether to keep waiting, request a specific dependency via
+	// sync_project(dependency: "..."), or accept partial coverage —
+	// ragctl reports the data, it never makes that call itself.
+	Observed *ObservedTimingOut `json:"observed,omitempty"`
+	Estimate *SyncEstimateOut   `json:"estimate,omitempty"`
+	Pending  []string           `json:"pending,omitempty"`
+	Note     string             `json:"note"`
 }
 
 func syncProgressHandler(reader SyncProgressReader) sdkmcp.ToolHandlerFor[SyncProgressIn, SyncProgressOut] {
@@ -592,7 +615,14 @@ func syncProgressHandler(reader SyncProgressReader) sdkmcp.ToolHandlerFor[SyncPr
 func syncProgressNote(p SyncProgressOut) string {
 	switch {
 	case p.Syncing:
-		return fmt.Sprintf("a sync is running: %d of %d done (%d failed). This is progress, not a time estimate — one large dependency can take minutes. A dependency you search for that isn't done yet is built next, ahead of the rest of the queue.", p.Done, p.Total, p.Failed)
+		note := fmt.Sprintf("a sync is running: %d of %d done (%d failed).", p.Done, p.Total, p.Failed)
+		if p.Estimate != nil {
+			note += fmt.Sprintf(" Observed so far: median %.0fs/dependency (p90 %.0fs, %d samples); rough estimate ~%.0fs remaining, confidence %s — not precise, one large dependency can still take much longer than the median.", p.Observed.MedianDependencySeconds, p.Observed.P90DependencySeconds, p.Observed.Samples, p.Estimate.RemainingSeconds, p.Estimate.Confidence)
+		} else {
+			note += " This is progress, not a time estimate yet — too few dependencies have finished to project one."
+		}
+		note += " A dependency you search for that isn't done yet is built next, ahead of the rest of the queue. If you only need specific dependencies, call sync_project(dependency: \"...\") for each rather than waiting on the whole batch — see pending for what's left."
+		return note
 	case p.Total > 0:
 		return fmt.Sprintf("no sync is running; the last run finished %d of %d (%d failed). Call sync_project to run another.", p.Done, p.Total, p.Failed)
 	default:
