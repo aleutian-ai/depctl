@@ -210,6 +210,71 @@ func testDep(pkg, version string) domain.DependencyVersion {
 	}
 }
 
+// TestBreadcrumbMarkdownChunkUsesSectionPath and its siblings are
+// STRUCT-004's own acceptance criteria for the breadcrumb() helper.
+func TestBreadcrumbMarkdownChunkUsesSectionPath(t *testing.T) {
+	got := breadcrumb("grpc-go", "1.72.0", map[string]string{"section_path": `["Authentication","Transport Credentials"]`})
+	want := "grpc-go@1.72.0 > Authentication > Transport Credentials"
+	if got != want {
+		t.Errorf("breadcrumb = %q, want %q", got, want)
+	}
+}
+
+func TestBreadcrumbSymbolChunkUsesFileAndSymbol(t *testing.T) {
+	got := breadcrumb("go.etcd.io/bbolt", "1.3.11", map[string]string{"symbol": "(*Tx).Bucket", "source_path": "tx.go"})
+	want := "go.etcd.io/bbolt@1.3.11 > tx.go > (*Tx).Bucket"
+	if got != want {
+		t.Errorf("breadcrumb = %q, want %q", got, want)
+	}
+}
+
+func TestBreadcrumbNoStructuralMetadataFallsBackToDependencyAtVersion(t *testing.T) {
+	got := breadcrumb("some-pkg", "2.0.0", map[string]string{})
+	if got != "some-pkg@2.0.0" {
+		t.Errorf("breadcrumb = %q, want \"some-pkg@2.0.0\"", got)
+	}
+}
+
+func TestBreadcrumbEmptyVersionHasNoTrailingAt(t *testing.T) {
+	got := breadcrumb("some-pkg", "", map[string]string{})
+	if got != "some-pkg" {
+		t.Errorf("breadcrumb = %q, want \"some-pkg\" (no trailing @)", got)
+	}
+}
+
+func TestBreadcrumbMalformedSectionPathFallsBackToNoSegments(t *testing.T) {
+	got := breadcrumb("some-pkg", "1.0.0", map[string]string{"section_path": "not valid json"})
+	if got != "some-pkg@1.0.0" {
+		t.Errorf("breadcrumb = %q, want \"some-pkg@1.0.0\" (malformed section_path swallowed, not fatal)", got)
+	}
+}
+
+// TestSearchKnowledgePopulatesBreadcrumb is STRUCT-004's end-to-end
+// acceptance criterion: a real SearchKnowledge call threads chunk
+// metadata through to ResultChunk.Breadcrumb.
+func TestSearchKnowledgePopulatesBreadcrumb(t *testing.T) {
+	env := newTestEnv(t)
+	env.control.projects["proj_1"] = domain.Project{ID: "proj_1", Root: "/repo"}
+	env.control.resolutions["proj_1"] = domain.Resolution{Dependencies: []domain.DependencyVersion{testDep("google.golang.org/grpc", "v1.67.0")}}
+	env.seedChunk(t, domain.EcosystemGo, "google.golang.org/grpc", "v1.67.0", "gen_1", "chk_1", "grpc docs content")
+	env.data.chunks["gen_1|chk_1"] = domain.Chunk{
+		ID: "chk_1", ObjectID: "ko_1", Content: []byte("grpc docs content"),
+		Metadata: map[string]string{"section_path": `["Authentication"]`},
+	}
+
+	result, err := env.svc.SearchKnowledge(context.Background(), Query{ProjectID: "proj_1", Text: "retry", Dependency: "google.golang.org/grpc", Mode: ModeProject})
+	if err != nil {
+		t.Fatalf("SearchKnowledge: %v", err)
+	}
+	if len(result.Chunks) != 1 {
+		t.Fatalf("Chunks = %+v, want exactly 1", result.Chunks)
+	}
+	want := "google.golang.org/grpc@v1.67.0 > Authentication"
+	if result.Chunks[0].Breadcrumb != want {
+		t.Errorf("Breadcrumb = %q, want %q", result.Chunks[0].Breadcrumb, want)
+	}
+}
+
 func TestSearchProjectModeResolvesActiveVersionFilter(t *testing.T) {
 	env := newTestEnv(t)
 	env.control.projects["proj_1"] = domain.Project{ID: "proj_1", Root: "/repo"}

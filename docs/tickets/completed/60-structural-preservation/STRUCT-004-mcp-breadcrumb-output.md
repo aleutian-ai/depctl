@@ -1,7 +1,7 @@
 # STRUCT-004: MCP breadcrumb output
 
 **Epic:** Structural Preservation
-**Status:** planned
+**Status:** done — see Post-implementation note
 **Depends on:** STRUCT-001, STRUCT-003
 **Estimated size:** small
 
@@ -129,7 +129,15 @@ out.Chunks[i] = SearchResultChunk{
 - `SearchDependencyDocsOut`'s JSON round-trips with the new `breadcrumb` field present and correctly populated for both a Markdown- and symbol-sourced result in an end-to-end MCP test.
 
 ## Acceptance criteria
-- [ ] `query.ResultChunk.Breadcrumb` is populated for every search result, never empty.
-- [ ] `search_dependency_docs`'s output includes a `breadcrumb` field per chunk, matching `ResultChunk.Breadcrumb`.
-- [ ] A Markdown-sourced chunk's breadcrumb reflects its section path; a symbol-sourced chunk's breadcrumb reflects its file and symbol.
-- [ ] No change to which chunks are returned, their order, or their scores.
+- [x] `query.ResultChunk.Breadcrumb` is populated for every search result, never empty.
+- [x] `search_dependency_docs`'s output includes a `breadcrumb` field per chunk, matching `ResultChunk.Breadcrumb`.
+- [x] A Markdown-sourced chunk's breadcrumb reflects its section path; a symbol-sourced chunk's breadcrumb reflects its file and symbol.
+- [x] No change to which chunks are returned, their order, or their scores.
+
+## Post-implementation note
+
+Built exactly as designed — `search.go`'s `search` function, `query.go`'s `ResultChunk`, and `mcp/tools.go`'s `SearchResultChunk`/`resultChunks` all matched the ticket's assumed starting shape verbatim (confirmed by reading each before editing), so `breadcrumb()` and the three field additions went in with no deviations. `resultChunks` is the one shared mapping function used by both `search_dependency_docs` and `explain_call_site`, so both tools pick up `breadcrumb` automatically with no per-tool duplication, consistent with the ticket's own "no logic duplicated" constraint.
+
+Tests cover all five cases the ticket's Tests section names: `TestBreadcrumbMarkdownChunkUsesSectionPath`, `TestBreadcrumbSymbolChunkUsesFileAndSymbol`, `TestBreadcrumbNoStructuralMetadataFallsBackToDependencyAtVersion`, `TestBreadcrumbEmptyVersionHasNoTrailingAt` (direct unit tests of `breadcrumb()`), plus `TestBreadcrumbMalformedSectionPathFallsBackToNoSegments` (the Failure-behavior case) and two integration tests: `TestSearchKnowledgePopulatesBreadcrumb` (`internal/query`, a real `SearchKnowledge` call threading chunk metadata through to `ResultChunk.Breadcrumb`) and `TestSearchDependencyDocsHandlerBreadcrumbRoundTripsThroughJSON` (`internal/mcp`, `SearchDependencyDocsOut` JSON round-trip for both a Markdown- and symbol-sourced result, per the ticket's explicit end-to-end requirement).
+
+Full suite green, `-race` clean. No change to which chunks are returned, their order, or their scores in any existing test.

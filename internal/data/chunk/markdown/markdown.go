@@ -11,6 +11,8 @@ package markdown
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 
 	dchunk "aleutian-ai/ragctl/internal/data/chunk"
 	"aleutian-ai/ragctl/internal/domain"
@@ -46,6 +48,17 @@ func (c *Chunker) Chunk(ctx context.Context, obj domain.KnowledgeObject) ([]doma
 	var chunks []domain.Chunk
 	ordinal := 0
 	for _, sec := range sections {
+		// STRUCT-001: the same ancestor path as heading_path, structured
+		// (a JSON array) rather than pre-joined, so downstream consumers
+		// can work with the segments directly instead of re-splitting a
+		// " > "-joined display string. A part produced by packSection's
+		// paragraph-splitting fallback inherits the same section_path as
+		// every other part of that section — the path identifies which
+		// section a chunk belongs to, not which byte-range within it.
+		sectionPathJSON, err := json.Marshal(sec.sectionPath)
+		if err != nil {
+			return nil, fmt.Errorf("markdown chunk: marshal section_path: %w", err)
+		}
 		for _, part := range packSection(sec.headingLine, sec.body, c.maxChunkBytes) {
 			content := []byte(part)
 			chunks = append(chunks, domain.Chunk{
@@ -54,7 +67,15 @@ func (c *Chunker) Chunk(ctx context.Context, obj domain.KnowledgeObject) ([]doma
 				Ordinal:     ordinal,
 				Content:     content,
 				ContentHash: dchunk.ContentHash(content),
-				Metadata:    map[string]string{"heading_path": sec.headingPath},
+				Metadata: map[string]string{
+					"heading_path": sec.headingPath,
+					"section_path": string(sectionPathJSON),
+					// STRUCT-003: promoted from the parent KnowledgeObject,
+					// same rationale as the symbol chunker's own addition.
+					"dependency":  obj.Dependency.Dependency.Name,
+					"version":     obj.Version,
+					"source_type": obj.SourceType,
+				},
 			})
 			ordinal++
 		}

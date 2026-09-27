@@ -1,7 +1,7 @@
 # STRUCT-002: Fenced code-block preservation
 
 **Epic:** Structural Preservation
-**Status:** planned
+**Status:** done — see Post-implementation note
 **Depends on:** NORM-002 (Markdown normalizer, `docs/tickets/completed/09-normalization`)
 **Estimated size:** medium
 
@@ -87,8 +87,16 @@ if len(extracted.codeBlocks) > 0 {
 - A fence inside a section that itself gets split across multiple chunks later (CHUNK-002): out of scope to assert chunk-level linkage here (that's STRUCT-003/CHUNK-002's job) — this ticket's tests stay at the normalizer/`KnowledgeObject` level only.
 
 ## Acceptance criteria
-- [ ] Every fenced code block in a normalized Markdown document produces one `codeBlockRecord` in `Metadata["code_blocks"]`, in document order.
-- [ ] Each record's `section_path` matches the block's actual position in the heading hierarchy at normalization time.
-- [ ] `Metadata["code_languages"]` behavior is unchanged (still the deduped, sorted, document-wide set).
-- [ ] No fenced code content is extracted into a separate object, source, or corpus — it stays embedded in the single Markdown `KnowledgeObject`'s `Content` exactly as before.
-- [ ] `go test ./internal/normalize/markdown/...` passes, including new `code_blocks` assertions.
+- [x] Every fenced code block in a normalized Markdown document produces one `codeBlockRecord` in `Metadata["code_blocks"]`, in document order.
+- [x] Each record's `section_path` matches the block's actual position in the heading hierarchy at normalization time.
+- [x] `Metadata["code_languages"]` behavior is unchanged (still the deduped, sorted, document-wide set).
+- [x] No fenced code content is extracted into a separate object, source, or corpus — it stays embedded in the single Markdown `KnowledgeObject`'s `Content` exactly as before.
+- [x] `go test ./internal/normalize/markdown/...` passes, including new `code_blocks` assertions.
+
+## Post-implementation note
+
+Built as designed. One proactive fix carried over from STRUCT-001's own live-found bug: `SectionPath: append([]string{}, headingStack...)` would have produced a non-nil empty slice (marshaling to `"[]"`) for a fence with no ancestor headings, rather than the `nil`/`"null"` convention `section_path` and `heading_path` both otherwise use — applied the same `len(headingStack) > 0` guard here before it could reproduce the same class of bug, rather than waiting to rediscover it.
+
+Tests cover all four cases the ticket's own Tests section names: a single-section document with two languaged blocks (`code.md`, already an existing fixture); a new multi-section fixture with three blocks across different nesting levels, including one with no info string (`Language: ""`, present but excluded from `code_languages`); and the existing headless-of-code `nested.md` fixture confirming `Metadata["code_blocks"]` is entirely absent, not present-and-empty, when a document has no fenced code. The pre-existing golden-snapshot test (`TestNestedHeadingsGoldenSnapshot`) needed no update, since its own fixture has no code blocks.
+
+Full suite green, `-race` clean.

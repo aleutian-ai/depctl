@@ -10,23 +10,26 @@ import (
 	"aleutian-ai/ragctl/internal/resolver"
 )
 
-// Resolve picks a strategy by priority (package-lock.json, then
-// pnpm-lock.yaml) and normalizes its exact dependency versions into a
-// domain.Resolution. yarn.lock and bun.lock are recognized by
-// lockfilePriority but have no resolution strategy yet.
+// lockfileResolvers maps each name in lockfilePriority (detect.go) to the
+// function that parses it — keeping the two coupled so a new lockfile
+// format can't be added to one and forgotten in the other.
+var lockfileResolvers = map[string]func(root string) (domain.Resolution, error){
+	"package-lock.json": resolveNpmLock,
+	"pnpm-lock.yaml":    resolvePnpmLock,
+	"yarn.lock":         resolveYarnLock,
+	"bun.lock":          resolveBunLock,
+}
+
+// Resolve picks a strategy by lockfilePriority's order and normalizes its
+// exact dependency versions into a domain.Resolution.
 func (r *Resolver) Resolve(ctx context.Context, root string) (domain.Resolution, error) {
-	switch {
-	case exists(root, "package-lock.json"):
-		return resolveNpmLock(root)
-	case exists(root, "pnpm-lock.yaml"):
-		return resolvePnpmLock(root)
-	case exists(root, "yarn.lock"), exists(root, "bun.lock"):
-		return domain.Resolution{}, resolutionErr(root, fmt.Errorf(
-			"yarn.lock and bun.lock aren't resolvable yet — add a package-lock.json or pnpm-lock.yaml"))
-	default:
-		return domain.Resolution{}, resolutionErr(root, fmt.Errorf(
-			"no supported lockfile found (package.json alone, with no lockfile, isn't resolvable yet)"))
+	for _, name := range lockfilePriority {
+		if exists(root, name) {
+			return lockfileResolvers[name](root)
+		}
 	}
+	return domain.Resolution{}, resolutionErr(root, fmt.Errorf(
+		"no supported lockfile found (package.json alone, with no lockfile, isn't resolvable yet)"))
 }
 
 func exists(root, name string) bool {

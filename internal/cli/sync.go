@@ -157,7 +157,7 @@ func RunSync(ctx context.Context, coordinator *daemon.BuildCoordinator, store *b
 		if err != nil {
 			return nil, err
 		}
-		gitCache, err := buildGitCache()
+		gitCache, err := buildGitCache(cfg)
 		if err != nil {
 			return nil, err
 		}
@@ -942,8 +942,17 @@ func syncVersion(ctx context.Context, store *bboltstore.Store, badgerStore *badg
 		return fmt.Errorf("create generation: %w", err)
 	}
 
+	// GIT-004: best-effort — action.ProjectID not resolving to a live
+	// project (deleted mid-sync, or a construction path with no real
+	// project at all) just means the Node local-cache check can never
+	// hit for this build, same as any other miss; never a build failure.
+	var projectRoot string
+	if proj, err := store.GetProject(ctx, action.ProjectID); err == nil {
+		projectRoot = proj.Root
+	}
+
 	buildStart := time.Now()
-	buildErr := generation.Build(ctx, gen, manifest.Sources, gitCache, store, badgerStore)
+	buildErr := generation.Build(ctx, gen, manifest.Sources, gitCache, store, badgerStore, projectRoot)
 	timings.Build = time.Since(buildStart)
 	if buildErr != nil {
 		return fmt.Errorf("build: %w", buildErr)

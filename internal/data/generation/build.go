@@ -78,12 +78,20 @@ type acquiredSource struct {
 // aborts the whole build and marks gen FAILED; a normalizer error on one
 // file fails the entire generation rather than silently dropping that
 // file, so a generation's content is never ambiguously partial.
-func Build(ctx context.Context, gen domain.Generation, sources []registry.Source, gitCache *git.Cache, store *bbolt.Store, badgerStore *badger.Store) error {
+// projectRoot (GIT-004) is the root of whichever specific project's sync
+// action triggered this build — resolved by the caller from
+// planner.Action.ProjectID, since domain.Generation itself deliberately
+// carries no project reference (a generation is shared across every
+// project that depends on it, never scoped to one). Only ever used for
+// Node's node_modules local-cache check, which is inherently
+// project-scoped; empty is always a safe, valid value (that check just
+// never hits, same as any other local-cache miss).
+func Build(ctx context.Context, gen domain.Generation, sources []registry.Source, gitCache *git.Cache, store *bbolt.Store, badgerStore *badger.Store, projectRoot string) error {
 	if err := setState(ctx, store, &gen, domain.GenAcquiring); err != nil {
 		return err
 	}
 
-	acquired, err := acquireGitSources(ctx, gitCache, gen.Dependency.Dependency.Name, gen.Dependency.Version, gen.Dependency.Dependency.Ecosystem, sources)
+	acquired, err := acquireGitSources(ctx, gitCache, gen.Dependency.Dependency.Name, gen.Dependency.Version, gen.Dependency.Dependency.Ecosystem, sources, projectRoot)
 	defer cleanupAll(acquired)
 	if err != nil {
 		fail(ctx, store, &gen, err.Error())
@@ -123,11 +131,29 @@ func Build(ctx context.Context, gen domain.Generation, sources []registry.Source
 // (source trees in other languages, binary assets, vendored
 // dependencies) is never fetched at all, not just skipped during
 // normalization.
-func acquireGitSources(ctx context.Context, gitCache *git.Cache, depName, version string, ecosystem domain.Ecosystem, sources []registry.Source) ([]acquiredSource, error) {
+//
+// GIT-004: before any of that, each source is checked against the
+// ecosystem's own local package-manager cache — if depName@version is
+// already extracted there, that directory is used directly as the
+// worktree and every git step (EnsureMirror, ref resolution,
+// MaterializeWorktree, subdir discovery) is skipped entirely for this
+// source. This is always correct with no subdir handling needed: unlike
+// a git clone of a whole repository, a package-manager cache entry is
+// by construction already scoped to exactly this one package — there
+// are no monorepo siblings mixed in to exclude.
+func acquireGitSources(ctx context.Context, gitCache *git.Cache, depName, version string, ecosystem domain.Ecosystem, sources []registry.Source, projectRoot string) ([]acquiredSource, error) {
 	basePatterns := normalize.SparsePatterns(ecosystem)
 	var acquired []acquiredSource
 	for _, s := range sources {
 		if s.Type != "git" {
+			continue
+		}
+
+		if dir, ok := localCacheSeed(ctx, ecosystem, depName, version, projectRoot); ok {
+			acquired = append(acquired, acquiredSource{
+				source: s, worktreeDir: dir, commit: "local-cache",
+				cleanup: func() error { return nil }, // never ours to delete
+			})
 			continue
 		}
 

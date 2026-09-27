@@ -2,7 +2,9 @@ package query
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"strings"
 
 	"aleutian-ai/ragctl/internal/backend"
 	"aleutian-ai/ragctl/internal/data/generation"
@@ -315,9 +317,41 @@ func (s *Service) search(ctx context.Context, text string, topK int, filter *bac
 			SourceType: p.Metadata.SourceType,
 			Authority:  p.Metadata.Authority,
 			TrustClass: generation.TrustClassForSourceType(p.Metadata.SourceType),
+			Breadcrumb: breadcrumb(p.Metadata.Dependency, p.Metadata.Version, chunk.Metadata),
 		})
 	}
 	return SearchResult{Chunks: chunks}, nil
+}
+
+// breadcrumb builds a display string identifying a chunk's structural
+// position: "dependency@version" plus whatever structural segments the
+// chunk's own metadata carries (a Markdown section path, or a symbol
+// chunk's file/symbol), per STRUCT-003's promoted fields. Never empty —
+// a chunk with neither kind of structural metadata still gets a valid
+// "dependency@version".
+func breadcrumb(dependency, version string, metadata map[string]string) string {
+	head := dependency
+	if version != "" {
+		head += "@" + version
+	}
+
+	var segments []string
+	if raw := metadata["section_path"]; raw != "" && raw != "null" {
+		var path []string
+		if err := json.Unmarshal([]byte(raw), &path); err == nil {
+			segments = path
+		}
+	} else if symbol := metadata["symbol"]; symbol != "" {
+		if sourcePath := metadata["source_path"]; sourcePath != "" {
+			segments = append(segments, sourcePath)
+		}
+		segments = append(segments, symbol)
+	}
+
+	if len(segments) == 0 {
+		return head
+	}
+	return head + " > " + strings.Join(segments, " > ")
 }
 
 func (s *Service) getResolution(ctx context.Context, projectID string) (domain.Resolution, error) {

@@ -187,6 +187,12 @@ type projectState struct {
 	// it happened to start and finish first. SyncProgress reads this
 	// (not a fresh progress object) once syncing is false.
 	lastMeaningful api.SyncProgress
+	// everRan is set unconditionally in finish(), regardless of
+	// Total — unlike lastMeaningful, it must not stay false just
+	// because the most recent run found nothing new to sync. It's the
+	// only thing that distinguishes "synced, nothing to do" from
+	// "never synced" once lastMeaningful is still its zero value.
+	everRan bool
 }
 
 // waiter is one caller's interest in the next run for a project: where
@@ -442,6 +448,7 @@ func (s *Scheduler) SyncingProjects() map[string]api.SyncProgress {
 	for id, p := range running {
 		snap := p.Snapshot()
 		snap.Syncing = true
+		snap.Ran = true
 		out[id] = snap
 	}
 	return out
@@ -458,8 +465,10 @@ func (s *Scheduler) SyncProgress(projectID string) api.SyncProgress {
 	st := s.projects[projectID]
 	var snap api.SyncProgress
 	syncing := false
+	ran := false
 	if st != nil {
 		syncing = st.syncing
+		ran = st.everRan
 		if syncing {
 			snap = st.progress.Snapshot()
 		} else {
@@ -469,6 +478,7 @@ func (s *Scheduler) SyncProgress(projectID string) api.SyncProgress {
 	s.mu.Unlock()
 
 	snap.Syncing = syncing
+	snap.Ran = ran || syncing // a currently-running first sync also counts as "ran"
 	return snap
 }
 
@@ -552,6 +562,10 @@ func (s *Scheduler) finish(projectID string) {
 	if snap := st.progress.Snapshot(); snap.Total > 0 {
 		st.lastMeaningful = snap
 	}
+	// Unconditional, unlike lastMeaningful above: a run that found
+	// nothing new to sync still really ran (see everRan's own doc
+	// comment on projectState).
+	st.everRan = true
 	if st.dirty && !s.stopped {
 		st.dirty = false
 		opts, waiters := st.pending, st.waiters

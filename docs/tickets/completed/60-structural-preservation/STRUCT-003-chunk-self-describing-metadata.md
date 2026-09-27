@@ -1,7 +1,7 @@
 # STRUCT-003: Chunk self-describing metadata
 
 **Epic:** Structural Preservation
-**Status:** planned
+**Status:** done — see Post-implementation note
 **Depends on:** STRUCT-001, CHUNK-002/003 (`docs/tickets/completed/10-fingerprinting-chunking`)
 **Estimated size:** medium
 
@@ -69,7 +69,15 @@ chunks = append(chunks, domain.Chunk{
 - `go test ./internal/data/chunk/...` passes with the new metadata keys asserted for both chunkers.
 
 ## Acceptance criteria
-- [ ] Every Markdown chunk's `Metadata` includes `dependency`, `version`, `source_type`, in addition to the existing `heading_path` and STRUCT-001's `section_path`.
-- [ ] Every symbol chunk's `Metadata` includes `dependency`, `source_type`, in addition to the existing `package`, `symbol`, `signature`, `source_path`, `version`.
-- [ ] No change to chunk count, ordinals, IDs, or content for any existing fixture.
-- [ ] A caller holding only a `domain.Chunk` (as returned by `data/badger`'s `GetChunk`) can determine its dependency, version, source type, and structural position without any further store lookup.
+- [x] Every Markdown chunk's `Metadata` includes `dependency`, `version`, `source_type`, in addition to the existing `heading_path` and STRUCT-001's `section_path`.
+- [x] Every symbol chunk's `Metadata` includes `dependency`, `source_type`, in addition to the existing `package`, `symbol`, `signature`, `source_path`, `version`.
+- [x] No change to chunk count, ordinals, IDs, or content for any existing fixture.
+- [x] A caller holding only a `domain.Chunk` (as returned by `data/badger`'s `GetChunk`) can determine its dependency, version, source type, and structural position without any further store lookup.
+
+## Post-implementation note
+
+Built exactly as designed — both target files' actual current source matched the ticket's assumed starting shape verbatim (confirmed by reading each before editing), so no deviations were needed. `symbol.go` gained `dependency`/`source_type`; `markdown.go` gained `dependency`/`version`/`source_type` alongside STRUCT-001's `heading_path`/`section_path`.
+
+Tests cover both cases the ticket's Tests section names plus the explicit empty-value edge case: `TestDependencyAndSourceTypePromotedToChunkMetadata` / `TestDependencyVersionSourceTypePromotedToChunkMetadata` (populated `Dependency`/`Version`/`SourceType` correctly promoted) and `TestEmptyDependencyAndSourceTypeStillPresentNotOmitted` / `TestEmptyDependencyVersionSourceTypeStillPresentNotOmitted` (a `KnowledgeObject` with none of those fields set still produces present-but-empty metadata keys, not an omitted key or an error — matching the existing chunker convention of never erroring on missing identity fields).
+
+Full suite green, `-race` clean. No chunk count/ordinal/ID/content regressions in any existing fixture.

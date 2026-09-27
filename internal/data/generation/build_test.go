@@ -160,7 +160,7 @@ func TestBuildEndToEnd(t *testing.T) {
 	}
 
 	sources := []registry.Source{{ID: "repository", Type: "git", URL: repoDir, Ref: "v${version}", Authority: 100}}
-	if err := Build(ctx, gen, sources, gitCache, store, badgerStore); err != nil {
+	if err := Build(ctx, gen, sources, gitCache, store, badgerStore, ""); err != nil {
 		t.Fatalf("Build: %v", err)
 	}
 
@@ -220,7 +220,7 @@ func TestBuildSkipsNestedGoModuleBoundary(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Create: %v", err)
 		}
-		if err := Build(ctx, gen, sources, gitCache, store, badgerStore); err != nil {
+		if err := Build(ctx, gen, sources, gitCache, store, badgerStore, ""); err != nil {
 			t.Fatalf("Build: %v", err)
 		}
 		manifest, err := getManifest(ctx, badgerStore, gen.ID)
@@ -251,7 +251,7 @@ func TestBuildSkipsNestedGoModuleBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if err := Build(ctx, gen, sources, gitCache, store, badgerStore); err != nil {
+	if err := Build(ctx, gen, sources, gitCache, store, badgerStore, ""); err != nil {
 		t.Fatalf("Build: %v", err)
 	}
 	manifest, err := getManifest(ctx, badgerStore, gen.ID)
@@ -279,7 +279,7 @@ func TestBuildAcquisitionFailureMarksGenerationFailed(t *testing.T) {
 
 	// No "v1.0.0"-shaped tag exists under this template.
 	sources := []registry.Source{{ID: "repository", Type: "git", URL: repoDir, Ref: "does-not-exist-${version}", Authority: 100}}
-	err = Build(ctx, gen, sources, gitCache, store, badgerStore)
+	err = Build(ctx, gen, sources, gitCache, store, badgerStore, "")
 	if err == nil {
 		t.Fatal("Build succeeded, want acquisition failure")
 	}
@@ -321,7 +321,7 @@ func TestBuildContentReuseAcrossGenerations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create gen1: %v", err)
 	}
-	if err := Build(ctx, gen1, sources, gitCache, store, badgerStore); err != nil {
+	if err := Build(ctx, gen1, sources, gitCache, store, badgerStore, ""); err != nil {
 		t.Fatalf("Build gen1: %v", err)
 	}
 	manifest1, err := getManifest(ctx, badgerStore, gen1.ID)
@@ -333,7 +333,7 @@ func TestBuildContentReuseAcrossGenerations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create gen2: %v", err)
 	}
-	if err := Build(ctx, gen2, sources, gitCache, store, badgerStore); err != nil {
+	if err := Build(ctx, gen2, sources, gitCache, store, badgerStore, ""); err != nil {
 		t.Fatalf("Build gen2: %v", err)
 	}
 	manifest2, err := getManifest(ctx, badgerStore, gen2.ID)
@@ -373,7 +373,7 @@ func TestBuildContentReuseAcrossGenerations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create gen3: %v", err)
 	}
-	if err := Build(ctx, gen3, sources, gitCache, store, badgerStore); err != nil {
+	if err := Build(ctx, gen3, sources, gitCache, store, badgerStore, ""); err != nil {
 		t.Fatalf("Build gen3: %v", err)
 	}
 	manifest3, err := getManifest(ctx, badgerStore, gen3.ID)
@@ -418,7 +418,7 @@ func TestBuildDuplicateContentWithinOneGenerationCountsChunksOnce(t *testing.T) 
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if err := Build(ctx, gen, sources, gitCache, store, badgerStore); err != nil {
+	if err := Build(ctx, gen, sources, gitCache, store, badgerStore, ""); err != nil {
 		t.Fatalf("Build: %v", err)
 	}
 
@@ -505,7 +505,7 @@ func TestBuildScopesToSourceSubdir(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Create: %v", err)
 		}
-		if err := Build(ctx, gen, sources, gitCache, store, badgerStore); err != nil {
+		if err := Build(ctx, gen, sources, gitCache, store, badgerStore, ""); err != nil {
 			return Manifest{}, err
 		}
 		m, err := getManifest(ctx, badgerStore, gen.ID)
@@ -571,7 +571,7 @@ func TestBuildDiscoversNodeSubdirWhenRegistryOmitsDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if err := Build(ctx, gen, sources, gitCache, store, badgerStore); err != nil {
+	if err := Build(ctx, gen, sources, gitCache, store, badgerStore, ""); err != nil {
 		t.Fatalf("Build: %v", err)
 	}
 
@@ -639,7 +639,7 @@ func TestBuildFailsCleanlyWhenNodePackageCannotBeLocatedInAMultiPackageRepo(t *t
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	err = Build(ctx, gen, sources, gitCache, store, badgerStore)
+	err = Build(ctx, gen, sources, gitCache, store, badgerStore, "")
 	if !errors.Is(err, ErrAcquisition) || !strings.Contains(err.Error(), "@scope/does-not-exist-here") {
 		t.Fatalf("Build err = %v, want an ErrAcquisition naming @scope/does-not-exist-here", err)
 	}
@@ -686,7 +686,7 @@ func TestBuildExtractsStructuredTypeScriptDocsAndNeverLeaksASiblingsSymbols(t *t
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if err := Build(ctx, gen, sources, gitCache, store, badgerStore); err != nil {
+	if err := Build(ctx, gen, sources, gitCache, store, badgerStore, ""); err != nil {
 		t.Fatalf("Build: %v", err)
 	}
 
@@ -752,7 +752,7 @@ func TestBuildExtractsStructuredJSDocFallbackThroughTheFullPipeline(t *testing.T
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if err := Build(ctx, gen, sources, gitCache, store, badgerStore); err != nil {
+	if err := Build(ctx, gen, sources, gitCache, store, badgerStore, ""); err != nil {
 		t.Fatalf("Build: %v", err)
 	}
 
@@ -820,7 +820,7 @@ func TestBuildExtractsStructuredPythonDocsThroughTheFullPipeline(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if err := Build(ctx, gen, sources, gitCache, store, badgerStore); err != nil {
+	if err := Build(ctx, gen, sources, gitCache, store, badgerStore, ""); err != nil {
 		t.Fatalf("Build: %v", err)
 	}
 
@@ -893,7 +893,7 @@ func TestBuildFindsPydanticShapedPackageInASameNamedSubdirectory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if err := Build(ctx, gen, sources, gitCache, store, badgerStore); err != nil {
+	if err := Build(ctx, gen, sources, gitCache, store, badgerStore, ""); err != nil {
 		t.Fatalf("Build: %v", err)
 	}
 
@@ -1008,7 +1008,7 @@ func buildSubdirAt(t *testing.T, gitCache *git.Cache, repoDir, version string) (
 		t.Fatalf("Create: %v", err)
 	}
 	sources := []registry.Source{{ID: "repository", Type: "git", URL: repoDir, Ref: "sub/v${version}", Subdir: "sub", Authority: 0}}
-	if err := Build(context.Background(), gen, sources, gitCache, store, badgerStore); err != nil {
+	if err := Build(context.Background(), gen, sources, gitCache, store, badgerStore, ""); err != nil {
 		return "", err
 	}
 	return chunkText(t, badgerStore, gen.ID), nil
@@ -1117,7 +1117,7 @@ func TestBuildTriesEveryRefTemplateUntilOneResolves(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := Build(ctx, gen, sources, gitCache, store, badgerStore); err != nil {
+	if err := Build(ctx, gen, sources, gitCache, store, badgerStore, ""); err != nil {
 		t.Fatalf("Build: %v, want the widget@3.4.3 template to resolve after v3.4.3 and 3.4.3 both miss", err)
 	}
 }
@@ -1140,7 +1140,7 @@ func TestBuildFailsCleanlyWhenNoRefTemplateResolves(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = Build(ctx, gen, sources, gitCache, store, badgerStore)
+	err = Build(ctx, gen, sources, gitCache, store, badgerStore, "")
 	if !errors.Is(err, ErrAcquisition) || !strings.Contains(err.Error(), "v9.9.9 or 9.9.9") {
 		t.Errorf("err = %v, want an acquisition error naming both untried refs, no branch-head fallback", err)
 	}

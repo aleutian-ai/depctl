@@ -1,7 +1,7 @@
 # GIT-006: External mirror search path
 
 **Epic:** Local package-manager cache reuse
-**Status:** planned
+**Status:** done — see Post-implementation note
 **Depends on:** GIT-001 (git cache manager), GIT-005 (blobless clone — this ticket's seeded mirrors benefit from the same `--filter=blob:none` reasoning, though for a different reason; see Design)
 **Estimated size:** small
 
@@ -75,7 +75,17 @@ Interaction with GIT-005: a seeded mirror still benefits from `MaterializeWorktr
 - The seeded mirror supports `FetchTags`/`ResolveRef`/`MaterializeWorktree` identically to a network-cloned one (no special-cased read-only behavior leaks through).
 
 ## Acceptance criteria
-- [ ] `git.mirror_search_paths` (new config, empty default) lets `EnsureMirror` seed from an already-cloned external mirror before attempting a network clone.
-- [ ] Zero behavior change when unconfigured (the default for every existing installation).
-- [ ] A bad/missing/corrupted external root never blocks acquisition — always falls through to the network clone.
-- [ ] The external directory is never mutated — seeding always goes through `git clone --local`, read-only from the source's perspective.
+- [x] `git.mirror_search_paths` (new config, empty default) lets `EnsureMirror` seed from an already-cloned external mirror before attempting a network clone.
+- [x] Zero behavior change when unconfigured (the default for every existing installation).
+- [x] A bad/missing/corrupted external root never blocks acquisition — always falls through to the network clone.
+- [x] The external directory is never mutated — seeding always goes through `git clone --local`, read-only from the source's perspective.
+
+## Post-implementation note
+
+Built essentially as designed. One shape change from the ticket's own sketch: `NewCache` gained a variadic `Option`/`WithExternalMirrorRoots(...)` pattern rather than a second positional argument — chosen specifically so GIT-007 (the sibling working-tree-search-path ticket, same epic) can add its own `WithCheckoutSearchRoots(...)` option later without another constructor signature change; the only call site (`internal/cli/pipeline.go`'s `buildGitCache`) now also takes `config.Config` to read `cfg.Git.MirrorSearchPaths` from the new `GitConfig` section (`internal/config/config.go`), added alongside `CheckoutSearchPaths` for the same reason — one config section for both epic-43 external-search tickets, not two.
+
+`findExternalMirrorSeed` (`internal/source/git/cache.go`) is exactly the ticket's own sketch: reuses `mirrorPath` (the same `<host>/<org>/<repo>.git` convention `c.root` itself uses) for each configured root, first hit wins, no scanning. Seeding is `git clone --local --mirror <external-path> <repoPath>` — git's own same-filesystem hardlinking, no ragctl-side copy logic.
+
+Tests (`internal/source/git/external_mirror_test.go`) cover all four cases the ticket's own Tests section names, using a deliberately unreachable `rawURL` (`https://invalid.invalid/...`) so a passing test is direct proof the network path was never reached, not just fast because the "remote" happened to be local: a real seed hit, first-root-wins ordering (two roots each tagged distinctly, confirming the *first* root's content — not just "a" match — is what gets used), a configured root that exists but doesn't contain the repo (falls through to a real fallback clone), and a configured root that doesn't exist on disk at all. Verified rigorously: temporarily disabled the seed branch, confirmed `TestEnsureMirrorSeedsFromExternalMirrorRoot` fails with the real bug shape (`Could not resolve host`), restored it.
+
+Full suite green (`go build`/`vet`/`test`), `-race` clean.

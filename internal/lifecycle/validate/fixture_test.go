@@ -112,7 +112,7 @@ func buildAndReplicate(t *testing.T, ctx context.Context, store *bbolt.Store, ba
 		t.Fatalf("Create: %v", err)
 	}
 	sources := []registry.Source{{ID: "repository", Type: "git", URL: repoDir, Ref: "v${version}", Authority: 100}}
-	if err := generation.Build(ctx, gen, sources, gitCache, store, badgerStore); err != nil {
+	if err := generation.Build(ctx, gen, sources, gitCache, store, badgerStore, ""); err != nil {
 		t.Fatalf("Build: %v", err)
 	}
 	if err := generation.Replicate(ctx, gen, sources, embedder, vb, ns, store, badgerStore); err != nil {

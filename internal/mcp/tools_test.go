@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"sync"
@@ -269,6 +270,57 @@ func TestSearchDependencyDocsHandlerReturnsChunksWithSecurityNote(t *testing.T) 
 	}
 	if out.Chunks[0].TrustClass != domain.TrustRepository {
 		t.Errorf("out.Chunks[0].TrustClass = %q, want %q — this is the provenance signal an agent needs to weigh alongside authority", out.Chunks[0].TrustClass, domain.TrustRepository)
+	}
+}
+
+// TestSearchDependencyDocsHandlerBreadcrumbRoundTripsThroughJSON is
+// STRUCT-004's end-to-end acceptance criterion: SearchDependencyDocsOut's
+// JSON round-trips with the breadcrumb field present and correctly
+// populated for both a Markdown- and symbol-sourced result.
+func TestSearchDependencyDocsHandlerBreadcrumbRoundTripsThroughJSON(t *testing.T) {
+	env := newTestEnv(t)
+	env.control.projects["proj_1"] = domain.Project{ID: "proj_1", Root: "/repo"}
+	env.control.resolutions["proj_1"] = domain.Resolution{Dependencies: []domain.DependencyVersion{
+		{Dependency: domain.Dependency{Ecosystem: domain.EcosystemGo, Name: "google.golang.org/grpc"}, Version: "v1.67.0"},
+	}}
+	env.seedChunk(t, domain.EcosystemGo, "google.golang.org/grpc", "v1.67.0", "gen_1", "chk_1", "grpc retry docs")
+	env.data.chunks["gen_1|chk_1"] = domain.Chunk{
+		ID: "chk_1", Content: []byte("grpc retry docs"),
+		Metadata: map[string]string{"section_path": `["Authentication","Retries"]`},
+	}
+	env.seedChunk(t, domain.EcosystemGo, "google.golang.org/grpc", "v1.67.0", "gen_1", "chk_2", "bucket docs")
+	env.data.chunks["gen_1|chk_2"] = domain.Chunk{
+		ID: "chk_2", Content: []byte("bucket docs"),
+		Metadata: map[string]string{"symbol": "(*Tx).Bucket", "source_path": "tx.go"},
+	}
+
+	handler := searchDependencyDocsHandler(env.svc, nil, false, nil)
+	_, out, err := handler(context.Background(), nil, SearchDependencyDocsIn{ProjectID: "proj_1", Query: "retry", Dependency: "google.golang.org/grpc"})
+	if err != nil {
+		t.Fatalf("handler: %v", err)
+	}
+	if len(out.Chunks) != 2 {
+		t.Fatalf("out.Chunks = %+v, want 2", out.Chunks)
+	}
+
+	raw, err := json.Marshal(out)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	var roundTripped SearchDependencyDocsOut
+	if err := json.Unmarshal(raw, &roundTripped); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+
+	byChunkID := map[string]string{}
+	for _, c := range roundTripped.Chunks {
+		byChunkID[c.ChunkID] = c.Breadcrumb
+	}
+	if want := "google.golang.org/grpc@v1.67.0 > Authentication > Retries"; byChunkID["chk_1"] != want {
+		t.Errorf("chk_1 breadcrumb = %q, want %q", byChunkID["chk_1"], want)
+	}
+	if want := "google.golang.org/grpc@v1.67.0 > tx.go > (*Tx).Bucket"; byChunkID["chk_2"] != want {
+		t.Errorf("chk_2 breadcrumb = %q, want %q", byChunkID["chk_2"], want)
 	}
 }
 
@@ -796,5 +848,37 @@ func TestServerEndToEndOverInMemoryTransport(t *testing.T) {
 	}
 	if text.Text == "" {
 		t.Error("result text content is empty")
+	}
+}
+
+// TestSyncProgressNoteDistinguishesNeverRanFromRanWithNothingToDo is the
+// MCP-side half of the same regression internal/daemon's
+// sync_progress_stale_test.go covers for the Scheduler: a real MCP
+// session (opencode, live) read "no sync has run for this project yet"
+// for a project whose sync had genuinely just run and correctly found
+// nothing new to build, and concluded the sync tool must be disabled.
+// The Ran field is what the note must key off to avoid repeating that.
+func TestSyncProgressNoteDistinguishesNeverRanFromRanWithNothingToDo(t *testing.T) {
+	never := syncProgressNote(SyncProgressOut{Ran: false, Total: 0})
+	if !strings.Contains(never, "no sync has run for this project yet") {
+		t.Errorf("never-ran note = %q, want it to say no sync has run yet", never)
+	}
+
+	nothingToDo := syncProgressNote(SyncProgressOut{Ran: true, Total: 0})
+	if strings.Contains(nothingToDo, "no sync has run for this project yet") {
+		t.Errorf("ran-but-nothing-to-do note = %q, must not claim no sync has run", nothingToDo)
+	}
+	if !strings.Contains(nothingToDo, "nothing new to sync") {
+		t.Errorf("ran-but-nothing-to-do note = %q, want it to explain a sync did run and found nothing new", nothingToDo)
+	}
+
+	lastRun := syncProgressNote(SyncProgressOut{Ran: true, Total: 5, Done: 5, Failed: 1})
+	if !strings.Contains(lastRun, "5 of 5") {
+		t.Errorf("last-run note = %q, want the real counters", lastRun)
+	}
+
+	syncing := syncProgressNote(SyncProgressOut{Syncing: true, Ran: true, Total: 5, Done: 2})
+	if !strings.Contains(syncing, "a sync is running") {
+		t.Errorf("syncing note = %q, want the in-progress message", syncing)
 	}
 }

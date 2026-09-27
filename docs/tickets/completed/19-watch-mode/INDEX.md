@@ -18,15 +18,15 @@ ragctl CLI / MCP (serve) / watcher
 - [WATCH-001](WATCH-001-manifest-watch-list.md) — Compute the minimal per-project set of manifest files to watch. *(done)*
 - [WATCH-002](WATCH-002-fsnotify-watcher.md) — Debounced fsnotify watcher handling rename/recreate/removal, emitting change events. *(done)*
 - [WATCH-003](WATCH-003-ragctl-watch.md) — `ragctl watch` foreground daemon: change event → resolve → plan → enqueue sync. *(done)*
-- [WATCH-004](WATCH-004-single-owner-daemon-adr.md) — ADR-011: single-owner daemon with local RPC clients.
-- [WATCH-005](WATCH-005-daemon-process-lifecycle.md) — `ragctl daemon run|status|stop`: store ownership, Unix socket, second-instance and stale-socket handling, graceful shutdown.
-- [WATCH-006](WATCH-006-sync-scheduler.md) — In-memory per-project scheduler: `idle`/`syncing` + `dirty`, collapsed requests, one follow-up, global serialization.
-- [WATCH-007](WATCH-007-watch-in-daemon.md) — Watch mode moves into the daemon (reusing `internal/watch`); no foreground watcher remains.
-- [WATCH-008](WATCH-008-write-commands-via-daemon.md) — Resolve/sync/GC API; `scan`, `sync`, `gc` become daemon clients with streamed output.
-- [WATCH-009](WATCH-009-read-commands-via-daemon.md) — Status/project/deps/plan/describe/doctor through the daemon.
-- [WATCH-010](WATCH-010-serve-mcp-proxy.md) — `ragctl serve` becomes a stdio MCP proxy; no store access, same tools.
-- [WATCH-011](WATCH-011-single-owner-invariant.md) — Enforce "only the daemon owns the stores" with tests; remove the old model; docs.
-- [WATCH-012](WATCH-012-daemon-autostart.md) — Clients auto-start the daemon when it's absent (`daemon.autostart`, default true); `ragctl watch` becomes a deprecated shim.
+- [WATCH-004](WATCH-004-single-owner-daemon-adr.md) — ADR-011: single-owner daemon with local RPC clients. *(done)*
+- [WATCH-005](WATCH-005-daemon-process-lifecycle.md) — `ragctl daemon run|status|stop`: store ownership, Unix socket, second-instance and stale-socket handling, graceful shutdown. *(done)*
+- [WATCH-006](WATCH-006-sync-scheduler.md) — In-memory per-project scheduler: `idle`/`syncing` + `dirty`, collapsed requests, one follow-up, global serialization. *(done)*
+- [WATCH-007](WATCH-007-watch-in-daemon.md) — Watch mode moves into the daemon (reusing `internal/watch`); no foreground watcher remains. *(done)*
+- [WATCH-008](WATCH-008-write-commands-via-daemon.md) — Resolve/sync/GC API; `scan`, `sync`, `gc` become daemon clients with streamed output. *(done)*
+- [WATCH-009](WATCH-009-read-commands-via-daemon.md) — Status/project/deps/plan/describe/doctor through the daemon. *(done — see its own Post-implementation note for the `doctor` fallback exception)*
+- [WATCH-010](WATCH-010-serve-mcp-proxy.md) — `ragctl serve` becomes a stdio MCP proxy; no store access, same tools. *(done)*
+- [WATCH-011](WATCH-011-single-owner-invariant.md) — Enforce "only the daemon owns the stores" with tests; remove the old model; docs. *(done)*
+- [WATCH-012](WATCH-012-daemon-autostart.md) — Clients auto-start the daemon when it's absent (`daemon.autostart`, default true); `ragctl watch` becomes a deprecated shim. *(done)*
 - [WATCH-013](WATCH-013-mcp-progress-notifications.md) — `sync_project`/`scan_project` relay their streamed per-dependency output as MCP progress notifications, closing the "no feedback during a long sync" gap found during MCP-bootstrapping follow-up. *(done)*
 - [WATCH-014](WATCH-014-embedding-readiness.md) — the daemon checks Ollama reachability and auto-pulls a missing embedding model in the background at startup, off any client's request path; `sync`/search fail fast with an actionable message instead of hanging while not ready. *(done)*
 - [WATCH-015](WATCH-015-vector-backend-readiness.md) — the same background-readiness treatment for Qdrant: found live, right after WATCH-014 shipped, running the real MCP-first scenario end to end — a raw `dial tcp 127.0.0.1:6333: connect: connection refused` was still reaching the agent, once per dependency, because nothing checked Qdrant reachability before `sync`/GC/search tried to use it. *(done)*

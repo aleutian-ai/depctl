@@ -171,9 +171,18 @@ type SyncResponse struct {
 // SyncProgress is a project's sync progress at one moment (SCOPE-001).
 // Done, Failed and Total count planned actions — nearly all one per
 // dependency version. With Syncing false they describe the last run, or
-// are all zero if the project has never synced.
+// are all zero if the project has never synced — except Total can also
+// be legitimately zero for a project that HAS synced (every dependency
+// already had a current generation elsewhere, so nothing needed
+// building); Ran is what actually distinguishes the two cases.
 type SyncProgress struct {
-	Syncing  bool                 `json:"syncing"`
+	Syncing bool `json:"syncing"`
+	// Ran reports whether a sync has ever completed for this project,
+	// independent of Total/Done/Failed all being zero — a run that finds
+	// nothing new to sync (Total == 0, the common, correct case once
+	// everything is already synced) still sets this true, so a caller
+	// can tell "nothing to do" apart from "never even tried."
+	Ran      bool                 `json:"ran"`
 	Done     int                  `json:"done"`
 	Failed   int                  `json:"failed"`
 	Total    int                  `json:"total"`

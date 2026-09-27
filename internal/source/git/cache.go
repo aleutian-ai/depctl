@@ -13,6 +13,7 @@ package git
 import (
 	"bytes"
 	"fmt"
+	"io/fs"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -39,13 +40,49 @@ const defaultLocalTimeout = 30 * time.Second
 type Cache struct {
 	root string
 
+	// externalMirrorRoots (GIT-006) are additional directories, laid
+	// out identically to root (mirrorPath's <host>/<org>/<repo>.git
+	// convention), checked in order before EnsureMirror falls through
+	// to a network clone. Read-only from ragctl's perspective — a hit
+	// is seeded into root via `git clone --local`, never read from or
+	// written to in place.
+	externalMirrorRoots []string
+
+	// checkoutSearchRoots (GIT-007) are additional directories that may
+	// contain arbitrary real git working-tree checkouts (not laid out
+	// in any particular convention — e.g. a personal corpus like
+	// ~/offline-knowledge), checked after externalMirrorRoots and before
+	// a network clone. Discovered by walking each root and comparing a
+	// found checkout's own "origin" remote against the URL being
+	// acquired, not by path convention — see findCheckoutSeed.
+	checkoutSearchRoots []string
+
 	mirrorLocksMu sync.Mutex
 	mirrorLocks   map[string]*sync.Mutex
 }
 
+// Option configures optional Cache behavior at construction time.
+type Option func(*Cache)
+
+// WithExternalMirrorRoots configures GIT-006's external mirror search
+// path (see Cache.externalMirrorRoots' own doc comment).
+func WithExternalMirrorRoots(roots []string) Option {
+	return func(c *Cache) { c.externalMirrorRoots = roots }
+}
+
+// WithCheckoutSearchRoots configures GIT-007's external checkout search
+// path (see Cache.checkoutSearchRoots' own doc comment).
+func WithCheckoutSearchRoots(roots []string) Option {
+	return func(c *Cache) { c.checkoutSearchRoots = roots }
+}
+
 // NewCache returns a Cache rooted at dir, e.g. "<data-dir>/git".
-func NewCache(dir string) *Cache {
-	return &Cache{root: dir, mirrorLocks: map[string]*sync.Mutex{}}
+func NewCache(dir string, opts ...Option) *Cache {
+	c := &Cache{root: dir, mirrorLocks: map[string]*sync.Mutex{}}
+	for _, opt := range opts {
+		opt(c)
+	}
+	return c
 }
 
 // lockMirror serializes every EnsureMirror call for the same repoPath,
@@ -96,6 +133,32 @@ func (c *Cache) EnsureMirror(ctx context.Context, rawURL string) (string, error)
 
 	if err := os.MkdirAll(filepath.Dir(repoPath), 0o755); err != nil {
 		return "", &CacheError{Op: "EnsureMirror", Kind: ErrKindPermanent, Cause: err}
+	}
+
+	// GIT-006: an external directory laid out exactly like c.root itself
+	// (a backup/portable copy of another machine's ragctl cache) seeds
+	// repoPath via a local clone, before ever trying the network. A bad,
+	// missing, or corrupted external root — or a seed clone that fails —
+	// falls straight through to the network clone below, never an error.
+	if seedPath, ok := c.findExternalMirrorSeed(rawURL); ok {
+		if res, err := executil.Run(ctx, executil.RunOptions{
+			Args: []string{"git", "clone", "--local", "--mirror", seedPath, repoPath}, Timeout: defaultCloneTimeout,
+		}); err == nil && res.ExitCode == 0 {
+			return repoPath, nil
+		}
+	}
+
+	// GIT-007: a real git working-tree checkout somewhere under a
+	// configured search root, matched by its own "origin" remote rather
+	// than by path convention (see findCheckoutSeed) — for the case an
+	// external directory isn't laid out like c.root at all. Same
+	// never-block-acquisition principle as the tier above.
+	if seedPath, ok := c.findCheckoutSeed(ctx, rawURL); ok {
+		if res, err := executil.Run(ctx, executil.RunOptions{
+			Args: []string{"git", "clone", "--local", "--mirror", seedPath, repoPath}, Timeout: defaultCloneTimeout,
+		}); err == nil && res.ExitCode == 0 {
+			return repoPath, nil
+		}
 	}
 
 	result, err := executil.Run(ctx, executil.RunOptions{
@@ -168,6 +231,77 @@ func (c *Cache) ResolveRef(ctx context.Context, repoPath, ref string) (string, e
 	return strings.TrimSpace(string(result.Stdout)), nil
 }
 
+// findExternalMirrorSeed (GIT-006) checks each configured
+// externalMirrorRoots entry, in order, for rawURL's exact
+// <host>/<org>/<repo>.git path — the same convention mirrorPath already
+// computes for c.root itself. The first root containing a match wins;
+// later roots aren't even checked. No scanning, no heuristics: a root
+// not laid out this way simply never matches anything, by design (see
+// GIT-007 for the directory-of-arbitrary-checkouts case).
+func (c *Cache) findExternalMirrorSeed(rawURL string) (string, bool) {
+	for _, root := range c.externalMirrorRoots {
+		extPath, err := mirrorPath(root, rawURL)
+		if err != nil {
+			continue // malformed root config shouldn't block acquisition
+		}
+		if info, statErr := os.Stat(extPath); statErr == nil && info.IsDir() {
+			return extPath, true
+		}
+	}
+	return "", false
+}
+
+// findCheckoutSeed (GIT-007) walks each configured checkoutSearchRoots
+// entry for a real git working-tree checkout whose own "origin" remote
+// matches rawURL, stopping at the first directory containing a .git
+// entry in each branch of the walk — never descending into a checkout's
+// own working-tree content, matched or not. Returns "", false if none
+// match, an expected miss, not an error.
+func (c *Cache) findCheckoutSeed(ctx context.Context, rawURL string) (string, bool) {
+	wantHost, wantPath, err := splitGitURL(rawURL)
+	if err != nil {
+		return "", false
+	}
+
+	for _, root := range c.checkoutSearchRoots {
+		var found string
+		_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, walkErr error) error {
+			if walkErr != nil || found != "" {
+				return nil // best-effort: an unreadable subtree is skipped, not fatal
+			}
+			if !d.IsDir() {
+				return nil
+			}
+			if _, statErr := os.Lstat(filepath.Join(path, ".git")); statErr != nil {
+				return nil // not a checkout root yet, keep descending
+			}
+			if host, p, err := checkoutOriginHostPath(ctx, path); err == nil && host == wantHost && p == wantPath {
+				found = path
+			}
+			return filepath.SkipDir // never descend into a checkout's own tree, match or not
+		})
+		if found != "" {
+			return found, true
+		}
+	}
+	return "", false
+}
+
+// checkoutOriginHostPath reads checkoutDir's "origin" remote and splits
+// it the same way mirrorPath does, so a checkout is matched by the same
+// host+repo-path identity as everything else in this file — regardless
+// of whether its origin is recorded as an HTTPS URL, SCP-like syntax, or
+// with/without a trailing ".git".
+func checkoutOriginHostPath(ctx context.Context, checkoutDir string) (host, path string, err error) {
+	res, runErr := executil.Run(ctx, executil.RunOptions{
+		Args: []string{"git", "-C", checkoutDir, "remote", "get-url", "origin"}, Timeout: defaultLocalTimeout,
+	})
+	if runErr != nil || res.ExitCode != 0 {
+		return "", "", fmt.Errorf("no origin remote at %s", checkoutDir)
+	}
+	return splitGitURL(strings.TrimSpace(string(res.Stdout)))
+}
+
 // mirrorPath computes the cache-relative path for rawURL, following the
 // "<host>/<org>/<repo>.git" convention (e.g. github.com/grpc/grpc-go.git).
 func mirrorPath(root, rawURL string) (string, error) {
@@ -175,8 +309,6 @@ func mirrorPath(root, rawURL string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	path = strings.TrimSuffix(path, ".git")
-	path = strings.Trim(path, "/")
 	if path == "" {
 		return "", fmt.Errorf("git: URL %q has no repository path", rawURL)
 	}
@@ -193,12 +325,12 @@ func mirrorPath(root, rawURL string) (string, error) {
 // rooted under a fixed "local" host so the cache layout stays consistent.
 func splitGitURL(rawURL string) (host, path string, err error) {
 	if u, uerr := url.Parse(rawURL); uerr == nil && u.Scheme != "" && u.Host != "" {
-		return u.Host, u.Path, nil
+		return u.Host, normalizeGitPath(u.Path), nil
 	}
 	if idx := strings.Index(rawURL, "@"); idx >= 0 {
 		rest := rawURL[idx+1:]
 		if colon := strings.Index(rest, ":"); colon >= 0 {
-			return rest[:colon], rest[colon+1:], nil
+			return rest[:colon], normalizeGitPath(rest[colon+1:]), nil
 		}
 	}
 
@@ -206,5 +338,24 @@ func splitGitURL(rawURL string) (host, path string, err error) {
 	if aerr != nil {
 		return "", "", fmt.Errorf("git: cannot parse repository URL %q", rawURL)
 	}
-	return "local", filepath.ToSlash(abs), nil
+	return "local", normalizeGitPath(filepath.ToSlash(abs)), nil
+}
+
+// normalizeGitPath strips a trailing ".git" suffix and leading/trailing
+// slashes, so every caller comparing two URLs for the same repository
+// (mirrorPath's own on-disk convention, GIT-006/GIT-007's matching
+// logic) sees the same identity regardless of which of the two
+// equally-common forms — "https://host/org/repo" vs
+// "https://host/org/repo.git" — either one happened to be written as.
+// This normalization used to live only inside mirrorPath itself, which
+// was splitGitURL's sole caller until GIT-007 added a second one
+// (checkoutOriginHostPath) that compared raw splitGitURL output
+// directly — live-found (a real ~/offline-knowledge checkout's origin
+// recorded with ".git", the resolved dependency URL without it) rather
+// than caught by any synthetic test, since every existing fixture
+// happened to use the same literal string on both sides of the
+// comparison, masking the mismatch entirely.
+func normalizeGitPath(path string) string {
+	path = strings.TrimSuffix(path, ".git")
+	return strings.Trim(path, "/")
 }

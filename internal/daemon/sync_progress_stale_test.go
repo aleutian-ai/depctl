@@ -127,6 +127,45 @@ func TestSyncProgressSurvivesADirtyCoalescedFollowUp(t *testing.T) {
 	}
 }
 
+// TestSyncProgressRanDistinguishesNeverSyncedFromNothingToDo is the
+// companion regression to this file's other tests, live-found the same
+// way: an agent calling sync_progress for a project whose sync just
+// found nothing new to build (every dependency already had a current
+// generation elsewhere in the fleet) saw the exact same zero-valued
+// SyncProgress a project that had *never* synced would — indistinguishable,
+// and actively misleading (a real MCP session concluded the sync tool
+// must be disabled). Ran must be true the moment a real run finishes,
+// even a Total==0 one that lastMeaningful itself deliberately ignores.
+func TestSyncProgressRanDistinguishesNeverSyncedFromNothingToDo(t *testing.T) {
+	run := func(_ context.Context, _ *BuildCoordinator, projectID string, opts SyncOptions, _ io.Writer) (api.SyncResult, error) {
+		// Every dependency already has a current generation elsewhere —
+		// a genuine, correct no-op.
+		opts.Progress.SetTotal(0)
+		return api.SyncResult{ProjectID: projectID}, nil
+	}
+
+	s := NewScheduler(context.Background(), run, noGC, nil)
+	defer s.Shutdown()
+
+	before := s.SyncProgress("proj_never_synced")
+	if before.Ran {
+		t.Errorf("SyncProgress for an unregistered/never-synced project = %+v, want Ran false", before)
+	}
+
+	if r := awaitResult(t, s.Request("proj_never_synced", SyncOptions{}, nil)); r.Err != nil {
+		t.Fatalf("run: %v", r.Err)
+	}
+	s.Wait()
+
+	after := s.SyncProgress("proj_never_synced")
+	if !after.Ran {
+		t.Errorf("SyncProgress after a real no-op run = %+v, want Ran true (a sync did run, it just found nothing to do)", after)
+	}
+	if after.Total != 0 || after.Done != 0 || after.Failed != 0 {
+		t.Errorf("SyncProgress after a no-op run = %+v, want all-zero counters alongside Ran true", after)
+	}
+}
+
 // TestSyncProgressUpdatesOnANewMeaningfulRun proves the fix doesn't
 // overcorrect into permanent staleness: a later run that actually finds
 // and attempts real new work must still replace lastMeaningful with its

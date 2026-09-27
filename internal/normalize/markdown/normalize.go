@@ -2,6 +2,7 @@ package markdown
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -15,6 +16,17 @@ import (
 	"aleutian-ai/ragctl/internal/domain"
 	"aleutian-ai/ragctl/internal/normalize"
 )
+
+// codeBlockRecord is one fenced code block's structured identity,
+// captured at normalization time (STRUCT-002) so a code example is
+// never separated from the section that introduces it, unlike
+// code_languages' own document-wide, position-free set.
+type codeBlockRecord struct {
+	Index       int      `json:"index"`        // 0-based, document order
+	Language    string   `json:"language"`     // "" if the fence has no info string
+	Content     string   `json:"content"`      // raw fenced content, verbatim
+	SectionPath []string `json:"section_path"` // ancestor headings at this block's position
+}
 
 // Normalize reads src's materialized file and extracts title, heading
 // hierarchy, fenced-code languages, and links into a single
@@ -48,6 +60,13 @@ func (n *Normalizer) Normalize(ctx context.Context, src domain.SourceSnapshot) (
 	if len(extracted.links) > 0 {
 		metadata["links"] = strings.Join(extracted.links, ",")
 	}
+	if len(extracted.codeBlocks) > 0 {
+		blocksJSON, err := json.Marshal(extracted.codeBlocks)
+		if err != nil {
+			return nil, fmt.Errorf("markdown: marshal code_blocks for %s: %w", src.LocalPath, err)
+		}
+		metadata["code_blocks"] = string(blocksJSON)
+	}
 	if strings.TrimSpace(string(raw)) == "" {
 		metadata["parse_warning"] = "true"
 	}
@@ -68,10 +87,11 @@ func (n *Normalizer) Normalize(ctx context.Context, src domain.SourceSnapshot) (
 
 // extraction is the AST-derived data pulled from one Markdown document.
 type extraction struct {
-	title     string
-	headings  []string // heading breadcrumb paths, e.g. "Getting Started > Installation"
-	languages []string // distinct fenced-code-block languages, sorted
-	links     []string // link/autolink destinations, in document order
+	title      string
+	headings   []string // heading breadcrumb paths, e.g. "Getting Started > Installation"
+	languages  []string // distinct fenced-code-block languages, sorted
+	links      []string // link/autolink destinations, in document order
+	codeBlocks []codeBlockRecord
 }
 
 // extract walks source's goldmark AST once, collecting title, heading
@@ -112,9 +132,25 @@ func extract(source []byte) (extraction, error) {
 			}
 		case ast.KindFencedCodeBlock:
 			fcb := node.(*ast.FencedCodeBlock)
-			if lang := fcb.Language(source); len(lang) > 0 {
-				languages[string(lang)] = struct{}{}
+			lang := ""
+			if l := fcb.Language(source); len(l) > 0 {
+				languages[string(l)] = struct{}{}
+				lang = string(l)
 			}
+			// A copy of headingStack, not append([]string{}, ...) —
+			// STRUCT-001 found that form returns a non-nil empty slice
+			// even when headingStack is nil, marshaling to "[]" instead
+			// of "null" for a fence with no ancestor headings.
+			var sectionPath []string
+			if len(headingStack) > 0 {
+				sectionPath = append([]string{}, headingStack...)
+			}
+			result.codeBlocks = append(result.codeBlocks, codeBlockRecord{
+				Index:       len(result.codeBlocks),
+				Language:    lang,
+				Content:     string(fcb.Lines().Value(source)),
+				SectionPath: sectionPath,
+			})
 		case ast.KindLink:
 			l := node.(*ast.Link)
 			result.links = append(result.links, string(l.Destination))

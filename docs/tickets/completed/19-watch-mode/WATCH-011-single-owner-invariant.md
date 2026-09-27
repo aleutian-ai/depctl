@@ -1,7 +1,7 @@
 # WATCH-011: Enforce the single-owner invariant
 
 **Epic:** Watch Mode
-**Status:** partial — see Post-implementation note
+**Status:** done — see Post-implementation note
 **Depends on:** WATCH-007, WATCH-008, WATCH-009, WATCH-010
 **Estimated size:** small
 
@@ -50,15 +50,17 @@ N/A (enforcement and docs).
 
 ## Acceptance criteria
 - [x] Only `daemon run`, `init`, and `doctor`'s deliberate fallback open persistent stores, enforced by a test (`TestOnlyAllowedFunctionsOpenStoresDirectly`) — one more exception than originally scoped, since `doctor` needed a real fallback rather than a full migration (see WATCH-009's note).
-- [ ] CLI and MCP never hold database locks independently, proven by the behavioral test. (Believed true — verified live for `project`/`deps`/`doctor`/`describe`/`serve` individually — but no single behavioral test exercises all of them plus `serve` together yet.)
-- [ ] The old multi-process access model (per-command opens, lock retry) is gone. (Not audited for leftover `ErrLocked`-retry code specifically.)
-- [x] Internal docs (`docs/internal/cli.md`, `daemon.md`, `control.md`) reflect the daemon model. Architecture.md and README not separately touched; epic 19 stays in `planned/` until the remaining items above are done, per CLAUDE.md's "every ticket done" rule for moving to `completed/`.
+- [x] CLI and MCP never hold database locks independently, proven by the behavioral test. **Done** (2026-09) — `TestAllStoreTouchingCommandsSucceedAgainstOneRealDaemon` (`internal/cli/watch011_behavioral_test.go`) runs `scan`, `sync --dry-run`, `plan`, `status`, `project list`, `deps`, `describe`, `gc --dry-run`, `doctor` in sequence against one real daemon, then confirms `bboltstore.Open` succeeds immediately after stopping it — verified rigorously (temporarily skipped the daemon-stop step, confirmed the final assertion actually fails, restored it). `TestServeOverRealStdioTransport` (epic 47/VERIFY-001) already covered the MCP tool surface the same way; this test is its CLI-command counterpart.
+- [x] The old multi-process access model (per-command opens, lock retry) is gone. **Audited** (2026-09): the only non-test `ErrLocked` reference outside `internal/control/bbolt` itself is `runDaemonRun`'s own second-instance detection (`internal/cli/daemon.go`) — exactly the intended, permanent use this ticket's own Design section named ("`ErrLocked` itself stays: the daemon uses it to detect a second instance"). No lock-retry pattern found anywhere else in `internal/cli`/`internal/control`.
+- [x] Internal docs (`docs/internal/cli.md`, `daemon.md`, `control.md`) reflect the daemon model.
 
 ## Post-implementation note
 WATCH-007, WATCH-008, WATCH-009, and WATCH-010 are all now done — `doctor` is the one remaining, explicitly intentional exception (dial-only, falls back to direct store access only when no daemon answers; see WATCH-009's note).
 
-This ticket itself, partial:
-- **Done:** the AST invariant test (`internal/cli/invariant_test.go`, `TestOnlyAllowedFunctionsOpenStoresDirectly`) — parses every non-test file in `internal/cli`, fails if any function outside a closed six-name allow-list (`openControlStore`, `openDataStore`, `openControlStoreForDaemonRun`, `runInit`, `runDaemonRun`, `runDoctorDirect` — one more than this ticket's original design anticipated, since `doctor` ended up with a real fallback path rather than being fully migrated) calls a direct-open function. Verified to actually catch a violation, not just pass vacuously, by temporarily introducing one during development and confirming the test failed with a specific, actionable message.
-- **Not done:** the full behavioral all-commands-plus-serve test, deleting old `ErrLocked` retry-special-casing (need to audit whether any remains — most of it was already gone by the time this ticket was picked back up), and reconciling every other WATCH ticket's own status field (WATCH-004 through WATCH-010 already got this treatment individually; WATCH-002/003 predate this scheme).
+This ticket itself, now fully done in two passes:
+- **First pass:** the AST invariant test (`internal/cli/invariant_test.go`, `TestOnlyAllowedFunctionsOpenStoresDirectly`) — parses every non-test file in `internal/cli`, fails if any function outside a closed six-name allow-list (`openControlStore`, `openDataStore`, `openControlStoreForDaemonRun`, `runInit`, `runDaemonRun`, `runDoctorDirect` — one more than this ticket's original design anticipated, since `doctor` ended up with a real fallback path rather than being fully migrated) calls a direct-open function. Verified to actually catch a violation, not just pass vacuously, by temporarily introducing one during development and confirming the test failed with a specific, actionable message.
+- **Second pass (2026-09), closing everything left open:** the behavioral test (`TestAllStoreTouchingCommandsSucceedAgainstOneRealDaemon`) — see its own acceptance-criteria entry above for what it covers and how it was verified. The `ErrLocked` audit found nothing left to remove — the old multi-process retry model was already fully gone by the time this ticket was picked back up; the one remaining reference is the daemon's own intended second-instance detection. Every other WATCH ticket's status field was already individually correct (`**Status:** done` on each); only the epic `INDEX.md`'s own summary list was missing the `(done)` marker for WATCH-004 through WATCH-012 — fixed for consistency, not because any of them were actually incomplete.
+
+Epic 19 moves to `completed/` — every ticket in it, including this one, is now done.
 
 Two related hardening items landed alongside this, not originally scoped to WATCH-011 but discovered while assessing whether the daemon architecture as a whole was actually defensible: every `daemon/client.Client` method now wraps its call in a timeout (`defaultRequestTimeout`/`describeRequestTimeout`/`longRunningRequestTimeout` — `c.http` itself set none before, the same gap already found and fixed in the qdrant client), and `config.Config.Fingerprint()` plus `api.Health.ConfigFingerprint` make the daemon's frozen-at-startup config drift detectable and surfaced (`ensureDaemon`'s stderr warning, `daemon status`'s `config:` line, and a new `doctor` check) rather than silent.

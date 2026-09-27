@@ -36,17 +36,34 @@ func TestResolvePrefersNpmOverPnpm(t *testing.T) {
 	}
 }
 
-func TestResolveYarnNotYetSupported(t *testing.T) {
+func TestResolvePrefersPnpmOverYarnAndBun(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, root, "package.json", `{"name":"demo"}`)
-	writeFile(t, root, "yarn.lock", "# yarn lockfile v1\n")
+	writeFile(t, root, "pnpm-lock.yaml", "importers:\n  .: {}\npackages:\n  frompnpm@1.0.0: {}\n")
+	writeFile(t, root, "yarn.lock", "# yarn lockfile v1\n\nfromyarn@^1.0.0:\n  version \"1.0.0\"\n")
+	writeFile(t, root, "bun.lock", `{"lockfileVersion":0,"workspaces":{},"packages":{}}`)
 
-	_, err := New().Resolve(context.Background(), root)
-	if err == nil {
-		t.Fatal("expected error for yarn.lock-only project, got nil")
+	res, err := New().Resolve(context.Background(), root)
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
 	}
-	if !strings.Contains(err.Error(), "yarn.lock") {
-		t.Errorf("unexpected error: %v", err)
+	if len(res.Dependencies) != 1 || res.Dependencies[0].Dependency.Name != "frompnpm" {
+		t.Errorf("Dependencies = %+v, want just frompnpm (pnpm-lock.yaml takes priority over yarn.lock/bun.lock)", res.Dependencies)
+	}
+}
+
+func TestResolvePrefersYarnOverBun(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "package.json", `{"name":"demo","dependencies":{"fromyarn":"^1.0.0"}}`)
+	writeFile(t, root, "yarn.lock", "# yarn lockfile v1\n\nfromyarn@^1.0.0:\n  version \"1.0.0\"\n")
+	writeFile(t, root, "bun.lock", `{"lockfileVersion":0,"workspaces":{},"packages":{}}`)
+
+	res, err := New().Resolve(context.Background(), root)
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if len(res.Dependencies) != 1 || res.Dependencies[0].Dependency.Name != "fromyarn" {
+		t.Errorf("Dependencies = %+v, want just fromyarn (yarn.lock takes priority over bun.lock)", res.Dependencies)
 	}
 }
 

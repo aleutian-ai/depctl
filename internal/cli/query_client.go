@@ -233,7 +233,7 @@ func (r *daemonProgressReader) SyncProgress(ctx context.Context, projectID strin
 	if err != nil {
 		return mcp.SyncProgressOut{}, err
 	}
-	out := mcp.SyncProgressOut{Syncing: p.Syncing, Done: p.Done, Failed: p.Failed, Total: p.Total, Pending: p.Pending}
+	out := mcp.SyncProgressOut{Syncing: p.Syncing, Ran: p.Ran, Done: p.Done, Failed: p.Failed, Total: p.Total, Pending: p.Pending}
 	for _, d := range p.InFlight {
 		out.InFlight = append(out.InFlight, mcp.InFlightDependencyOut{Name: d.Name, ChunksDone: d.ChunksDone, ChunksTotal: d.ChunksTotal})
 	}

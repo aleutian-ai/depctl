@@ -10,6 +10,7 @@
 - `VectorConfig` — vector backend/endpoint/collection (`qdrant` in v0.1) — `internal/config/config.go`.
 - `RetentionConfig` — GC grace period and keep-latest policy — `internal/config/config.go`.
 - `WatchConfig` / `ServerConfig` (`MCPServerConfig`, `HTTPServerConfig`) — `WatchConfig.Enabled`/`Debounce` are read by `ragctl watch` (refuses to start when disabled; debounce window, default 2s), and `ServerConfig.MCP` by `ragctl serve`; `HTTPServerConfig` has no consumer yet — `internal/config/config.go`.
+- `GitConfig` (epic 43, 2026-09) — `MirrorSearchPaths`/`CheckoutSearchPaths`, both `[]string`, empty by default. Read by `internal/cli/pipeline.go`'s `buildGitCache` and passed straight through to `git.NewCache`'s `WithExternalMirrorRoots`/`WithCheckoutSearchRoots` options (GIT-006/GIT-007) — no consumer inside this package itself, purely a config carrier — `internal/config/config.go`.
 - `Default(dataDir string) Config` — documented v0.1 defaults rooted at `dataDir` — `internal/config/config.go`.
 - `Load(path string) (Config, error)` — reads, parses, and validates `config.yaml`; returns `ErrConfigNotFound` (wrapped, `errors.Is`-compatible) if missing — `internal/config/config.go`.
 - `(Config) Validate() error` — checks required paths are non-empty and durations are non-negative — `internal/config/config.go`.

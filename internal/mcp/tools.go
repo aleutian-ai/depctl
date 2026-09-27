@@ -117,6 +117,7 @@ type SearchResultChunk struct {
 	SourceType string            `json:"source_type"`
 	Authority  int               `json:"authority"`
 	TrustClass domain.TrustClass `json:"trust_class" jsonschema:"how much to trust this chunk: official/repository (high) vs community/user/unknown (lower) — weigh alongside authority when multiple chunks disagree"`
+	Breadcrumb string            `json:"breadcrumb" jsonschema:"structural location of this chunk within its dependency/version, e.g. \"grpc-go@1.72.0 > Authentication > Transport Credentials > NewTLS\""`
 }
 
 type SearchDependencyDocsOut struct {
@@ -187,7 +188,7 @@ func resultChunks(chunks []query.ResultChunk) []SearchResultChunk {
 			ChunkID: c.ChunkID, Content: c.Content, Score: c.Score,
 			Ecosystem: c.Ecosystem, Dependency: c.Dependency, Version: c.Version,
 			Generation: c.Generation, SourceType: c.SourceType, Authority: c.Authority,
-			TrustClass: c.TrustClass,
+			TrustClass: c.TrustClass, Breadcrumb: c.Breadcrumb,
 		}
 	}
 	return out
@@ -582,7 +583,12 @@ type SyncEstimateOut struct {
 // SyncProgressOut is sync_progress's result. Done, Failed and Total count
 // planned actions — nearly all one per dependency version.
 type SyncProgressOut struct {
-	Syncing  bool                    `json:"syncing"`
+	Syncing bool `json:"syncing"`
+	// Ran reports whether a sync has ever completed for this project —
+	// distinguishes "the last run found nothing new to sync" (Total == 0
+	// but Ran == true) from "no sync has ever run" (Ran == false); see
+	// syncProgressNote.
+	Ran      bool                    `json:"ran"`
 	Done     int                     `json:"done"`
 	Failed   int                     `json:"failed"`
 	Total    int                     `json:"total"`
@@ -625,6 +631,8 @@ func syncProgressNote(p SyncProgressOut) string {
 		return note
 	case p.Total > 0:
 		return fmt.Sprintf("no sync is running; the last run finished %d of %d (%d failed). Call sync_project to run another.", p.Done, p.Total, p.Failed)
+	case p.Ran:
+		return "no sync is running; the last run found nothing new to sync — every dependency this project resolves already has current knowledge elsewhere in the fleet. Call sync_project to check again, or search directly."
 	default:
 		return "no sync has run for this project yet. Call sync_project to start one."
 	}

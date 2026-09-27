@@ -1,7 +1,7 @@
 # STRUCT-001: Markdown chunk section paths
 
 **Epic:** Structural Preservation
-**Status:** planned
+**Status:** done — see Post-implementation note
 **Depends on:** CHUNK-002 (Markdown structural chunker, `docs/tickets/completed/10-fingerprinting-chunking`)
 **Estimated size:** small
 
@@ -98,7 +98,15 @@ A section with no headings at all (content before any heading, or a headless doc
 - A level-skip heading (H1 straight to H3): `section_path` reflects the same one-deeper-than-stack clamping `headingStack` already applies for `heading_path`.
 
 ## Acceptance criteria
-- [ ] Every Markdown chunk's `Metadata["section_path"]` is a valid JSON array of the chunk's section's ancestor heading text, in order.
-- [ ] `Metadata["heading_path"]` is unchanged in value and behavior.
-- [ ] No change to chunk count, ordinals, IDs, or content for any existing fixture.
-- [ ] `go test ./internal/data/chunk/...` passes, including new `section_path` assertions alongside the existing `heading_path` ones.
+- [x] Every Markdown chunk's `Metadata["section_path"]` is a valid JSON array of the chunk's section's ancestor heading text, in order.
+- [x] `Metadata["heading_path"]` is unchanged in value and behavior.
+- [x] No change to chunk count, ordinals, IDs, or content for any existing fixture.
+- [x] `go test ./internal/data/chunk/...` passes, including new `section_path` assertions alongside the existing `heading_path` ones.
+
+## Post-implementation note
+
+Built as designed, with one real bug found and fixed along the way: the ticket's own sketched code, `sectionPath: append([]string{}, headingStack...)`, does *not* produce the `nil` the ticket's own text specifies for headless content ("gets `sec.sectionPath == nil`, which marshals to `"null"`") — `append` onto a non-nil empty slice literal always returns a non-nil (if empty) slice, so headless content actually marshaled to `"[]"`, not `"null"`, contradicting the ticket's own stated `heading_path`-matching convention. Caught by writing the headless-content test the ticket itself specifies, not by inspection — fixed by only copying `headingStack` when non-empty, leaving `sectionPath` genuinely `nil` otherwise.
+
+Also added `TestSectionPathReflectsLevelSkipClamping` (H1 straight to H3), the one test case the ticket's own Tests section named that no existing test happened to cover already.
+
+Full suite green, `-race` clean.

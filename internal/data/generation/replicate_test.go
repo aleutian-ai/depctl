@@ -55,7 +55,7 @@ func TestReplicateEmbedsAndUpsertsAllChunks(t *testing.T) {
 		t.Fatalf("Create: %v", err)
 	}
 	sources := []registry.Source{{ID: "repository", Type: "git", URL: repoDir, Ref: "v${version}", Authority: 100}}
-	if err := Build(ctx, gen, sources, gitCache, store, badgerStore); err != nil {
+	if err := Build(ctx, gen, sources, gitCache, store, badgerStore, ""); err != nil {
 		t.Fatalf("Build: %v", err)
 	}
 
@@ -121,7 +121,7 @@ func TestReplicateFailureMarksReplicaFailedWithError(t *testing.T) {
 		t.Fatalf("Create: %v", err)
 	}
 	sources := []registry.Source{{ID: "repository", Type: "git", URL: repoDir, Ref: "v${version}", Authority: 100}}
-	if err := Build(ctx, gen, sources, gitCache, store, badgerStore); err != nil {
+	if err := Build(ctx, gen, sources, gitCache, store, badgerStore, ""); err != nil {
 		t.Fatalf("Build: %v", err)
 	}
 
@@ -217,7 +217,7 @@ func TestReplicatePointsUseGenerationVersionNotStaleObjectVersion(t *testing.T) 
 	if err != nil {
 		t.Fatalf("Create gen1: %v", err)
 	}
-	if err := Build(ctx, gen1, sources, gitCache, store, badgerStore); err != nil {
+	if err := Build(ctx, gen1, sources, gitCache, store, badgerStore, ""); err != nil {
 		t.Fatalf("Build gen1: %v", err)
 	}
 
@@ -241,7 +241,7 @@ func TestReplicatePointsUseGenerationVersionNotStaleObjectVersion(t *testing.T) 
 	if err != nil {
 		t.Fatalf("Create gen2: %v", err)
 	}
-	if err := Build(ctx, gen2, sources, gitCache, store, badgerStore); err != nil {
+	if err := Build(ctx, gen2, sources, gitCache, store, badgerStore, ""); err != nil {
 		t.Fatalf("Build gen2: %v", err)
 	}
 	manifest2, err := getManifest(ctx, badgerStore, gen2.ID)
@@ -300,7 +300,7 @@ func TestReplicatePointsUseCurrentSourceAuthorityNotStaleObjectAuthority(t *test
 	if err != nil {
 		t.Fatalf("Create gen1: %v", err)
 	}
-	if err := Build(ctx, gen1, originalSources, gitCache, store, badgerStore); err != nil {
+	if err := Build(ctx, gen1, originalSources, gitCache, store, badgerStore, ""); err != nil {
 		t.Fatalf("Build gen1: %v", err)
 	}
 
@@ -313,7 +313,7 @@ func TestReplicatePointsUseCurrentSourceAuthorityNotStaleObjectAuthority(t *test
 	if err != nil {
 		t.Fatalf("Create gen2: %v", err)
 	}
-	if err := Build(ctx, gen2, updatedSources, gitCache, store, badgerStore); err != nil {
+	if err := Build(ctx, gen2, updatedSources, gitCache, store, badgerStore, ""); err != nil {
 		t.Fatalf("Build gen2: %v", err)
 	}
 	manifest2, err := getManifest(ctx, badgerStore, gen2.ID)

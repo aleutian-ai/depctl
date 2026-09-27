@@ -1,14 +1,16 @@
 # Epic: Structural Preservation
 
+**Status: done** — all four tickets verified done against `docs/architecture.md`.
+
 Stop discarding cheap structure ragctl's normalizers and chunkers already derive in-memory but currently throw away or leave stranded at the wrong layer. Implements `docs/scratch/ragctl_architecture_eval_next_steps-2.md` §6.1 (Markdown heading paths), §6.2 (fenced code-block preservation), §8.1 (chunk self-description), and the breadcrumb half of §13.1 (query-serving evidence) — Phase 1 of that document's recommended sequence.
 
 The core idea, straight from that doc: `dependency@version > package/module > file > symbol > section > example` is real structure ragctl already walks during normalization and chunking. This epic promotes pieces of that walk onto `domain.Chunk.Metadata` and into query/MCP output, instead of re-deriving it later or forcing a second store lookup.
 
 ## Tickets
-- [STRUCT-001](STRUCT-001-markdown-section-paths.md) — structured ancestor heading path (`section_path`) alongside the Markdown chunker's existing flat `heading_path` breadcrumb string.
-- [STRUCT-002](STRUCT-002-fenced-code-block-preservation.md) — structured per-block code-fence records (index, language, content, section path) on the Markdown normalizer's output, replacing/extending today's document-wide `code_languages` set.
-- [STRUCT-003](STRUCT-003-chunk-self-describing-metadata.md) — promote dependency/version/source_type/package/file/symbol/section_path onto every `domain.Chunk.Metadata`, so `query.Service.search`'s existing single `GetChunk` call is enough to build a full `ResultChunk` — no second Badger lookup of the parent `KnowledgeObject`.
-- [STRUCT-004](STRUCT-004-mcp-breadcrumb-output.md) — surface a computed breadcrumb string (`grpc-go@1.72.0 > Authentication > Transport Credentials > NewTLS`) on `query.ResultChunk` and the `search_dependency_docs` MCP tool's output.
+- [STRUCT-001](STRUCT-001-markdown-section-paths.md) (done) — structured ancestor heading path (`section_path`) alongside the Markdown chunker's existing flat `heading_path` breadcrumb string.
+- [STRUCT-002](STRUCT-002-fenced-code-block-preservation.md) (done) — structured per-block code-fence records (index, language, content, section path) on the Markdown normalizer's output, replacing/extending today's document-wide `code_languages` set.
+- [STRUCT-003](STRUCT-003-chunk-self-describing-metadata.md) (done) — promote dependency/version/source_type/package/file/symbol/section_path onto every `domain.Chunk.Metadata`, so `query.Service.search`'s existing single `GetChunk` call is enough to build a full `ResultChunk` — no second Badger lookup of the parent `KnowledgeObject`.
+- [STRUCT-004](STRUCT-004-mcp-breadcrumb-output.md) (done) — surface a computed breadcrumb string (`grpc-go@1.72.0 > Authentication > Transport Credentials > NewTLS`) on `query.ResultChunk` and the `search_dependency_docs` MCP tool's output.
 
 ## Non-goals for this epic
 - OpenAPI and protobuf normalizers (design doc §6.3/§6.4) — separate, larger normalizers with their own granularity questions; not scoped here.

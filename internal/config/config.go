@@ -29,6 +29,25 @@ type Config struct {
 	Sync      SyncConfig      `yaml:"sync"`
 	Server    ServerConfig    `yaml:"server"`
 	Daemon    DaemonConfig    `yaml:"daemon"`
+	Git       GitConfig       `yaml:"git,omitempty"`
+}
+
+// GitConfig configures internal/source/git.Cache's optional local-seed
+// fallback tiers (epic 43) — both empty by default, so an existing
+// config file with no "git" key at all sees no behavior change.
+type GitConfig struct {
+	// MirrorSearchPaths (GIT-006): external directories laid out
+	// identically to ragctl's own mirror cache convention
+	// (<host>/<org>/<repo>.git) — e.g. a backup of another machine's
+	// ragctl data dir. Checked by exact path, in order, before a
+	// network clone; the first hit wins.
+	MirrorSearchPaths []string `yaml:"mirror_search_paths,omitempty"`
+	// CheckoutSearchPaths (GIT-007): external directories containing
+	// arbitrary real git working-tree checkouts (e.g. a personal
+	// corpus like ~/offline-knowledge) — discovered by walking each
+	// root and matching a checkout's own "origin" remote against the
+	// dependency being acquired, not by path convention.
+	CheckoutSearchPaths []string `yaml:"checkout_search_paths,omitempty"`
 }
 
 type StorageConfig struct {
