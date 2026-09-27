@@ -12,4 +12,4 @@ Measured on the terraform fixture (N=7, cold): **99 of 141 dependencies that rep
 
 ## Status
 
-**Epic stays in `planned/`** — full-scale re-measurement after POINT-004's fix (confirming the 62.2% bucket actually collapses) is the one remaining open item before this epic could move to `completed/`.
+**Done, 2026-09-27.** Full-scale re-measurement against the real `hashicorp/terraform` corpus (11 projects, 558 generations, 884,336 points) confirmed POINT-004's fix: the 62.2% same-`(dependency, version)`-multiple-generation bucket collapsed to **0 of 558 tuples**. Residual duplication measured at 4.2%, matching POINT-002's already-accepted shared-boilerplate bucket, not a new problem. See [POINT-004](POINT-004-cross-project-generation-reuse.md)'s Results section for the full methodology and numbers.
