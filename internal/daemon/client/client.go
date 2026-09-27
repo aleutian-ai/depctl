@@ -319,7 +319,7 @@ func (c *Client) stream(ctx context.Context, path string, body any, out io.Write
 		}
 		switch {
 		case line.Error != "":
-			return errors.New(line.Error)
+			return &RemoteError{Message: line.Error, Kind: line.Kind}
 		case line.Result != nil:
 			if result == nil {
 				return nil

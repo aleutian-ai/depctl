@@ -29,7 +29,9 @@ func (r *Resolver) Resolve(ctx context.Context, root string) (domain.Resolution,
 		}
 	}
 	return domain.Resolution{}, resolutionErr(root, fmt.Errorf(
-		"no supported lockfile found (package.json alone, with no lockfile, isn't resolvable yet)"))
+		"no supported lockfile found (package.json alone, with no lockfile, isn't resolvable yet — "+
+			"run npm install, pnpm install, yarn install, or bun install to generate one of "+
+			"package-lock.json, pnpm-lock.yaml, yarn.lock, or bun.lock, then re-run `ragctl scan`)"))
 }
 
 func exists(root, name string) bool {

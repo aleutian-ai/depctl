@@ -1,7 +1,9 @@
 package cli
 
 import (
+	"context"
 	"fmt"
+	"io"
 	"os"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -59,7 +61,7 @@ func runServe(cmd *cobra.Command) error {
 		return fmt.Errorf("MCP server disabled (server.mcp.enabled: false in config)")
 	}
 
-	server := mcp.New(mcp.Deps{
+	deps := mcp.Deps{
 		Query:          &daemonQueryService{c: c},
 		Sync:           &daemonSyncTrigger{c: c},
 		EnableSyncTool: health.EnableSyncTool,
@@ -67,10 +69,47 @@ func runServe(cmd *cobra.Command) error {
 		Priority:       &daemonPriorityBumper{c: c},
 		Progress:       &daemonProgressReader{c: c},
 		Symbols:        callSiteResolver(c),
-	})
+	}
+	startupScan(ctx, cmd.ErrOrStderr(), deps.Scan, deps.Query)
+
+	server := mcp.New(deps)
 
 	fmt.Fprintln(cmd.ErrOrStderr(), "ragctl MCP server starting (stdio transport)")
 	return server.Run(ctx, &sdkmcp.StdioTransport{})
+}
+
+// startupScan registers the server's own working directory (MCP-006)
+// before the MCP loop starts, so an agent's first tool call already
+// sees real dependency status instead of an empty fleet — the same
+// scan_project path, just moved earlier; always safe to re-run. This is
+// registration + status only (manifest parsing and version resolution),
+// never a sync: no dependency is cloned or embedded here, so the cost
+// stays bounded even for a session that never asks about dependencies.
+// A failure here is logged, not fatal — the agent can always fall back
+// to calling scan_project itself, mirroring callSiteResolver's own
+// non-fatal posture above for a similar os.Getwd()-dependent step.
+func startupScan(ctx context.Context, stderr io.Writer, scan mcp.ScanTrigger, q mcp.QueryService) {
+	if scan == nil {
+		return
+	}
+	ids, summary, err := scan.ScanProject(ctx, ".", nil)
+	if err != nil {
+		fmt.Fprintf(stderr, "ragctl: startup scan failed (%v) — call scan_project manually\n", err)
+		return
+	}
+	if summary != "" {
+		fmt.Fprint(stderr, summary)
+	}
+	if len(ids) == 0 || q == nil {
+		return
+	}
+	status, err := q.Status(ctx)
+	if err != nil {
+		fmt.Fprintf(stderr, "ragctl: startup status check failed (%v)\n", err)
+		return
+	}
+	fmt.Fprintf(stderr, "ragctl: %d project(s), %d dependencies, %d/%d already synced\n",
+		status.TotalProjects, status.TotalDependencies, status.WithActiveGeneration, status.TotalDependencies)
 }
 
 // callSiteResolver builds explain_call_site's backing symbolgraph.Resolver

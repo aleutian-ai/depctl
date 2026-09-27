@@ -78,4 +78,12 @@ func TestResolveNoLockfile(t *testing.T) {
 	if !strings.Contains(err.Error(), "no supported lockfile") {
 		t.Errorf("unexpected error: %v", err)
 	}
+	// MCP-008: name every supported lockfile and the command to produce
+	// it, not just state the problem.
+	for _, want := range []string{"npm install", "pnpm install", "yarn install", "bun install",
+		"package-lock.json", "pnpm-lock.yaml", "yarn.lock", "bun.lock", "ragctl scan"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error text %q missing actionable detail %q", err.Error(), want)
+		}
+	}
 }

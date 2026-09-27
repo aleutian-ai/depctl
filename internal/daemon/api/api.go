@@ -466,6 +466,11 @@ type StreamLine struct {
 	Log    string          `json:"log,omitempty"`
 	Result json.RawMessage `json:"result,omitempty"`
 	Error  string          `json:"error,omitempty"`
+	// Kind mirrors Error's own field below (see its doc) — MCP-007:
+	// stream()'s error line dropped this entirely, so no sentinel ever
+	// survived a sync/scan/GC error's round trip, unlike every
+	// non-streaming call.
+	Kind string `json:"kind,omitempty"`
 }
 
 // Error is the body of every non-2xx response.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -601,6 +602,23 @@ func TestSyncProjectHandlerEnabledCallsTrigger(t *testing.T) {
 	}
 	if out.Synced != 2 || out.Skipped != 1 {
 		t.Errorf("out = %+v, want Synced=2 Skipped=1", out)
+	}
+}
+
+// TestSyncProjectHandlerClassifiesSentinelErrors is MCP-007: a real
+// sync failure (as opposed to the still_running bounded-wait path) must
+// be routed through toolError like every other tool, not returned as a
+// bare fmt.Errorf-wrapped string — otherwise an agent can never tell a
+// query.ErrProjectNotFound-shaped failure apart from an opaque one.
+func TestSyncProjectHandlerClassifiesSentinelErrors(t *testing.T) {
+	trigger := &fakeSyncTrigger{err: fmt.Errorf("sync: %w", query.ErrProjectNotFound)}
+	handler := syncProjectHandler(nil, trigger, true)
+	_, _, err := handler(context.Background(), nil, SyncProjectIn{ProjectID: "proj_1"})
+	if !errors.Is(err, query.ErrProjectNotFound) {
+		t.Fatalf("handler error = %v, want it to still wrap query.ErrProjectNotFound", err)
+	}
+	if !strings.Contains(err.Error(), "call the scan_project tool first") {
+		t.Errorf("handler error = %q, want toolError's actionable project-not-found message", err.Error())
 	}
 }
 

@@ -404,7 +404,7 @@ func syncProjectHandler(query QueryService, sync SyncTrigger, enabled bool) sdkm
 		select {
 		case r := <-done:
 			if r.err != nil {
-				return nil, SyncProjectOut{}, fmt.Errorf("sync_project: %w", r.err)
+				return nil, SyncProjectOut{}, toolError(r.err)
 			}
 			return nil, SyncProjectOut{Synced: r.synced, Failed: r.failed, Skipped: r.skipped, Note: securityNote}, nil
 		case <-time.After(mcpSyncWaitBound):

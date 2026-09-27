@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 
@@ -11,6 +12,7 @@ import (
 	bboltstore "aleutian-ai/ragctl/internal/control/bbolt"
 	"aleutian-ai/ragctl/internal/domain"
 	"aleutian-ai/ragctl/internal/planner"
+	"aleutian-ai/ragctl/internal/query"
 	"aleutian-ai/ragctl/internal/registry"
 )
 
@@ -51,6 +53,15 @@ func computePlans(ctx context.Context, store *bboltstore.Store, backendName, pro
 	var projects []domain.Project
 	if projectID != "" {
 		p, err := store.GetProject(ctx, projectID)
+		if errors.Is(err, bboltstore.ErrNotFound) {
+			// MCP-007: classified as query.ErrProjectNotFound (rather
+			// than bbolt's own generic not-found) so a stale/deleted
+			// project_id reaching sync_project mid-session produces
+			// toolError's actionable "call scan_project first" message
+			// instead of an opaque string once it crosses the daemon's
+			// HTTP boundary.
+			return nil, fmt.Errorf("get project %s: %w", projectID, query.ErrProjectNotFound)
+		}
 		if err != nil {
 			return nil, fmt.Errorf("get project %s: %w", projectID, err)
 		}

@@ -201,7 +201,7 @@ type daemonSyncTrigger struct {
 func (t *daemonSyncTrigger) SyncProject(ctx context.Context, projectID string, dependencies []string, progress func(line string)) (synced, failed, skipped int, err error) {
 	resp, err := t.c.Sync(ctx, api.SyncRequest{ProjectID: projectID, Dependencies: dependencies}, lineWriter(progress))
 	if err != nil {
-		return 0, 0, 0, err
+		return 0, 0, 0, wrapQueryError(err)
 	}
 	for _, r := range resp.Results {
 		synced += r.Synced

@@ -127,6 +127,37 @@ func TestDaemonSyncTriggerRoundTripsThroughRealDaemon(t *testing.T) {
 	}
 }
 
+// TestDaemonSyncTriggerProjectNotFoundIsClassified is MCP-007's own
+// regression proof: a stale/deleted project_id reaching sync_project
+// used to surface as an opaque string once its error crossed the
+// daemon's streaming HTTP boundary (internal/daemon/stream.go's error
+// line carried no Kind, unlike the non-streaming path writeError
+// already fixed for WATCH-019/020 — see this test's sibling above).
+// Now it round-trips as a real query.ErrProjectNotFound, exactly like
+// every other tool's errors already do, so toolError (internal/mcp)
+// can turn it into the same actionable "call scan_project first"
+// message instead of a raw, unclassifiable failure indistinguishable
+// from a timeout.
+func TestDaemonSyncTriggerProjectNotFoundIsClassified(t *testing.T) {
+	isolateEnv(t)
+	noAmbientSync(t)
+	requireGo(t)
+	runInitForTest(t)
+	useRealRagctlBinary(t)
+
+	ctx := context.Background()
+	c, err := ensureDaemon(ctx)
+	if err != nil {
+		t.Fatalf("ensureDaemon: %v", err)
+	}
+
+	trigger := &daemonSyncTrigger{c: c}
+	_, _, _, err = trigger.SyncProject(ctx, "proj_does_not_exist", nil, nil)
+	if !errors.Is(err, query.ErrProjectNotFound) {
+		t.Errorf("SyncProject for an unregistered project_id = %v, want an error wrapping query.ErrProjectNotFound", err)
+	}
+}
+
 // TestDaemonSyncTriggerDependencyFilterReachesRealSyncOptions is
 // WATCH-019's wiring proof: dependency threads all the way from
 // daemonSyncTrigger.SyncProject through a real api.SyncRequest into
