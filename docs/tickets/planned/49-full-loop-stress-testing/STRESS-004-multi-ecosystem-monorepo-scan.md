@@ -49,3 +49,5 @@ One `ragctl scan /tmp/monorepo` invocation: `discovered 2, new 2, existing 0` �
 - **Node project**: exactly 69 dependencies — `express` + `lodash` (direct) + their real transitive closure (`body-parser`, `qs`, `send`, `debug`, etc.), no Go module anywhere in the list.
 
 Clean pass, no follow-up needed.
+
+**Re-verified 2026-09-27 — no regression.** Same fixture shape (`go-side/go.mod` requiring real `github.com/spf13/cobra`, `node-side/package.json` requiring real `express` + `lodash`, real `npm install --package-lock-only`). One `ragctl scan` invocation: `discovered 2, new 2, existing 0` — both projects found and registered in the same pass. Dependency counts match the original run exactly: **7 Go dependencies**, **69 Node dependencies**, zero cross-contamination in either direction (verified by grepping each project's `ragctl deps` output for the other ecosystem's tag — zero matches both ways). Verdict: **no regression.**
