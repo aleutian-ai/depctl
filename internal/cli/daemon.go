@@ -27,6 +27,7 @@ import (
 	badgerstore "aleutian-ai/ragctl/internal/data/badger"
 	"aleutian-ai/ragctl/internal/domain"
 	"aleutian-ai/ragctl/internal/query"
+	"aleutian-ai/ragctl/internal/source/git"
 	"aleutian-ai/ragctl/internal/watch"
 )
 
@@ -469,6 +470,16 @@ type engine struct {
 	// project's Sync call for this engine's whole lifetime, sized once at
 	// construction from cfg.Sync.MaxTotalConcurrency.
 	syncSem chan struct{}
+
+	// gitCache is one instance shared by every project's Sync call for
+	// this engine's whole lifetime (OPS-007) — RunSync used to build a
+	// fresh git.Cache per call, which meant its EnsureMirror in-process
+	// mirrorLocks map started empty every time, so it could never
+	// actually protect two genuinely concurrent Sync calls (epic 53) that
+	// both need the same underlying repository (e.g. two projects on
+	// different tags of one monorepo) from racing on the same `git clone
+	// --mirror` target directory.
+	gitCache *git.Cache
 }
 
 // newEngine constructs an engine with its daemon-wide sync semaphore
@@ -476,16 +487,21 @@ type engine struct {
 // so every construction site (real daemon startup, tests) gets the same
 // "0 unmarshals as unset" default-substitution RunSync's own
 // MaxConcurrency already establishes, rather than each caller repeating it.
-func newEngine(store *bboltstore.Store, badgerStore *badgerstore.Store, cfg config.Config, controlPath, badgerPath string, embeddingReadiness *embeddingReadiness, vecReadiness *vectorReadiness) *engine {
+func newEngine(store *bboltstore.Store, badgerStore *badgerstore.Store, cfg config.Config, controlPath, badgerPath string, embeddingReadiness *embeddingReadiness, vecReadiness *vectorReadiness) (*engine, error) {
 	maxTotal := cfg.Sync.MaxTotalConcurrency
 	if maxTotal < 1 {
 		maxTotal = 4
 	}
+	gitCache, err := buildGitCache(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("build git cache: %w", err)
+	}
 	return &engine{
 		store: store, badgerStore: badgerStore, cfg: cfg, controlPath: controlPath, badgerPath: badgerPath,
 		embeddingReadiness: embeddingReadiness, vectorReadiness: vecReadiness,
-		syncSem: make(chan struct{}, maxTotal),
-	}
+		syncSem:  make(chan struct{}, maxTotal),
+		gitCache: gitCache,
+	}, nil
 }
 
 // baseQueryService returns e's memoized, stores-only query.Service —
@@ -564,7 +580,7 @@ func (e *engine) Sync(ctx context.Context, coordinator *daemon.BuildCoordinator,
 			return api.SyncResult{}, err
 		}
 	}
-	synced, failed, skipped, err := RunSync(ctx, coordinator, e.store, e.badgerStore, e.cfg, projectID, opts.Dependencies, opts.Offline, opts.Force, opts.Rebuild, out, e.embeddingReadiness, e.vectorReadiness, opts.Priority, opts.Progress, e.syncSem)
+	synced, failed, skipped, err := RunSync(ctx, coordinator, e.store, e.badgerStore, e.cfg, projectID, opts.Dependencies, opts.Offline, opts.Force, opts.Rebuild, out, e.embeddingReadiness, e.vectorReadiness, opts.Priority, opts.Progress, e.syncSem, e.gitCache)
 	return api.SyncResult{ProjectID: projectID, Synced: synced, Failed: failed, Skipped: skipped}, err
 }
 
@@ -975,8 +991,12 @@ func runDaemonRun(cmd *cobra.Command) error {
 	// warning, never a refusal.
 	go checkForeignCollectionData(ctx, cfg, store, logf)
 
+	engine, err := newEngine(store, badgerStore, cfg, controlPath, badgerPath, readiness, vecReadiness)
+	if err != nil {
+		return err
+	}
 	srv := daemon.New(daemon.Options{
-		Engine:             newEngine(store, badgerStore, cfg, controlPath, badgerPath, readiness, vecReadiness),
+		Engine:             engine,
 		Socket:             socket,
 		ControlPath:        controlPath,
 		Version:            ragctlVersion,

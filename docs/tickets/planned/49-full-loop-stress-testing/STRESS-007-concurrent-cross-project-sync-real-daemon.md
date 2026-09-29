@@ -1,7 +1,7 @@
 # STRESS-007: Concurrent cross-project sync against a real daemon
 
 **Epic:** Full-Loop Stress Testing
-**Status:** planned
+**Status:** done — 2026-09-29
 **Depends on:** none
 **Estimated size:** medium
 
@@ -33,5 +33,17 @@ Re-run VALID-002's cross-project version-isolation scenario (two projects, one s
 - Manual/live exercise; results recorded in this ticket's post-implementation note.
 
 ## Acceptance criteria
-- [ ] Two concurrent real syncs of the same dependency at different versions, for two different projects, both complete correctly.
-- [ ] Each project's search remains correctly scoped to its own resolved version afterward, matching VALID-002's guarantee under real daemon concurrency.
+- [x] Two concurrent real syncs of the same dependency at different versions, for two different projects, both complete correctly.
+- [x] Each project's search remains correctly scoped to its own resolved version afterward, matching VALID-002's guarantee under real daemon concurrency.
+
+## Post-implementation note (2026-09-29)
+
+Built an isolated fixture (real Qdrant, isolated `$HOME`, `watch.enabled: false`) with two real projects each depending on `google.golang.org/grpc` at a different real tag (`v1.60.0` and `v1.68.0`, 28 and 26 total dependencies respectively) and fired both projects' real `ragctl sync` as two genuinely separate client processes within ~0ms of each other, confirmed via `ps` to actually overlap in wall-clock time (28m24s and 22m30s, run concurrently, not summed).
+
+**Real finding #1 (`OPS-007`, fixed same-day):** project A failed on `cloud.google.com/go/compute/metadata v0.2.3` with a real `git clone --mirror` collision (`fatal: cannot copy '.../hooks/commit-msg.sample': File exists`) — both projects depend on different tags of the same underlying `github.com/googleapis/google-cloud-go` monorepo, and the two concurrent syncs raced on that repository's shared mirror directory. Root-caused to `RunSync` building a fresh `git.Cache` (and therefore a fresh, empty `mirrorLocks` map) on every call, defeating `EnsureMirror`'s own in-process lock, which was specifically designed to prevent exactly this — only reachable once epic 53 removed cross-project sync serialization. Fixed by hoisting `git.Cache` construction to once per daemon lifetime (`engine.gitCache`), matching the existing `syncSem` pattern; full `go build`/`go vet`/`go test ./...` pass, and the specific failed dependency rebuilt cleanly afterward with the fix in place. (The exact mirror-creation race itself wasn't re-forced live under the fix in this same environment, since the mirror already existed from the first, buggy run by the time the fixed binary was tested — the fix's mechanism was verified by build/test/code-review, not a second live collision.)
+
+**Real finding #2 (not a bug, a real symptom worth recording):** both projects also independently hit real `embed batch: embedding cache: inner embed: context deadline exceeded` failures (4 in A, 1 in B) — two large, genuinely concurrent real embedding workloads against the one shared local Ollama instance produced real request timeouts under that combined real load. All cleared cleanly on retry (`--rebuild --dependency <name>`, per this session's own established OPS-004/005 recovery pattern) once the concurrent load eased. Not itself a ragctl bug — real evidence that two large concurrent syncs can genuinely saturate a single local embedder, worth knowing for anyone running ragctl against a resource-constrained embedding backend, but out of this ticket's scope to fix (no non-goal violated).
+
+**The actual guarantee this ticket exists to verify — confirmed correct, with one non-obvious real detail:** `ragctl describe`'s single-pointer "active version" display only ever shows ONE version per dependency name (confirmed via `activeGenerationKey`'s `(ecosystem, name, backend)` keying, no version component) — briefly looked like it might mean only the most-recently-promoted version could ever be searched correctly, which would have been a serious, real regression in the cross-project isolation guarantee. Directly tested via a real `search_dependency_docs` call from each project's own context: **both returned correct, version-appropriate content with different generation IDs** (`gen_...NX1C...` for A's `v1.60.0` build, `gen_...B3A0...` for B's `v1.68.0` build) despite `describe` only displaying one of them — confirming VALID-002/FIX-002's per-project version-scoped resolution genuinely holds under real concurrent daemon load, and that `describe`'s single-pointer view is just a display simplification, not a reflection of what search actually uses.
+
+`ragctl doctor` reported clean (19 ok, 0 warning, 0 unhealthy) after all retries completed.

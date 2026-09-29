@@ -185,7 +185,7 @@ func clearForRebuild(ctx context.Context, store *bboltstore.Store, backendName, 
 	return nil
 }
 
-func RunSync(ctx context.Context, coordinator *daemon.BuildCoordinator, store *bboltstore.Store, badgerStore *badgerstore.Store, cfg config.Config, projectID string, dependencies []string, offline, force, rebuild bool, out io.Writer, readiness *embeddingReadiness, vecReadiness *vectorReadiness, priority *daemon.SyncPriority, progress *daemon.SyncProgress, daemonSem chan struct{}) (synced, failed, skipped int, err error) {
+func RunSync(ctx context.Context, coordinator *daemon.BuildCoordinator, store *bboltstore.Store, badgerStore *badgerstore.Store, cfg config.Config, projectID string, dependencies []string, offline, force, rebuild bool, out io.Writer, readiness *embeddingReadiness, vecReadiness *vectorReadiness, priority *daemon.SyncPriority, progress *daemon.SyncProgress, daemonSem chan struct{}, gitCache *git.Cache) (synced, failed, skipped int, err error) {
 	if rebuild && len(dependencies) > 0 {
 		if err := clearForRebuild(ctx, store, cfg.Vector.Backend, projectID, dependencies); err != nil {
 			return 0, 0, 0, fmt.Errorf("rebuild: %w", err)
@@ -228,10 +228,6 @@ func RunSync(ctx context.Context, coordinator *daemon.BuildCoordinator, store *b
 			return nil, err
 		}
 		vb, err := buildVectorBackend(cfg)
-		if err != nil {
-			return nil, err
-		}
-		gitCache, err := buildGitCache(cfg)
 		if err != nil {
 			return nil, err
 		}

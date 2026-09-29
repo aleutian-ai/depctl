@@ -994,7 +994,7 @@ func TestRunSyncDaemonSemBoundsConcurrencyAcrossSeparateCalls(t *testing.T) {
 
 	run := func(projectID string, sem chan struct{}) {
 		coordinator := daemon.NewBuildCoordinator()
-		RunSync(ctx, coordinator, store, badgerStore, cfg, projectID, nil, true /* offline */, false, false, io.Discard, nil, nil, nil, nil, sem)
+		RunSync(ctx, coordinator, store, badgerStore, cfg, projectID, nil, true /* offline */, false, false, io.Discard, nil, nil, nil, nil, sem, nil)
 	}
 
 	checkBound := func(t *testing.T, sem chan struct{}, semSize int, wantOverlap bool) {
