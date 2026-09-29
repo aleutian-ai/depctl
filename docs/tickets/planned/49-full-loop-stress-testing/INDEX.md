@@ -28,8 +28,8 @@ Sourced from a 2026-09 design review's own stress-test plan, in the order propos
 
 ### Stage 4 — `serve`
 - [STRESS-015](STRESS-015-concurrent-real-mcp-sessions.md) — Multiple concurrent real MCP tool calls against one daemon.
-- [STRESS-016](STRESS-016-explain-call-site-at-scale.md) — `explain_call_site` against a real, large Go codebase.
-- [STRESS-017](STRESS-017-daemon-restart-during-mcp-session.md) — Daemon restart while an MCP client session is connected.
+- [x] [STRESS-016](STRESS-016-explain-call-site-at-scale.md) — `explain_call_site` against a real, large Go codebase. Done — all 15 real call sites across ragctl's own already-synced repo (5 external deps, 2 interface dispatches, 1 stdlib, rest internal) resolved correctly; found one real latency outlier (`cobra.Command{}`'s large struct literal, 3.00s vs. 380-965ms for everything else) worth a future perf pass, and one honest coverage gap (no generics/embedded interfaces in ragctl's own code to exercise).
+- [x] [STRESS-017](STRESS-017-daemon-restart-during-mcp-session.md) — Daemon restart while an MCP client session is connected. Done — the restart/reconnect story itself is solid (a live session's next call self-heals once any daemon rebinds the socket, no `serve` restart needed; graceful stop and `kill -9` both always produce a clear error, never a hang), but found a real, more serious gap along the way: `Scheduler.Wait()`'s unbounded shutdown-time wait can leave a "stopped" daemon's process — and its control.db lock — alive for as long as any in-flight sync takes, confirmed live via a real 3-minute stuck process's goroutine dump. Filed as epic 61's `OPS-006` (not fixed same-day; needs a store-write-cancellation audit first).
 
 ### Combined chaos
 - [STRESS-018](STRESS-018-full-loop-chaos-loop.md) — Repeated full-loop runs with random `kill -9`s injected at random points; `doctor` must report clean after every restart.

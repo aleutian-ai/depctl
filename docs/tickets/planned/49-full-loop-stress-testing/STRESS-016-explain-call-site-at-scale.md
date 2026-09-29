@@ -1,7 +1,7 @@
 # STRESS-016: `explain_call_site` at scale
 
 **Epic:** Full-Loop Stress Testing
-**Status:** planned
+**Status:** done — 2026-09-29
 **Depends on:** none
 **Estimated size:** medium
 
@@ -34,5 +34,35 @@ Run `explain_call_site` against many real call sites across a real, non-trivial 
 - Manual/live exercise; results recorded in this ticket's post-implementation note.
 
 ## Acceptance criteria
-- [ ] 15-20 real call sites across a real codebase all resolve correctly.
-- [ ] Latency at this scale is recorded and compared against the fixture-scale numbers.
+- [x] 15-20 real call sites across a real codebase all resolve correctly.
+- [x] Latency at this scale is recorded and compared against the fixture-scale numbers.
+
+## Post-implementation note (2026-09-29)
+
+Used ragctl's own real production registration (`proj_llrg46j3ra2ehvorh5y4wv4kjajqlxtffquqgkxbfjic7khnvuha`, already `scan`ned/`sync`ed with 116 real dependencies from ordinary session usage — no new fixture needed, per the ticket's own simplicity constraint). Wrote a throwaway driver (`hack/stress016/main.go`, deleted after use) using the same real-subprocess-over-stdio pattern as `internal/cli/serve_smoke_test.go` (`sdkmcp.NewClient` + `CommandTransport` spawning the real `ragctl serve` binary), and called `explain_call_site` against 15 real call sites:
+
+| Call site | Classification | Latency |
+|---|---|---|
+| `bolt.Open` (`go.etcd.io/bbolt`) | external, resolved correctly | 891ms |
+| `bg.Open` (`github.com/dgraph-io/badger/v4`) | external, resolved correctly | 782ms |
+| `cobra.Command{}` (`github.com/spf13/cobra`) | external, resolved correctly | **3.00s** |
+| `blake3.New()` (`github.com/zeebo/blake3`) | external, resolved correctly | 738ms |
+| `packages.Load` (`golang.org/x/tools`, self-referential) | external, resolved correctly | 964ms |
+| `s.backend.Query` (interface dispatch, `backend.VectorBackend`) | internal, correct | 383ms |
+| `generation.Build` (large file, `internal/cli/sync.go`) | internal, correct | 478ms |
+| `retention.PlanGC` | internal, correct | 462ms |
+| `store.ClearActiveGeneration` | internal, correct | 464ms |
+| `planner.Plan` | internal, correct | 470ms |
+| `os.MkdirAll` (stdlib) | tool-level error, `ErrDependencyNotResolved` | 449ms |
+| `s.coordinator.ExcludeForGC` | internal, correct | 409ms |
+| `embedder.Embed` (interface dispatch, `embedding.Embedder`) | internal, correct | 408ms |
+| `yaml.Unmarshal` (`gopkg.in/yaml.v3`) | external, resolved correctly | 685ms |
+| `checkForeignCollectionData` (cross-file call within `internal/cli`) | internal, correct | 603ms |
+
+**All 15 resolved correctly** — every external dependency named its real module/package correctly with real evidence chunks pulled from that dependency's own synced content (e.g. `bg.Open` → `github.com/dgraph-io/badger/v4`'s own doc text, not a stand-in); every internal call site (including the two interface-dispatch cases, `backend.VectorBackend.Query` and `embedding.Embedder.Embed`, and the large-file/cross-file cases) correctly returned the "inside the project" note rather than misclassifying; the stdlib call (`os.MkdirAll`) correctly produced `ErrDependencyNotResolved`, matching the existing documented behavior (ragctl doesn't track the standard library) rather than a panic or a hang.
+
+One apparent anomaly during setup, self-corrected before it became a false finding: the first badger call site chosen (`hack/verify-sync/main.go`'s `badger.Open`) was itself a call into ragctl's *own* `internal/data/badger` package (a thin wrapper also named `Open`), not the real `dgraph-io/badger` library — `explain_call_site` correctly classified it as internal. The test's own expectation was wrong, not the tool; swapped in the actual external call site (`bg.Open`, aliased import, inside `internal/data/badger/store.go` itself) and it resolved correctly.
+
+**Latency finding (not a failure, but real and worth recording):** all calls landed in the 380-965ms range except `cobra.Command{}`, which took **3.00s** — roughly 3-6x the others. `cobra.Command` is a large struct literal spanning many fields across multiple lines in `internal/cli/root.go`; type-checking that composite literal during `go/packages`' one-shot load is real, measurable extra work versus a simple call expression. This is meaningfully higher than GRAPH-001..004's own sub-100ms fixture-scale numbers across the board (400ms-3s here vs <100ms there) — expected, since a real package's `go/packages` load type-checks real, larger source files rather than 2-line fixtures, but worth flagging: an interactive MCP tool call landing at 3 seconds is at the edge of comfortable for a coding agent's request-response loop. No fix filed — the ticket's own non-goals rule that out — but this is real signal that a future performance pass on `gopackages.Provider`'s per-call load (e.g. caching a loaded package across calls within one project, rather than a fresh `packages.Load` every time) would be worth its own ticket if `explain_call_site` sees real day-to-day use.
+
+**Coverage gap, noted honestly:** ragctl's own codebase has no generics and no embedded interfaces, so this real-codebase test couldn't exercise those two cases the ticket's Design section calls out — that coverage remains limited to whatever GRAPH-001..004's own fixture-scale tests already include.

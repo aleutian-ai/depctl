@@ -19,7 +19,7 @@ Re-run VALID-002's cross-project version-isolation scenario (two projects, one s
 1. Real daemon, real Qdrant/Ollama.
 2. Register Project A resolving `google.golang.org/grpc@v1.60.0`, Project B resolving `google.golang.org/grpc@v1.68.0` (two real, meaningfully different tagged versions of the same real dependency).
 3. Fire both projects' `ragctl sync` calls as close to simultaneously as possible (background both from the shell).
-4. Confirm both complete successfully (the daemon's global lock serializes them; no crash, no interleaved-write corruption).
+4. Confirm both complete successfully — note (2026-09-29, updated before running): epic 53 (`BuildCoordinator`) means two *different* generations (different dependency versions) no longer serialize against each other at all, only identical-generation builds coalesce via singleflight; so this now exercises genuine concurrent building of two versions of the same dependency, a stronger test than the originally-envisioned serialized case. No crash, no interleaved-write corruption either way.
 5. Query each project via `explain_call_site`/`search_dependency_docs` scoped to its own version — confirm each returns only its own version's content, exactly like VALID-002's fixture-scale test, now under real concurrent daemon load.
 
 ## Inputs / Outputs
