@@ -1,7 +1,7 @@
 # COORD-003: Bulk throughput worker pool
 
 **Epic:** Foreground JIT Isolation and Lifecycle Coordination
-**Status:** built; default concurrency re-measured on corrected data (see notes) — one acceptance box (live JIT-isolation proof against a real daemon) still open
+**Status:** done — 2026-09-28
 **Depends on:** COORD-001, COORD-002
 **Estimated size:** medium
 **Priority:** P2 — conditional on measurement, not launch-blocking
@@ -40,7 +40,7 @@ Make an explicit, operator-triggered bulk sync (`ragctl sync` with no filter —
 ## Acceptance criteria
 - [x] Bulk jobs run concurrently within the configured limit, verified by a real overlap test, not just code inspection.
 - [x] One dependency's failure or slowness never affects another's outcome, verified explicitly.
-- [ ] The worker pool is confirmed scoped per-`RunSync`-call — a live test alongside a concurrent JIT request (reusing COORD-002's own regression test shape) shows no cross-run contention.
+- [x] The worker pool is confirmed scoped per-`RunSync`-call — a live test alongside a concurrent JIT request (reusing COORD-002's own regression test shape) shows no cross-run contention. Live-verified against a real daemon (2026-09-28, see below), not just in-process tests.
 - [x] Default `MaxConcurrency` is chosen from real benchmark numbers (2 vs. 3 vs. 5 against the terraform fixture, on corrected data), not asserted without measurement — see the 2026-09-28 bounded re-benchmark below. Kept at 2.
 
 ## Post-implementation notes
@@ -65,3 +65,15 @@ Make an explicit, operator-triggered bulk sync (`ragctl sync` with no filter —
 **Reading the data honestly:** the completed-count column is noisier than a full-completion run would be — each window's tail got stuck processing the same large dependency (`cloud.google.com/go/compute`, ~29,195 chunks) at a different point depending on worker-scheduling luck, which skews a short bounded window more than it would a full corpus run. The **latency signal is not noisy and is the more trustworthy number here**: median per-dependency time roughly doubled going from concurrency 2 (14s) to 3 (24s) and 5 (25s), with p90 degrading similarly — a real, consistent sign of contention once more than ~2 workers hit the same shared resource concurrently (almost certainly Ollama's embedding throughput, exactly the unmeasured risk this ticket's own non-goals flagged from the start).
 
 **Decision: keep the default at 2.** The completed-count data doesn't show a reliable benefit to raising concurrency, and the latency data shows a real cost. This is real, measured evidence on corrected (post-POINT-004) data, but it's a bounded-window measurement, not the full-corpus completion comparison the ticket originally called for — a full run (with `caffeinate` held for the duration, avoiding the first attempt's failure mode) would give a cleaner, less scheduling-luck-sensitive signal and is worth doing whenever a multi-hour unattended window is available. Not blocking: the bounded data already supports the conservative default the external review chose, it just doesn't upgrade "conservative and safe" to "provably optimal."
+
+## Live JIT-isolation proof against a real daemon, 2026-09-28
+
+The one remaining acceptance box — proof against a real daemon (not just COORD-002's in-process/integration-level tests) that the worker pool never contends with a concurrent JIT request. Live-verified with real infrastructure (isolated Podman Qdrant container, real Ollama, a real `ragctl daemon run` subprocess), not a synthetic in-process fake, matching this epic's own established discipline.
+
+**Methodology:** two real fixture projects registered against one isolated daemon — project B ("bulk"), a Go module requiring six small real dependencies (`github.com/pkg/errors`, `davecgh/go-spew`, `pmezard/go-difflib`, `gopkg.in/yaml.v3`, `spf13/pflag`, `mattn/go-isatty`) whose transitive closure pulled in `golang.org/x/sys` — a genuinely huge dependency (32,297 chunks); project A ("jit"), a single unrelated dependency (`github.com/google/uuid`). Launched B's full sync in the background; polled `ragctl status` until it was confirmed mid-flight, deep inside embedding `golang.org/x/sys` (1,088 of 32,297 chunks done); then, without waiting for B, issued A's own sync.
+
+**Result: A completed in 2.057 seconds**, while B was still actively embedding the same huge dependency (confirmed still running immediately before *and* after A's call — 1,088 chunks done before A started, 7,872 done by the time A finished, still climbing). A's generation went active independent of B's own multi-minute run entirely — exactly the property this epic exists to guarantee, proven against the real `Scheduler`/`BuildCoordinator` code path a real daemon actually runs, not an in-process stand-in.
+
+Let B finish (settled at 9 total active generations, 8 from B + 1 from A), then confirmed no corruption from the concurrent run: `ragctl doctor` → 18 ok / 0 warning / 0 unhealthy; `ragctl gc --dry-run` → nothing eligible. Cleaned up: isolated daemon stopped, container removed, real production `ragctl` Qdrant collection reconfirmed untouched throughout (1,664,155 points, consistent with expected growth from unrelated same-day work).
+
+**This closes epic 53 entirely** — COORD-001, COORD-002, and COORD-003 are all done, every acceptance box checked, with the epic's own core guarantee (a JIT request is never strandable behind an unrelated project's bulk sync) now proven at every level: unit, integration (COORD-002), and live against a real daemon (here).

@@ -1,7 +1,7 @@
 # STRESS-010: Repeated real failure injection during sync
 
 **Epic:** Full-Loop Stress Testing
-**Status:** planned
+**Status:** done — 2026-09-29
 **Depends on:** FIX-001 (Generation.State=FAILED on Replicate failure)
 **Estimated size:** medium
 
@@ -32,6 +32,21 @@ Inject real (not fake-embedder-simulated) sync failures repeatedly against a rea
 - Manual/live exercise; results recorded in this ticket's post-implementation note.
 
 ## Acceptance criteria
-- [ ] All three real failure modes (bad ref, embedder down, vector backend down) produce `Generation.State == FAILED`.
-- [ ] Each is correctly detected by `ragctl gc --orphans --dry-run` afterward.
-- [ ] Each recovers cleanly on retry once the underlying issue is fixed.
+- [x] All three real failure modes (bad ref, embedder down, vector backend down) produce `Generation.State == FAILED`. All three: real, clean, typed errors — never a hang, never silent.
+- [x] Each is correctly detected by `ragctl gc --orphans --dry-run` afterward, and a real `gc --orphans` run cleans up all three correctly.
+- [x] Each recovers, but not via a *plain* retry as originally assumed — see notes. Every one required `ragctl sync --rebuild --dependency <name>` (OPS-004), not a plain re-sync, and `ragctl doctor`'s `checkReferencedButNeverBuilt` (OPS-005) correctly flagged all three as stuck in between.
+
+## Post-implementation note (2026-09-29)
+
+Live-verified against a real daemon, real (isolated, safely-killable) Ollama and Qdrant instances — never the shared production ones — and a real fixture (`github.com/spf13/cobra`, `github.com/google/uuid`, `golang.org/x/sys`).
+
+**All three real failure modes reproduced cleanly, exactly as designed:**
+1. **Bad ref**: a real user-tier registry manifest overriding cobra's fallback with `ref: v99.99.99` — real error: `acquisition failed: ... git rev-parse v99.99.99: fatal: ambiguous argument ... unknown revision`.
+2. **Embedder down**: a second, isolated `ollama serve` instance (a different port, never the real shared Ollama app) killed mid-sync of `uuid` — real error: `embed batch: ... dial tcp 127.0.0.1:11435: connect: connection refused`.
+3. **Vector backend down**: the isolated Podman Qdrant container stopped mid-embedding of `golang.org/x/sys` (confirmed actively building via `ragctl status` polling before stopping it) — real error: `upsert batch: qdrant Upsert: ... connection refused`.
+
+All three: `Generation.State == FAILED`, confirmed via `ragctl gc --orphans --dry-run` naming each one correctly, and a real `gc --orphans` run deleted all three cleanly afterward with zero failures.
+
+**The recovery finding, not a new bug — this generalizes STRESS-006's own OPS-004/OPS-005 finding to a whole new trigger class.** A *plain* re-sync after fixing the underlying issue (removing the bad manifest, restarting the isolated Ollama/Qdrant) **NOOPs every time** — `0 synced, 0 failed, 0 skipped` — for all three failure modes, confirmed. This isn't specific to a `kill -9` interruption (STRESS-006's own trigger): `internal/planner`'s `Plan` NOOPs unconditionally once a dependency's reference exists at its current version, regardless of whether the matching generation ever succeeded, was killed mid-flight, or **cleanly failed** with a real, typed error. `ragctl doctor`'s `checkReferencedButNeverBuilt` (OPS-005, already shipped the day before this ticket ran) correctly flagged all three stuck dependencies by name with the exact `--rebuild --dependency <name>` remedy — confirmed working exactly as designed, not just for STRESS-006's narrower kill-interruption case. `ragctl sync --rebuild --dependency <name>` (OPS-004) recovered all three for real. No new ticket needed — OPS-004/OPS-005 already cover this generalized case correctly; this ticket's value was confirming that generalization live, not finding a new gap.
+
+Real production Ollama and Qdrant collection (`ragctl`, 1,664,155 points) confirmed healthy and completely untouched throughout — every kill/stop targeted an isolated, verified-by-path/port instance, never the shared ones.

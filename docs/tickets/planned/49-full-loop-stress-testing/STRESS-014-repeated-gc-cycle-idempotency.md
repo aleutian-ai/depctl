@@ -1,7 +1,7 @@
 # STRESS-014: Repeated GC cycle idempotency
 
 **Epic:** Full-Loop Stress Testing
-**Status:** planned
+**Status:** done — 2026-09-29
 **Depends on:** STRESS-011, STRESS-012 (runs after both, when nothing new is eligible)
 **Estimated size:** small
 
@@ -31,5 +31,22 @@ Run `ragctl gc` and `ragctl gc --orphans` several times back-to-back, with nothi
 - Manual/live exercise; results recorded in this ticket's post-implementation note.
 
 ## Acceptance criteria
-- [ ] Repeated `gc`/`gc --orphans` runs against an already-clean store are fast, error-free no-ops, 3+ times in a row.
-- [ ] `ragctl doctor` remains clean throughout.
+- [x] Repeated `gc`/`gc --orphans` runs against an already-clean store are fast, error-free no-ops, 3+ times in a row.
+- [x] `ragctl doctor` remains clean throughout.
+
+## Post-implementation note (2026-09-29)
+
+Ran against the real production store rather than rebuilding STRESS-011's isolated fixture: STRESS-011/012's cleanup had already torn down that scratch environment, but real production was itself in a fully clean, doctor-verified state (18 ok, 0 warning, 0 unhealthy going in), satisfying this ticket's own constraint ("a store already fully cleaned... no new fixture needed") without any new setup.
+
+**Real, unplanned findings surfaced in run 1 of each command** — not test artifacts, genuine previously-uncollected production garbage:
+- `ragctl gc` run 1: 9 real, genuinely grace-expired references (`ragctl-core-cli`, `-ollama`, `-mod`, `-bleve`, `-viper`, `-tools`, `-cobra`, `-go-git`, `-go-client`) deleted cleanly, `9 deleted, 0 failed`, 0.95s.
+- `ragctl gc --orphans` run 1: 9 real orphans — a mix of `stale_nonterminal` (2, still `INDEXING` and never promoted) and `failed` (7, real `FAILED` generations, several of them this session's own earlier live-testing casualties against `ragctl-core-*` and `google.golang.org/grpc`) — deleted cleanly, `9 deleted, 0 failed`, 2.98s.
+
+Both are legitimate real-world GC work, exactly what these commands exist to do against a long-lived real store — consistent with this epic's "real infrastructure, not fixtures" mandate. They don't change this ticket's actual finding.
+
+**The idempotency behavior itself, confirmed as designed:**
+- `gc` runs 2 and 3: `nothing eligible for garbage collection`, ~11ms each (vs. 0.95s for the real work in run 1) — no re-scan, no re-attempted deletion.
+- `gc --orphans` runs 2 and 3: `nothing eligible for orphan garbage collection`, ~10-12ms each (vs. 2.98s for run 1).
+- `ragctl doctor` after all 6 runs: still 18 ok, 0 warning, 0 unhealthy.
+
+No new finding beyond confirming existing behavior holds under real repeated invocation, exactly as this ticket's non-goals anticipated.

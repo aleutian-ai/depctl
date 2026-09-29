@@ -369,6 +369,53 @@ func TestDoctorEmptyActiveGenerationsReportsBudgetExceeded(t *testing.T) {
 	}
 }
 
+// TestDoctorFlagsReferencedButNeverBuilt is OPS-005's (epic 61) own
+// regression proof, reproducing exactly the real bbolt state STRESS-006
+// (epic 49) found live: a kill landing after a dependency's reference
+// commits but before its matching build ever reaches ACTIVE. No prior
+// doctor check catches this (there's no active generation at all for
+// checkEmptyActiveGenerations to inspect), and `ragctl describe` doesn't
+// either — confirmed live, only checkReferencedButNeverBuilt does.
+func TestDoctorFlagsReferencedButNeverBuilt(t *testing.T) {
+	ctx := context.Background()
+	env := healthyDoctorEnv(t)
+
+	stuck := domain.VersionReference{
+		ProjectID: "proj_go", Ecosystem: domain.EcosystemGo, Package: "example.com/stuck", Version: "v1.0.0",
+		Reason: domain.ReferenceReasonProject, FirstSeenAt: env.now.Add(-time.Hour),
+	}
+	if err := env.store.AddReference(ctx, stuck); err != nil {
+		t.Fatalf("AddReference: %v", err)
+	}
+
+	r := resultNamed(t, runChecks(ctx, env), "referenced but never built")
+	if r.Severity != SeverityUnhealthy || !strings.Contains(r.Detail, "example.com/stuck") || !strings.Contains(r.Detail, "--rebuild") {
+		t.Errorf("referenced but never built = %s (%s), want UNHEALTHY naming example.com/stuck and the --rebuild remedy", r.Severity, r.Detail)
+	}
+}
+
+// TestDoctorReferencedButNeverBuiltSkipsRecentReferences confirms the
+// check never false-positives on a dependency that's still genuinely,
+// legitimately mid-first-sync — only a reference older than the grace
+// window is ever reported.
+func TestDoctorReferencedButNeverBuiltSkipsRecentReferences(t *testing.T) {
+	ctx := context.Background()
+	env := healthyDoctorEnv(t)
+
+	fresh := domain.VersionReference{
+		ProjectID: "proj_go", Ecosystem: domain.EcosystemGo, Package: "example.com/mid-sync", Version: "v1.0.0",
+		Reason: domain.ReferenceReasonProject, FirstSeenAt: env.now.Add(-1 * time.Second),
+	}
+	if err := env.store.AddReference(ctx, fresh); err != nil {
+		t.Fatalf("AddReference: %v", err)
+	}
+
+	r := resultNamed(t, runChecks(ctx, env), "referenced but never built")
+	if r.Severity != SeverityOK || strings.Contains(r.Detail, "example.com/mid-sync") {
+		t.Errorf("referenced but never built = %s (%s), want OK and not naming a reference only 1s old (still plausibly mid-first-sync)", r.Severity, r.Detail)
+	}
+}
+
 func TestDoctorEmbeddingModelMismatchIsUnhealthy(t *testing.T) {
 	env := healthyDoctorEnv(t)
 	env.cfg.Embedding.Model = "some-newer-model"

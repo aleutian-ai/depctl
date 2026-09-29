@@ -88,6 +88,7 @@ var doctorChecks = []struct {
 	{"active generation manifests", checkActiveManifests},
 	{"backend replicas", checkBackendReplicas},
 	{"empty active generations", checkEmptyActiveGenerations},
+	{"referenced but never built", checkReferencedButNeverBuilt},
 	{"vector backend reachable", checkBackendReachable},
 	{"embedding model compatibility", checkEmbeddingModel},
 	{"registry validity", checkRegistry},
@@ -613,6 +614,62 @@ func checkEmptyActiveGenerations(ctx context.Context, env *doctorEnv) (Severity,
 		return SeverityWarning, fmt.Sprintf("checked %d of %d active generations within the %s check budget — re-run to check the rest, or the backend may be degraded (this check exists partly to detect that)", checked, len(targets), emptyGenerationsCheckBudget)
 	}
 	return SeverityOK, fmt.Sprintf("%d checked, none empty", checked)
+}
+
+// referencedButNeverBuiltGrace excludes a reference younger than this from
+// checkReferencedButNeverBuilt — a dependency whose sync genuinely hasn't
+// finished yet (a real, in-flight first build) must never be reported as
+// stuck. A var so tests can shrink it.
+var referencedButNeverBuiltGrace = 5 * time.Minute
+
+// checkReferencedButNeverBuilt is OPS-005 (epic 61): a kill or crash
+// landing after a new dependency's reference is recorded but before its
+// matching build ever reaches ACTIVE leaves it permanently un-retriable —
+// internal/planner/planner.go's Plan emits ActionNoop unconditionally
+// once a reference exists at the current version, regardless of whether
+// an active generation has ever existed at all. Live-found (STRESS-006,
+// epic 49): no existing doctor check catches this, since it isn't about
+// an active generation being wrong (checkEmptyActiveGenerations's job) —
+// there's no active generation at all to inspect. `ragctl describe` was
+// live-confirmed not to help either — it only reports a dependency's
+// currently-active generation, so a referenced-but-never-built one is
+// invisible there too, not flagged as a problem.
+func checkReferencedButNeverBuilt(ctx context.Context, env *doctorEnv) (Severity, string) {
+	if env.store == nil {
+		return notChecked("control DB")
+	}
+	if env.cfgErr != nil {
+		return notChecked("config")
+	}
+	refs, err := env.store.ListAllReferences(ctx)
+	if err != nil {
+		return SeverityUnhealthy, err.Error()
+	}
+
+	type key struct {
+		ecosystem, name, version string
+	}
+	seen := map[key]bool{}
+	checked := 0
+	var stuck []string
+	for _, r := range refs {
+		k := key{string(r.Ecosystem), r.Package, r.Version}
+		if seen[k] {
+			continue // multiple projects/reasons can reference the same tuple
+		}
+		seen[k] = true
+		if env.now.Sub(r.FirstSeenAt) < referencedButNeverBuiltGrace {
+			continue // plausibly still mid-first-sync
+		}
+		checked++
+		if _, err := env.store.GetActiveGeneration(ctx, r.Ecosystem, r.Package, env.cfg.Vector.Backend); errors.Is(err, bboltstore.ErrNotFound) {
+			stuck = append(stuck, fmt.Sprintf("%s %s@%s", r.Ecosystem, r.Package, r.Version))
+		}
+	}
+	if len(stuck) > 0 {
+		return SeverityUnhealthy, fmt.Sprintf("%d dependency(ies) referenced but never actively built — no plain `ragctl sync` will ever retry them; run `ragctl sync --rebuild --dependency <name>` for each: %s", len(stuck), summarize(stuck))
+	}
+	return SeverityOK, fmt.Sprintf("%d checked, none stuck", checked)
 }
 
 func checkBackendReachable(ctx context.Context, env *doctorEnv) (Severity, string) {
