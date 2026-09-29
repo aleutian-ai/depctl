@@ -564,7 +564,7 @@ func (e *engine) Sync(ctx context.Context, coordinator *daemon.BuildCoordinator,
 			return api.SyncResult{}, err
 		}
 	}
-	synced, failed, skipped, err := RunSync(ctx, coordinator, e.store, e.badgerStore, e.cfg, projectID, opts.Dependencies, opts.Offline, opts.Force, out, e.embeddingReadiness, e.vectorReadiness, opts.Priority, opts.Progress, e.syncSem)
+	synced, failed, skipped, err := RunSync(ctx, coordinator, e.store, e.badgerStore, e.cfg, projectID, opts.Dependencies, opts.Offline, opts.Force, opts.Rebuild, out, e.embeddingReadiness, e.vectorReadiness, opts.Priority, opts.Progress, e.syncSem)
 	return api.SyncResult{ProjectID: projectID, Synced: synced, Failed: failed, Skipped: skipped}, err
 }
 
@@ -968,6 +968,12 @@ func runDaemonRun(cmd *cobra.Command) error {
 	// generation.Replicate.
 	vecReadiness := newVectorReadiness()
 	go checkVectorReadiness(ctx, cfg, vecReadiness, logf)
+
+	// SAFE-001 (epic 61): warn once, at startup, if this fresh instance's
+	// configured collection already holds data it never wrote — see
+	// checkForeignCollectionData's own doc comment for why this is a
+	// warning, never a refusal.
+	go checkForeignCollectionData(ctx, cfg, store, logf)
 
 	srv := daemon.New(daemon.Options{
 		Engine:             newEngine(store, badgerStore, cfg, controlPath, badgerPath, readiness, vecReadiness),

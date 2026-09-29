@@ -34,13 +34,13 @@ import (
 func newSyncCmd() *cobra.Command {
 	var projectID string
 	var dependencies []string
-	var dryRun, offline, force bool
+	var dryRun, offline, force, rebuild bool
 
 	cmd := &cobra.Command{
 		Use:   "sync",
 		Short: "Execute the sync plan",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runSync(cmd, projectID, dependencies, dryRun, offline, force)
+			return runSync(cmd, projectID, dependencies, dryRun, offline, force, rebuild)
 		},
 	}
 	cmd.Flags().StringVar(&projectID, "project", "", "limit to one project ID")
@@ -48,10 +48,18 @@ func newSyncCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "print the plan and exit without executing")
 	cmd.Flags().BoolVar(&offline, "offline", false, "skip actions that require network access")
 	cmd.Flags().BoolVar(&force, "force", false, "promote a candidate even if VAL-002 sanity thresholds fail (structural/version-correctness failures are never forceable)")
+	cmd.Flags().BoolVar(&rebuild, "rebuild", false, "force a genuine rebuild of each --dependency even though its version hasn't changed (OPS-004) — for a generation ragctl doctor flagged as active but empty; requires --dependency, not supported with --dry-run")
 	return cmd
 }
 
-func runSync(cmd *cobra.Command, projectID string, dependencies []string, dryRun, offline, force bool) error {
+func runSync(cmd *cobra.Command, projectID string, dependencies []string, dryRun, offline, force, rebuild bool) error {
+	if rebuild && len(dependencies) == 0 {
+		return fmt.Errorf("--rebuild requires at least one --dependency — it forces a rebuild of exactly the named dependencies, never every dependency in scope")
+	}
+	if rebuild && dryRun {
+		return fmt.Errorf("--rebuild is not supported with --dry-run — the plan it would print doesn't reflect the rebuild's own effect, since --dry-run only reads the plan the daemon already has")
+	}
+
 	c, err := ensureDaemon(cmd.Context())
 	if err != nil {
 		return err
@@ -66,7 +74,7 @@ func runSync(cmd *cobra.Command, projectID string, dependencies []string, dryRun
 		return nil
 	}
 
-	req := api.SyncRequest{ProjectID: projectID, Dependencies: dependencies, Offline: offline, Force: force}
+	req := api.SyncRequest{ProjectID: projectID, Dependencies: dependencies, Offline: offline, Force: force, Rebuild: rebuild}
 	resp, err := c.Sync(cmd.Context(), req, cmd.OutOrStdout())
 	if err != nil {
 		return err
@@ -116,7 +124,73 @@ func runSync(cmd *cobra.Command, projectID string, dependencies []string, dryRun
 // normally takes long enough to observably overlap on their own.
 var syncActionConcurrencyHook = func() {}
 
-func RunSync(ctx context.Context, coordinator *daemon.BuildCoordinator, store *bboltstore.Store, badgerStore *badgerstore.Store, cfg config.Config, projectID string, dependencies []string, offline, force bool, out io.Writer, readiness *embeddingReadiness, vecReadiness *vectorReadiness, priority *daemon.SyncPriority, progress *daemon.SyncProgress, daemonSem chan struct{}) (synced, failed, skipped int, err error) {
+// clearForRebuild implements OPS-004 (epic 61): `ragctl sync --rebuild
+// --dependency X` clears X's active-generation pointer and this scope's
+// version reference(s) *before* planning, so planner.Plan's own
+// version-unchanged NOOP branch (internal/planner/planner.go) never gets
+// a chance to fire. This is the only way to force a genuine rebuild of a
+// generation whose real backend content is gone despite otherwise-
+// unchanged, healthy-looking bookkeeping — `ragctl doctor`'s "empty
+// active generations" check exists to detect exactly that state, and
+// plain --force cannot fix it (it only affects an already-selected
+// action, never which actions the planner selects). Live-found and
+// live-fixed this way for a real, ~132-generation incident (see
+// docs/architecture.md's OPS-003/OPS-004 section) before this command
+// existed — that fix needed a throwaway Go program against the real
+// database; this is the real, supported equivalent.
+//
+// projectID empty means every registered project, matching RunSync's
+// own convention — every project whose current resolution includes one
+// of dependencyNames gets that dependency's bookkeeping cleared, scoped
+// to exactly the named dependencies and nothing else in the same
+// project.
+func clearForRebuild(ctx context.Context, store *bboltstore.Store, backendName, projectID string, dependencyNames []string) error {
+	wanted := make(map[string]bool, len(dependencyNames))
+	for _, name := range dependencyNames {
+		wanted[name] = true
+	}
+
+	var projects []domain.Project
+	if projectID != "" {
+		p, err := store.GetProject(ctx, projectID)
+		if err != nil {
+			return fmt.Errorf("get project %s: %w", projectID, err)
+		}
+		projects = []domain.Project{p}
+	} else {
+		var err error
+		projects, err = store.ListProjects(ctx)
+		if err != nil {
+			return fmt.Errorf("list projects: %w", err)
+		}
+	}
+
+	for _, p := range projects {
+		resolution, err := store.GetResolution(ctx, p.ID)
+		if err != nil {
+			continue // no resolution yet for this project — nothing to rebuild
+		}
+		for _, dep := range resolution.Dependencies {
+			if !wanted[dep.Dependency.Name] {
+				continue
+			}
+			if err := store.RemoveReference(ctx, dep.Dependency.Ecosystem, dep.Dependency.Name, dep.Version, p.ID); err != nil {
+				return fmt.Errorf("clear reference for %s: %w", dep.Dependency.Name, err)
+			}
+			if err := store.ClearActiveGeneration(ctx, dep.Dependency.Ecosystem, dep.Dependency.Name, backendName); err != nil {
+				return fmt.Errorf("clear active generation for %s: %w", dep.Dependency.Name, err)
+			}
+		}
+	}
+	return nil
+}
+
+func RunSync(ctx context.Context, coordinator *daemon.BuildCoordinator, store *bboltstore.Store, badgerStore *badgerstore.Store, cfg config.Config, projectID string, dependencies []string, offline, force, rebuild bool, out io.Writer, readiness *embeddingReadiness, vecReadiness *vectorReadiness, priority *daemon.SyncPriority, progress *daemon.SyncProgress, daemonSem chan struct{}) (synced, failed, skipped int, err error) {
+	if rebuild && len(dependencies) > 0 {
+		if err := clearForRebuild(ctx, store, cfg.Vector.Backend, projectID, dependencies); err != nil {
+			return 0, 0, 0, fmt.Errorf("rebuild: %w", err)
+		}
+	}
 	plans, err := computePlans(ctx, store, cfg.Vector.Backend, projectID)
 	if err != nil {
 		return 0, 0, 0, err

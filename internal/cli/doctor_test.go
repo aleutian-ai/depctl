@@ -5,11 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -275,6 +277,95 @@ func TestDoctorEmptyActiveGenerationsSkipsGenerationsWithNoChunks(t *testing.T) 
 	r := resultNamed(t, runChecks(ctx, env), "empty active generations")
 	if r.Severity != SeverityOK || strings.Contains(r.Detail, "pkg-empty") {
 		t.Errorf("empty active generations = %s (%s), want OK and not naming pkg-empty (its manifest claims 0 chunks — nothing to have points for)", r.Severity, r.Detail)
+	}
+}
+
+// TestDoctorEmptyActiveGenerationsChecksRealScaleConcurrently is OPS-003's
+// (epic 61) own regression proof: many active generations must be
+// checked with real overlap (a bounded worker pool), not one at a time —
+// the exact shape that caused a real, live timeout at 558 generations
+// against a degraded backend. A real overlap assertion, not just "the
+// code compiles with a pool" (matching COORD-003's own precedent for
+// proving concurrency).
+func TestDoctorEmptyActiveGenerationsChecksRealScaleConcurrently(t *testing.T) {
+	ctx := context.Background()
+	store, badgerStore, _, _ := statusTestStores(t)
+
+	const n = 40
+	for i := range n {
+		seedActiveGeneration(t, store, badgerStore, domain.EcosystemGo, fmt.Sprintf("pkg-%d", i), "1.0.0", 5)
+	}
+
+	var inFlight, maxInFlight atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/points/count") {
+			return
+		}
+		cur := inFlight.Add(1)
+		defer inFlight.Add(-1)
+		for {
+			max := maxInFlight.Load()
+			if cur <= max || maxInFlight.CompareAndSwap(max, cur) {
+				break
+			}
+		}
+		time.Sleep(20 * time.Millisecond) // long enough for overlap to be observable
+		json.NewEncoder(w).Encode(map[string]any{"result": map[string]any{"count": 5}, "status": "ok"})
+	}))
+	t.Cleanup(srv.Close)
+
+	env := &doctorEnv{cfg: config.Default(t.TempDir()), store: store, badger: badgerStore}
+	env.cfg.Vector.Endpoint = srv.URL
+
+	r, detail := checkEmptyActiveGenerations(ctx, env)
+	if r != SeverityOK || !strings.Contains(detail, fmt.Sprintf("%d checked", n)) {
+		t.Fatalf("checkEmptyActiveGenerations = %s (%s), want OK naming %d checked", r, detail, n)
+	}
+	if got := maxInFlight.Load(); got <= 1 {
+		t.Errorf("max concurrent Count calls observed = %d, want > 1 (real overlap, not serial)", got)
+	}
+	if got := maxInFlight.Load(); got > emptyGenerationsConcurrency {
+		t.Errorf("max concurrent Count calls observed = %d, want <= the %d-worker bound", got, emptyGenerationsConcurrency)
+	}
+}
+
+// TestDoctorEmptyActiveGenerationsReportsBudgetExceeded is OPS-003's
+// other half: when the check can't finish within its own budget (a
+// degraded backend, exactly the condition doctor exists to help
+// diagnose), it must report a distinct, honest "skipped" result —
+// never a bare timeout that silently aborts the whole doctor run, and
+// never a false OK/UNHEALTHY verdict on generations it never actually
+// checked.
+func TestDoctorEmptyActiveGenerationsReportsBudgetExceeded(t *testing.T) {
+	orig := emptyGenerationsCheckBudget
+	emptyGenerationsCheckBudget = 50 * time.Millisecond
+	t.Cleanup(func() { emptyGenerationsCheckBudget = orig })
+
+	ctx := context.Background()
+	store, badgerStore, _, _ := statusTestStores(t)
+	seedActiveGeneration(t, store, badgerStore, domain.EcosystemGo, "pkg-slow", "1.0.0", 5)
+
+	// A bounded sleep, not a wait on r.Context().Done(): the client's
+	// budget-driven cancellation is what checkEmptyActiveGenerations
+	// must react to, but the handler's own blocking time must stay
+	// bounded regardless of whether/when the server notices that
+	// cancellation, or httptest.Server.Close() (t.Cleanup below) could
+	// hang the test indefinitely waiting for this handler to return.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/points/count") {
+			return
+		}
+		time.Sleep(500 * time.Millisecond) // far longer than the 50ms shrunk budget
+		json.NewEncoder(w).Encode(map[string]any{"result": map[string]any{"count": 5}, "status": "ok"})
+	}))
+	t.Cleanup(srv.Close)
+
+	env := &doctorEnv{cfg: config.Default(t.TempDir()), store: store, badger: badgerStore}
+	env.cfg.Vector.Endpoint = srv.URL
+
+	r, detail := checkEmptyActiveGenerations(ctx, env)
+	if r != SeverityWarning || !strings.Contains(detail, "budget") {
+		t.Errorf("checkEmptyActiveGenerations under a degraded backend = %s (%s), want WARN mentioning the check budget", r, detail)
 	}
 }
 

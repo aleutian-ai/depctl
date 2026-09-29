@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -233,6 +234,127 @@ func TestSyncDependencyFilter(t *testing.T) {
 	}
 	if strings.Contains(out.String(), "example.com/foo") {
 		t.Errorf("--dependency filter should have excluded example.com/foo:\n%s", out.String())
+	}
+}
+
+// TestSyncRebuildRequiresDependency and TestSyncRebuildRejectsDryRun are
+// OPS-004's own validation guards: --rebuild without a named --dependency
+// would otherwise silently rebuild nothing (or worse, everything, if the
+// filter logic ever changed) — reject it outright instead.
+func TestSyncRebuildRequiresDependency(t *testing.T) {
+	cmd := NewRootCmd()
+	cmd.SetArgs([]string{"sync", "--rebuild"})
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "--dependency") {
+		t.Errorf("sync --rebuild with no --dependency = %v, want an error naming --dependency", err)
+	}
+}
+
+func TestSyncRebuildRejectsDryRun(t *testing.T) {
+	cmd := NewRootCmd()
+	cmd.SetArgs([]string{"sync", "--rebuild", "--dependency", "example.com/foo", "--dry-run"})
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "--dry-run") {
+		t.Errorf("sync --rebuild --dry-run = %v, want an error naming --dry-run", err)
+	}
+}
+
+// TestClearForRebuildScopedToNamedDependencyOnly is OPS-004's (epic 61)
+// own regression proof: clearing a stale dependency's bookkeeping for a
+// real force-rebuild must touch exactly that dependency, never anything
+// else in the same project — live-found real requirement (fixing 132
+// real generations this session needed exactly this scoping, done by
+// hand before this command existed; see docs/architecture.md's
+// OPS-003/OPS-004 section).
+func TestClearForRebuildScopedToNamedDependencyOnly(t *testing.T) {
+	ctx := context.Background()
+	store, err := bboltstore.Open(filepath.Join(t.TempDir(), "control.db"))
+	if err != nil {
+		t.Fatalf("bboltstore.Open: %v", err)
+	}
+	defer store.Close()
+
+	proj := domain.Project{ID: "proj_1", Root: "/src"}
+	if err := store.PutProject(ctx, proj); err != nil {
+		t.Fatalf("PutProject: %v", err)
+	}
+
+	depA := domain.DependencyVersion{Dependency: domain.Dependency{Ecosystem: domain.EcosystemGo, Name: "example.com/a"}, Version: "v1.0.0"}
+	depB := domain.DependencyVersion{Dependency: domain.Dependency{Ecosystem: domain.EcosystemGo, Name: "example.com/b"}, Version: "v2.0.0"}
+	resolution := domain.Resolution{Ecosystem: domain.EcosystemGo, Dependencies: []domain.DependencyVersion{depA, depB}}
+	if err := store.PutResolution(ctx, proj.ID, resolution); err != nil {
+		t.Fatalf("PutResolution: %v", err)
+	}
+
+	for _, dv := range []domain.DependencyVersion{depA, depB} {
+		ref := domain.VersionReference{ProjectID: proj.ID, Ecosystem: dv.Dependency.Ecosystem, Package: dv.Dependency.Name, Version: dv.Version, Reason: domain.ReferenceReasonProject}
+		if err := store.AddReference(ctx, ref); err != nil {
+			t.Fatalf("AddReference(%s): %v", dv.Dependency.Name, err)
+		}
+		gen := domain.Generation{ID: "gen_" + dv.Dependency.Name, Dependency: dv, State: domain.GenReady}
+		if err := store.PutGeneration(ctx, gen); err != nil {
+			t.Fatalf("PutGeneration(%s): %v", dv.Dependency.Name, err)
+		}
+		if err := store.PromoteGeneration(ctx, gen, "qdrant"); err != nil {
+			t.Fatalf("PromoteGeneration(%s): %v", dv.Dependency.Name, err)
+		}
+	}
+
+	if err := clearForRebuild(ctx, store, "qdrant", proj.ID, []string{"example.com/a"}); err != nil {
+		t.Fatalf("clearForRebuild: %v", err)
+	}
+
+	// example.com/a: cleared — no active generation, no reference.
+	if _, err := store.GetActiveGeneration(ctx, domain.EcosystemGo, "example.com/a", "qdrant"); !errors.Is(err, bboltstore.ErrNotFound) {
+		t.Errorf("GetActiveGeneration(a) after rebuild = %v, want ErrNotFound", err)
+	}
+	refs, err := store.ListProjectReferences(ctx, proj.ID)
+	if err != nil {
+		t.Fatalf("ListProjectReferences: %v", err)
+	}
+	if len(refs) != 1 || refs[0].Package != "example.com/b" {
+		t.Errorf("ListProjectReferences after rebuild = %+v, want exactly one reference left, to example.com/b", refs)
+	}
+
+	// example.com/b: untouched — still active, still referenced.
+	if active, err := store.GetActiveGeneration(ctx, domain.EcosystemGo, "example.com/b", "qdrant"); err != nil {
+		t.Errorf("GetActiveGeneration(b) after rebuild = %v, want still active (untouched)", err)
+	} else if active.ID != "gen_example.com/b" {
+		t.Errorf("GetActiveGeneration(b) = %+v, want the original untouched generation", active)
+	}
+
+	// Re-planning now sees !hadPrior for a (real SYNC_VERSION action),
+	// and the unchanged default NOOP branch for b — proving the rebuild
+	// actually unsticks the planner, not just the raw bbolt state.
+	active := map[string]bool{}
+	for _, dep := range resolution.Dependencies {
+		key := planner.GenerationKey(dep)
+		_, err := store.GetActiveGeneration(ctx, dep.Dependency.Ecosystem, dep.Dependency.Name, "qdrant")
+		active[key] = err == nil
+	}
+	current, err := store.ListProjectReferences(ctx, proj.ID)
+	if err != nil {
+		t.Fatalf("ListProjectReferences: %v", err)
+	}
+	reg := describeTestRegistry(t)
+	actions, err := planner.Plan(ctx, proj, resolution, current, reg, active)
+	if err != nil {
+		t.Fatalf("planner.Plan: %v", err)
+	}
+	var sawSyncA, sawNoopB bool
+	for _, a := range actions {
+		if a.Dependency.Dependency.Name == "example.com/a" && a.Kind == planner.ActionSyncVersion {
+			sawSyncA = true
+		}
+		if a.Dependency.Dependency.Name == "example.com/b" && a.Kind == planner.ActionNoop {
+			sawNoopB = true
+		}
+	}
+	if !sawSyncA {
+		t.Errorf("actions after rebuild = %+v, want a SYNC_VERSION action for example.com/a", actions)
+	}
+	if !sawNoopB {
+		t.Errorf("actions after rebuild = %+v, want b still NOOP (untouched, unchanged version)", actions)
 	}
 }
 
@@ -872,7 +994,7 @@ func TestRunSyncDaemonSemBoundsConcurrencyAcrossSeparateCalls(t *testing.T) {
 
 	run := func(projectID string, sem chan struct{}) {
 		coordinator := daemon.NewBuildCoordinator()
-		RunSync(ctx, coordinator, store, badgerStore, cfg, projectID, nil, true /* offline */, false, io.Discard, nil, nil, nil, nil, sem)
+		RunSync(ctx, coordinator, store, badgerStore, cfg, projectID, nil, true /* offline */, false, false, io.Discard, nil, nil, nil, nil, sem)
 	}
 
 	checkBound := func(t *testing.T, sem chan struct{}, semSize int, wantOverlap bool) {

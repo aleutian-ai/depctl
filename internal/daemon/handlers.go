@@ -83,7 +83,7 @@ func (s *Server) handleSync(w http.ResponseWriter, r *http.Request) {
 				return nil, err
 			}
 		}
-		opts := SyncOptions{Dependencies: req.DependencySet(), Offline: req.Offline, Force: req.Force}
+		opts := SyncOptions{Dependencies: req.DependencySet(), Offline: req.Offline, Force: req.Force, Rebuild: req.Rebuild}
 
 		resp := api.SyncResponse{}
 		for _, id := range ids {

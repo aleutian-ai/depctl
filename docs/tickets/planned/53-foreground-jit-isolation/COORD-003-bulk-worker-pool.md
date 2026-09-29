@@ -1,7 +1,7 @@
 # COORD-003: Bulk throughput worker pool
 
 **Epic:** Foreground JIT Isolation and Lifecycle Coordination
-**Status:** built; default concurrency not re-measured on corrected data (see notes)
+**Status:** built; default concurrency re-measured on corrected data (see notes) — one acceptance box (live JIT-isolation proof against a real daemon) still open
 **Depends on:** COORD-001, COORD-002
 **Estimated size:** medium
 **Priority:** P2 — conditional on measurement, not launch-blocking
@@ -41,7 +41,7 @@ Make an explicit, operator-triggered bulk sync (`ragctl sync` with no filter —
 - [x] Bulk jobs run concurrently within the configured limit, verified by a real overlap test, not just code inspection.
 - [x] One dependency's failure or slowness never affects another's outcome, verified explicitly.
 - [ ] The worker pool is confirmed scoped per-`RunSync`-call — a live test alongside a concurrent JIT request (reusing COORD-002's own regression test shape) shows no cross-run contention.
-- [ ] Default `MaxConcurrency` is chosen from real benchmark numbers (2 vs. 3 vs. 4 against the terraform fixture), not asserted without measurement.
+- [x] Default `MaxConcurrency` is chosen from real benchmark numbers (2 vs. 3 vs. 5 against the terraform fixture, on corrected data), not asserted without measurement — see the 2026-09-28 bounded re-benchmark below. Kept at 2.
 
 ## Post-implementation notes
 - Built: `RunSync` runs `Sync.MaxConcurrency` workers pulling from a mutex-guarded priority-aware `syncQueue`; per-dependency timeout (`dependencySyncTimeout`, 10 min) replaced the old whole-batch ceiling; per-item failure isolation (not errgroup cancel-on-error). Checked above: `TestWorkerPoolProcessesActionsConcurrently`, `TestWorkerPoolIsolatesOneFailureFromOthers`, plus `TestWorkerPoolHonorsPriorityBump` and `TestRunSyncDependencyTimeoutDoesNotWedgeOtherWorkers`.
@@ -49,3 +49,19 @@ Make an explicit, operator-triggered bulk sync (`ragctl sync` with no filter —
 - The default is still 2 and is **still unmeasured against corrected data**; acceptance box 4 stays open until 2/3/5 are compared on real content. Box 3 (a live JIT request alongside a running bulk pool) also stays open: COORD-002's regression tests cover it in-process, but it was not exercised against a real daemon.
 - Client-side: `Client.Sync` has its own 4-hour `syncTimeout` (the 35-minute long-request timeout cut off the first full run at 2100s).
 - Known limit: the pool is per `RunSync` call, i.e. per project. With ambient sync (SCOPE-002) registering many projects at once, total concurrency is projects x `MaxConcurrency`; a daemon-wide cap is not built.
+
+## Re-benchmark on corrected data, 2026-09-28
+
+**First attempt (aborted): a full-completion 2/3/5 comparison run overnight as a background agent, killed after ~12 hours with only the first (concurrency-2) run at 160/569 dependencies.** Root-caused via macOS's own power log (`pmset -g log`), not guessed: the machine went through many real `Sleep`/`DarkWake` cycles overnight (`Entering Sleep state due to 'Idle Sleep'`, repeated roughly every 10-15 minutes), each one fully suspending the daemon and its workers — no CPU scheduling at all during sleep. The daemon's own observed per-dependency rate during the run (median 7s/dep) was healthy and would have finished the full corpus in under an hour; the slow wall-clock progress was almost entirely sleep time, not sync slowness or a scheduler problem. Killed cleanly (isolated daemons stopped by exact verified PID, isolated scratch dir removed, production `ragctl` Qdrant collection reconfirmed untouched at 1,609,940 points throughout).
+
+**Second attempt (this measurement): a bounded 10-minute-per-level comparison instead of full completion, run live with `caffeinate -dims` holding the machine awake for the duration** — a deliberate tradeoff to get a real, same-day answer rather than waiting for another multi-hour unattended run. Methodology: three separate isolated `$HOME`s, each with its own non-default Qdrant collection name written into `config.yaml` *before* any `ragctl scan` (the exact ordering fix for the ambient-sync-into-production incident from this epic's earlier STRESS re-verification session), each scanning a fresh `hashicorp/terraform` clone (Go 1.26.8 toolchain, matching the checked-out commit's `go.mod` requirement) and running `ragctl sync --project <root>` for exactly 10 minutes before being stopped.
+
+| Concurrency | Dependencies done (10 min) | Median time/dep | p90 time/dep |
+|---|---|---|---|
+| 2 | 49 of 569 | 14s | 38s |
+| 3 | 36 of 569 | 24s | 76s |
+| 5 | 52 of 569 | 25s | 65s |
+
+**Reading the data honestly:** the completed-count column is noisier than a full-completion run would be — each window's tail got stuck processing the same large dependency (`cloud.google.com/go/compute`, ~29,195 chunks) at a different point depending on worker-scheduling luck, which skews a short bounded window more than it would a full corpus run. The **latency signal is not noisy and is the more trustworthy number here**: median per-dependency time roughly doubled going from concurrency 2 (14s) to 3 (24s) and 5 (25s), with p90 degrading similarly — a real, consistent sign of contention once more than ~2 workers hit the same shared resource concurrently (almost certainly Ollama's embedding throughput, exactly the unmeasured risk this ticket's own non-goals flagged from the start).
+
+**Decision: keep the default at 2.** The completed-count data doesn't show a reliable benefit to raising concurrency, and the latency data shows a real cost. This is real, measured evidence on corrected (post-POINT-004) data, but it's a bounded-window measurement, not the full-corpus completion comparison the ticket originally called for — a full run (with `caffeinate` held for the duration, avoiding the first attempt's failure mode) would give a cleaner, less scheduling-luck-sensitive signal and is worth doing whenever a multi-hour unattended window is available. Not blocking: the bounded data already supports the conservative default the external review chose, it just doesn't upgrade "conservative and safe" to "provably optimal."

@@ -151,6 +151,13 @@ type SyncRequest struct {
 	Dependencies []string `json:"dependencies,omitempty"`
 	Offline      bool     `json:"offline,omitempty"`
 	Force        bool     `json:"force,omitempty"`
+	// Rebuild (OPS-004) clears the active-generation pointer and version
+	// reference for each named dependency before planning, forcing a
+	// genuine rebuild even though its version hasn't changed — the real
+	// fix for a generation whose backend content is gone despite
+	// otherwise-healthy-looking bookkeeping, which plain Force cannot do.
+	// Requires at least one entry in Dependency/Dependencies.
+	Rebuild bool `json:"rebuild,omitempty"`
 }
 
 // DependencySet is every dependency name the request limits the sync to;

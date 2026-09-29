@@ -103,6 +103,49 @@ func TestPromoteGenerationSupersedesPrior(t *testing.T) {
 	}
 }
 
+// TestClearActiveGenerationDemotesAndUnpoints is OPS-004's own regression
+// proof: the only way to make planner.Plan treat a dependency as if
+// nothing were active yet, forcing a genuine rebuild of a generation
+// whose real backend content is gone despite unchanged bookkeeping.
+func TestClearActiveGenerationDemotesAndUnpoints(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+
+	gen := testGeneration("gen_stale", "v1.67.0", domain.GenReady)
+	if err := store.PutGeneration(ctx, gen); err != nil {
+		t.Fatalf("PutGeneration: %v", err)
+	}
+	if err := store.PromoteGeneration(ctx, gen, "qdrant"); err != nil {
+		t.Fatalf("PromoteGeneration: %v", err)
+	}
+
+	if err := store.ClearActiveGeneration(ctx, domain.EcosystemGo, "google.golang.org/grpc", "qdrant"); err != nil {
+		t.Fatalf("ClearActiveGeneration: %v", err)
+	}
+
+	if _, err := store.GetActiveGeneration(ctx, domain.EcosystemGo, "google.golang.org/grpc", "qdrant"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("GetActiveGeneration after clear = %v, want ErrNotFound", err)
+	}
+	got, err := store.GetGeneration(ctx, gen.ID)
+	if err != nil {
+		t.Fatalf("GetGeneration: %v", err)
+	}
+	if got.State != domain.GenSuperseded {
+		t.Errorf("cleared generation's State = %s, want %s (demoted, not deleted)", got.State, domain.GenSuperseded)
+	}
+}
+
+// TestClearActiveGenerationOnNothingActiveIsNoop matches PromoteGeneration's
+// own precedent (TestGetActiveGenerationNotFound) — clearing a key with
+// nothing active must succeed quietly, never error, since a caller can't
+// always know in advance whether anything was active.
+func TestClearActiveGenerationOnNothingActiveIsNoop(t *testing.T) {
+	store := openTestStore(t)
+	if err := store.ClearActiveGeneration(context.Background(), domain.EcosystemGo, "google.golang.org/grpc", "qdrant"); err != nil {
+		t.Errorf("ClearActiveGeneration on nothing active = %v, want nil", err)
+	}
+}
+
 func TestPromoteGenerationPersistsAcrossRestart(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "control.db")

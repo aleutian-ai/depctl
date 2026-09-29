@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -473,6 +474,21 @@ func checkBackendReplicas(ctx context.Context, env *doctorEnv) (Severity, string
 // its points with an earlier one, so a lower-than-manifest count isn't
 // on its own evidence of anything wrong — zero, for a generation whose
 // own manifest claims real chunks, always is.
+// emptyGenerationsCheckBudget bounds checkEmptyActiveGenerations' own
+// work independently of the whole `doctor` request's timeout (OPS-003,
+// epic 61): this check makes one real network call per active
+// generation with a non-empty manifest — at real scale (confirmed live
+// at 558 generations) against a degraded backend, that serial cost can
+// exceed the whole request's own timeout, aborting every check after it
+// too, not just this one. A var so tests can shrink it.
+var emptyGenerationsCheckBudget = 30 * time.Second
+
+// emptyGenerationsConcurrency bounds how many Count calls run at once,
+// mirroring COORD-003's own bounded-worker-pool shape at a much smaller
+// scale (a health check, not a bulk sync) — real wall-clock now scales
+// with worker count against a real backend, not generation count.
+const emptyGenerationsConcurrency = 8
+
 func checkEmptyActiveGenerations(ctx context.Context, env *doctorEnv) (Severity, string) {
 	pointers, sev, detail, ok := activePointers(ctx, env)
 	if !ok {
@@ -489,8 +505,14 @@ func checkEmptyActiveGenerations(ctx context.Context, env *doctorEnv) (Severity,
 		return SeverityUnhealthy, err.Error()
 	}
 
-	var empty []string
-	checked := 0
+	// Manifest reads are fast, local Badger lookups — only the vector
+	// backend Count call below is a real network round trip, so only
+	// that part needs bounding/parallelizing.
+	type target struct {
+		p bboltstore.ActivePointer
+		m generation.Manifest
+	}
+	var targets []target
 	for _, p := range pointers {
 		raw, err := env.badger.GetManifest(ctx, p.GenerationID)
 		if errors.Is(err, badgerstore.ErrNotFound) {
@@ -506,17 +528,89 @@ func checkEmptyActiveGenerations(ctx context.Context, env *doctorEnv) (Severity,
 		if m.ChunkCount == 0 {
 			continue // nothing to have points for
 		}
-		checked++
-		n, err := vb.Count(ctx, env.cfg.Vector.Collection, &backend.Filter{Generation: p.GenerationID})
-		if err != nil {
-			return SeverityUnhealthy, fmt.Sprintf("count points for %s: %v", pointerLabel(p), err)
+		targets = append(targets, target{p, m})
+	}
+
+	budgetCtx, cancel := context.WithTimeout(ctx, emptyGenerationsCheckBudget)
+	defer cancel()
+
+	type outcome struct {
+		empty   bool
+		label   string
+		err     error
+		skipped bool
+	}
+	outcomes := make([]outcome, len(targets))
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, emptyGenerationsConcurrency)
+	for i, t := range targets {
+		if budgetCtx.Err() != nil {
+			outcomes[i] = outcome{skipped: true}
+			continue
 		}
-		if n == 0 {
-			empty = append(empty, fmt.Sprintf("%s (manifest claims %d chunks, backend has 0 points)", pointerLabel(p), m.ChunkCount))
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(i int, t target) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			if budgetCtx.Err() != nil {
+				outcomes[i] = outcome{skipped: true}
+				return
+			}
+			n, err := vb.Count(budgetCtx, env.cfg.Vector.Collection, &backend.Filter{Generation: t.p.GenerationID})
+			if err != nil {
+				// Distinguish "our own budget ran out mid-call" (expected,
+				// honestly reported as skipped) from a real backend error
+				// unrelated to the budget (a genuine problem worth
+				// surfacing as UNHEALTHY) — both look like a context error
+				// from vb.Count's point of view, but only budgetCtx.Err()
+				// tells you which one actually happened.
+				if budgetCtx.Err() != nil {
+					outcomes[i] = outcome{skipped: true}
+					return
+				}
+				outcomes[i] = outcome{err: err}
+				return
+			}
+			if n == 0 {
+				outcomes[i] = outcome{empty: true, label: fmt.Sprintf("%s (manifest claims %d chunks, backend has 0 points)", pointerLabel(t.p), t.m.ChunkCount)}
+			}
+		}(i, t)
+	}
+	wg.Wait()
+
+	var empty []string
+	var firstErr error
+	checked, skipped := 0, 0
+	for _, o := range outcomes {
+		switch {
+		case o.skipped:
+			skipped++
+		case o.err != nil:
+			checked++
+			if firstErr == nil {
+				firstErr = o.err
+			}
+		case o.empty:
+			checked++
+			empty = append(empty, o.label)
+		default:
+			checked++
 		}
 	}
+
 	if len(empty) > 0 {
-		return SeverityUnhealthy, fmt.Sprintf("%d active generation(s) have zero points despite a non-empty manifest — re-sync with `ragctl sync --force`: %s", len(empty), summarize(empty))
+		msg := fmt.Sprintf("%d active generation(s) have zero points despite a non-empty manifest — `ragctl sync --force` will NOT fix this (the planner skips a dependency whose version hasn't changed, regardless of its real backend content); run `ragctl sync --rebuild --dependency <name>` for each (OPS-004): %s", len(empty), summarize(empty))
+		if skipped > 0 {
+			msg += fmt.Sprintf(" (%d of %d generations skipped within the %s check budget — re-run to check the rest)", skipped, len(targets), emptyGenerationsCheckBudget)
+		}
+		return SeverityUnhealthy, msg
+	}
+	if firstErr != nil {
+		return SeverityUnhealthy, fmt.Sprintf("count points: %v", firstErr)
+	}
+	if skipped > 0 {
+		return SeverityWarning, fmt.Sprintf("checked %d of %d active generations within the %s check budget — re-run to check the rest, or the backend may be degraded (this check exists partly to detect that)", checked, len(targets), emptyGenerationsCheckBudget)
 	}
 	return SeverityOK, fmt.Sprintf("%d checked, none empty", checked)
 }

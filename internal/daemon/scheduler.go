@@ -34,7 +34,13 @@ type SyncOptions struct {
 	Dependencies []string
 	Offline      bool
 	Force        bool
-	Resolve      bool
+	// Rebuild (OPS-004) clears each named Dependency's active-generation
+	// pointer and version reference before planning, forcing a genuine
+	// rebuild regardless of the planner's own version-unchanged NOOP
+	// branch — see RunSync's own doc comment for why Force alone can't do
+	// this. Meaningless (ignored) if Dependencies is empty.
+	Rebuild bool
+	Resolve bool
 	// Priority is set by Scheduler.start for every run it launches
 	// (never by a caller of Request) — RunSync consults it between
 	// actions to let a concurrent BumpPriority call reorder this run's
