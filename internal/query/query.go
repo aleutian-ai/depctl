@@ -75,6 +75,10 @@ type ResultChunk struct {
 	// so deriving it here works retroactively on every already-synced
 	// point with no backend schema change or re-replication needed.
 	TrustClass domain.TrustClass
+	// Breadcrumb is a human-readable structural-location string, e.g.
+	// "grpc-go@1.72.0 > Authentication > Transport Credentials" — see
+	// breadcrumb() in search.go (STRUCT-004).
+	Breadcrumb string
 }
 
 // SearchResult is SearchKnowledge's output.

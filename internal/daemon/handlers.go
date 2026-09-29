@@ -83,7 +83,7 @@ func (s *Server) handleSync(w http.ResponseWriter, r *http.Request) {
 				return nil, err
 			}
 		}
-		opts := SyncOptions{Dependencies: req.DependencySet(), Offline: req.Offline, Force: req.Force}
+		opts := SyncOptions{Dependencies: req.DependencySet(), Offline: req.Offline, Force: req.Force, Rebuild: req.Rebuild}
 
 		resp := api.SyncResponse{}
 		for _, id := range ids {
@@ -233,9 +233,11 @@ func (s *Server) handleDoctor(w http.ResponseWriter, r *http.Request) {
 // hung GC can't wedge every future sync, and a GC request that arrives
 // while one is already running collapses into a single follow-up.
 // req.Orphans selects GC-001/GC-002's separate orphan-generation path
-// instead (RequestOrphanGC) — no request-coalescing there, since orphan
-// GC is deliberately manual/opt-in, never fired automatically the way
-// sync (and therefore reference-based GC's own coalescing need) is.
+// instead (RequestOrphanGC), and req.SupersededDuplicates selects
+// POINT-004's same-version-duplicate path the same way — no
+// request-coalescing on either, since both are deliberately manual/opt-in,
+// never fired automatically the way sync (and therefore reference-based
+// GC's own coalescing need) is.
 func (s *Server) handleGC(w http.ResponseWriter, r *http.Request) {
 	var req api.GCRequest
 	if !decodeBody(w, r, &req) {
@@ -244,6 +246,12 @@ func (s *Server) handleGC(w http.ResponseWriter, r *http.Request) {
 	if req.Orphans {
 		stream(w, func(out io.Writer) (any, error) {
 			return s.scheduler.RequestOrphanGC(r.Context(), s.opts.Engine.OrphanGC, req.DryRun, out)
+		})
+		return
+	}
+	if req.SupersededDuplicates {
+		stream(w, func(out io.Writer) (any, error) {
+			return s.scheduler.RequestOrphanGC(r.Context(), s.opts.Engine.SupersededDuplicatesGC, req.DryRun, out)
 		})
 		return
 	}

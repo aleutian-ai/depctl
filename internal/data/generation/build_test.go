@@ -24,6 +24,20 @@ func requireGit(t *testing.T) {
 	}
 }
 
+func requireNode(t *testing.T) {
+	t.Helper()
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node not on PATH")
+	}
+}
+
+func requirePython(t *testing.T) {
+	t.Helper()
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not on PATH")
+	}
+}
+
 func runGit(t *testing.T, dir string, args ...string) {
 	t.Helper()
 	cmd := exec.Command("git", args...)
@@ -146,7 +160,7 @@ func TestBuildEndToEnd(t *testing.T) {
 	}
 
 	sources := []registry.Source{{ID: "repository", Type: "git", URL: repoDir, Ref: "v${version}", Authority: 100}}
-	if err := Build(ctx, gen, sources, gitCache, store, badgerStore); err != nil {
+	if err := Build(ctx, gen, sources, gitCache, store, badgerStore, ""); err != nil {
 		t.Fatalf("Build: %v", err)
 	}
 
@@ -206,7 +220,7 @@ func TestBuildSkipsNestedGoModuleBoundary(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Create: %v", err)
 		}
-		if err := Build(ctx, gen, sources, gitCache, store, badgerStore); err != nil {
+		if err := Build(ctx, gen, sources, gitCache, store, badgerStore, ""); err != nil {
 			t.Fatalf("Build: %v", err)
 		}
 		manifest, err := getManifest(ctx, badgerStore, gen.ID)
@@ -237,7 +251,7 @@ func TestBuildSkipsNestedGoModuleBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if err := Build(ctx, gen, sources, gitCache, store, badgerStore); err != nil {
+	if err := Build(ctx, gen, sources, gitCache, store, badgerStore, ""); err != nil {
 		t.Fatalf("Build: %v", err)
 	}
 	manifest, err := getManifest(ctx, badgerStore, gen.ID)
@@ -265,7 +279,7 @@ func TestBuildAcquisitionFailureMarksGenerationFailed(t *testing.T) {
 
 	// No "v1.0.0"-shaped tag exists under this template.
 	sources := []registry.Source{{ID: "repository", Type: "git", URL: repoDir, Ref: "does-not-exist-${version}", Authority: 100}}
-	err = Build(ctx, gen, sources, gitCache, store, badgerStore)
+	err = Build(ctx, gen, sources, gitCache, store, badgerStore, "")
 	if err == nil {
 		t.Fatal("Build succeeded, want acquisition failure")
 	}
@@ -307,7 +321,7 @@ func TestBuildContentReuseAcrossGenerations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create gen1: %v", err)
 	}
-	if err := Build(ctx, gen1, sources, gitCache, store, badgerStore); err != nil {
+	if err := Build(ctx, gen1, sources, gitCache, store, badgerStore, ""); err != nil {
 		t.Fatalf("Build gen1: %v", err)
 	}
 	manifest1, err := getManifest(ctx, badgerStore, gen1.ID)
@@ -319,7 +333,7 @@ func TestBuildContentReuseAcrossGenerations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create gen2: %v", err)
 	}
-	if err := Build(ctx, gen2, sources, gitCache, store, badgerStore); err != nil {
+	if err := Build(ctx, gen2, sources, gitCache, store, badgerStore, ""); err != nil {
 		t.Fatalf("Build gen2: %v", err)
 	}
 	manifest2, err := getManifest(ctx, badgerStore, gen2.ID)
@@ -359,7 +373,7 @@ func TestBuildContentReuseAcrossGenerations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create gen3: %v", err)
 	}
-	if err := Build(ctx, gen3, sources, gitCache, store, badgerStore); err != nil {
+	if err := Build(ctx, gen3, sources, gitCache, store, badgerStore, ""); err != nil {
 		t.Fatalf("Build gen3: %v", err)
 	}
 	manifest3, err := getManifest(ctx, badgerStore, gen3.ID)
@@ -404,7 +418,7 @@ func TestBuildDuplicateContentWithinOneGenerationCountsChunksOnce(t *testing.T) 
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if err := Build(ctx, gen, sources, gitCache, store, badgerStore); err != nil {
+	if err := Build(ctx, gen, sources, gitCache, store, badgerStore, ""); err != nil {
 		t.Fatalf("Build: %v", err)
 	}
 
@@ -491,7 +505,7 @@ func TestBuildScopesToSourceSubdir(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Create: %v", err)
 		}
-		if err := Build(ctx, gen, sources, gitCache, store, badgerStore); err != nil {
+		if err := Build(ctx, gen, sources, gitCache, store, badgerStore, ""); err != nil {
 			return Manifest{}, err
 		}
 		m, err := getManifest(ctx, badgerStore, gen.ID)
@@ -557,7 +571,7 @@ func TestBuildDiscoversNodeSubdirWhenRegistryOmitsDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if err := Build(ctx, gen, sources, gitCache, store, badgerStore); err != nil {
+	if err := Build(ctx, gen, sources, gitCache, store, badgerStore, ""); err != nil {
 		t.Fatalf("Build: %v", err)
 	}
 
@@ -583,6 +597,328 @@ func TestBuildDiscoversNodeSubdirWhenRegistryOmitsDirectory(t *testing.T) {
 	}
 	if !sawOwn {
 		t.Error("never indexed @scope/api's own README — discovery should have scoped the worktree to api/")
+	}
+}
+
+// TestBuildFailsCleanlyWhenNodePackageCannotBeLocatedInAMultiPackageRepo
+// is the live-found regression this session's own investigation
+// surfaced: @babel/plugin-syntax-object-rest-spread's npm registry entry
+// names a repository/directory that simply doesn't exist at that
+// version's actual git tag (upstream metadata drift), and the repo's own
+// root package.json belongs to an entirely different package (the
+// monorepo's private tooling root) — silently falling back to indexing
+// that root content under the dependency's name would be confidently
+// wrong, not just unscoped, the same failure class as the scope-bleed
+// bug above but via broken metadata instead of merely incomplete
+// metadata. Must fail acquisition cleanly instead.
+func TestBuildFailsCleanlyWhenNodePackageCannotBeLocatedInAMultiPackageRepo(t *testing.T) {
+	requireGit(t)
+	ctx := context.Background()
+
+	dir := t.TempDir()
+	runGit(t, dir, "init", "-q", "-b", "main")
+	writeFile(t, dir, "package.json", `{"name": "monorepo-root-tooling"}`)
+	writeFile(t, dir, "README.md", "# Monorepo\n\nGeneric root docs — must never be mistaken for any one package's own docs.\n")
+	writeFile(t, dir, "packages/widget/package.json", `{"name": "@scope/widget"}`)
+	writeFile(t, dir, "packages/widget/README.md", "# widget\n")
+	runGit(t, dir, "add", ".")
+	runGit(t, dir, "commit", "-q", "-m", "initial")
+	runGit(t, dir, "tag", "v1.0.0")
+
+	store, badgerStore := testStores(t)
+	gitCache := git.NewCache(t.TempDir())
+	dep := domain.DependencyVersion{
+		// Registry metadata (simulated) points at this repo for a
+		// package that was never actually published from it — the exact
+		// upstream-drift shape found live.
+		Dependency: domain.Dependency{Ecosystem: domain.EcosystemNode, Name: "@scope/does-not-exist-here"},
+		Version:    "v1.0.0",
+	}
+	sources := []registry.Source{{ID: "repository", Type: "git", URL: dir, Ref: "v${version}", Authority: 100}}
+	gen, err := Create(ctx, store, badgerStore, dep)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	err = Build(ctx, gen, sources, gitCache, store, badgerStore, "")
+	if !errors.Is(err, ErrAcquisition) || !strings.Contains(err.Error(), "@scope/does-not-exist-here") {
+		t.Fatalf("Build err = %v, want an ErrAcquisition naming @scope/does-not-exist-here", err)
+	}
+
+	chunks, listErr := badgerStore.ListGenerationChunks(ctx, gen.ID)
+	if listErr != nil {
+		t.Fatalf("ListGenerationChunks: %v", listErr)
+	}
+	if len(chunks) != 0 {
+		t.Errorf("ListGenerationChunks = %d, want 0 — the monorepo root's generic README must never be indexed under this dependency's name", len(chunks))
+	}
+}
+
+// TestBuildExtractsStructuredTypeScriptDocsAndNeverLeaksASiblingsSymbols
+// is NORM-008's own golden-fixture acceptance test: real exported
+// signatures/docs extracted correctly, a private class member excluded,
+// and — reusing the exact monorepo shape TestBuildDiscoversNodeSubdirWhen
+// RegistryOmitsDirectory already proved acquisition-scopes correctly —
+// a sibling package's own exported symbols must never appear in this
+// dependency's structured content either.
+func TestBuildExtractsStructuredTypeScriptDocsAndNeverLeaksASiblingsSymbols(t *testing.T) {
+	requireGit(t)
+	requireNode(t)
+	ctx := context.Background()
+
+	dir := t.TempDir()
+	runGit(t, dir, "init", "-q", "-b", "main")
+	writeFile(t, dir, "api/package.json", `{"name": "@scope/api", "types": "index.d.ts"}`)
+	writeFile(t, dir, "api/index.d.ts", "/**\n * Do performs the api package's core action.\n */\nexport declare function Do(x: string): number;\n")
+	writeFile(t, dir, "core/package.json", `{"name": "@scope/core", "types": "index.d.ts"}`)
+	writeFile(t, dir, "core/index.d.ts", "/**\n * SiblingOnly must never appear in @scope/api's own structured docs.\n */\nexport declare function SiblingOnly(): void;\n")
+	runGit(t, dir, "add", ".")
+	runGit(t, dir, "commit", "-q", "-m", "initial")
+	runGit(t, dir, "tag", "v1.0.0")
+
+	store, badgerStore := testStores(t)
+	gitCache := git.NewCache(t.TempDir())
+	dep := domain.DependencyVersion{
+		Dependency: domain.Dependency{Ecosystem: domain.EcosystemNode, Name: "@scope/api"},
+		Version:    "v1.0.0",
+	}
+	sources := []registry.Source{{ID: "repository", Type: "git", URL: dir, Ref: "v${version}", Authority: 100}}
+	gen, err := Create(ctx, store, badgerStore, dep)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if err := Build(ctx, gen, sources, gitCache, store, badgerStore, ""); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	chunks, err := badgerStore.ListGenerationChunks(ctx, gen.ID)
+	if err != nil {
+		t.Fatalf("ListGenerationChunks: %v", err)
+	}
+	var sawDo, sawSibling bool
+	for _, c := range chunks {
+		obj, err := badgerStore.GetKnowledgeObject(ctx, c.ObjectID)
+		if err != nil {
+			continue
+		}
+		if obj.ContentType != "symbol_doc" {
+			continue
+		}
+		if obj.Title == "Do" && strings.Contains(string(obj.Content), "performs the api package's core action") {
+			sawDo = true
+		}
+		if obj.Title == "SiblingOnly" || strings.Contains(string(obj.Content), "must never appear") {
+			sawSibling = true
+		}
+	}
+	if !sawDo {
+		t.Error("never extracted @scope/api's own Do() signature/doc — structured extraction didn't run")
+	}
+	if sawSibling {
+		t.Error("@scope/core's SiblingOnly symbol leaked into @scope/api's structured docs")
+	}
+}
+
+// TestBuildExtractsStructuredJSDocFallbackThroughTheFullPipeline is
+// NORM-008's own deferred-scope acceptance test, closed here: a Node
+// package with NO .d.ts at all — real exported signatures/docs pulled
+// from JSDoc comments over plain .js instead, through real acquisition
+// (proving nodeJSEntryPatterns actually gets the entry file into the
+// sparse checkout, not just that tsdoc's own unit tests can read a file
+// already sitting on disk) — and, mirroring the .d.ts test above, a
+// sibling package's symbols must never leak in.
+func TestBuildExtractsStructuredJSDocFallbackThroughTheFullPipeline(t *testing.T) {
+	requireGit(t)
+	requireNode(t)
+	ctx := context.Background()
+
+	dir := t.TempDir()
+	runGit(t, dir, "init", "-q", "-b", "main")
+	writeFile(t, dir, "api/package.json", `{"name": "@scope/api", "main": "index.js"}`)
+	writeFile(t, dir, "api/index.js", "/**\n * Do performs the api package's core action.\n */\nexport function Do(x) {\n  return x.length;\n}\n")
+	writeFile(t, dir, "core/package.json", `{"name": "@scope/core", "main": "index.js"}`)
+	writeFile(t, dir, "core/index.js", "/**\n * SiblingOnly must never appear in @scope/api's own structured docs.\n */\nexport function SiblingOnly() {}\n")
+	runGit(t, dir, "add", ".")
+	runGit(t, dir, "commit", "-q", "-m", "initial")
+	runGit(t, dir, "tag", "v1.0.0")
+
+	store, badgerStore := testStores(t)
+	gitCache := git.NewCache(t.TempDir())
+	dep := domain.DependencyVersion{
+		Dependency: domain.Dependency{Ecosystem: domain.EcosystemNode, Name: "@scope/api"},
+		Version:    "v1.0.0",
+	}
+	sources := []registry.Source{{ID: "repository", Type: "git", URL: dir, Ref: "v${version}", Authority: 100}}
+	gen, err := Create(ctx, store, badgerStore, dep)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if err := Build(ctx, gen, sources, gitCache, store, badgerStore, ""); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	chunks, err := badgerStore.ListGenerationChunks(ctx, gen.ID)
+	if err != nil {
+		t.Fatalf("ListGenerationChunks: %v", err)
+	}
+	var sawDo, sawSibling bool
+	for _, c := range chunks {
+		obj, err := badgerStore.GetKnowledgeObject(ctx, c.ObjectID)
+		if err != nil {
+			continue
+		}
+		if obj.ContentType != "symbol_doc" {
+			continue
+		}
+		if obj.Title == "Do" && strings.Contains(string(obj.Content), "performs the api package's core action") {
+			sawDo = true
+		}
+		if obj.Title == "SiblingOnly" || strings.Contains(string(obj.Content), "must never appear") {
+			sawSibling = true
+		}
+	}
+	if !sawDo {
+		t.Error("never extracted @scope/api's own JSDoc Do() signature/doc through real acquisition — either the entry file never made it into the sparse checkout, or structured extraction didn't run")
+	}
+	if sawSibling {
+		t.Error("@scope/core's SiblingOnly symbol leaked into @scope/api's structured docs")
+	}
+}
+
+// TestBuildExtractsStructuredPythonDocsThroughTheFullPipeline is
+// NORM-009's own golden-fixture acceptance test, run through real
+// acquisition/chunking/storage rather than just the pydoc package's own
+// unit tests: real exported signatures/docstrings extracted correctly, a
+// private (underscore-prefixed) symbol excluded, and a single-hop
+// relative-import re-export resolved correctly. No sibling-package-leak
+// variant here (unlike the Node case above) — REG-013's own Non-goals
+// state Python has no Subdir/monorepo-directory support at all yet, so
+// there is no dynamic scoping step that could leak a sibling's content
+// the way discoverNodeSubdir's absence could for Node; this fixture is a
+// straightforward single-package repo, the shape every real PyPI package
+// syncs as today.
+func TestBuildExtractsStructuredPythonDocsThroughTheFullPipeline(t *testing.T) {
+	requireGit(t)
+	requirePython(t)
+	ctx := context.Background()
+
+	dir := t.TempDir()
+	runGit(t, dir, "init", "-q", "-b", "main")
+	writeFile(t, dir, "__init__.py", "\"\"\"The widget package does something useful.\"\"\"\n\n__all__ = [\"Do\", \"Reexported\"]\n\n\ndef Do(x: str) -> int:\n    \"\"\"Do performs the widget's core action.\"\"\"\n    return len(x)\n\n\ndef _internal() -> None:\n    \"\"\"Must never appear.\"\"\"\n    pass\n\n\nfrom .core import Reexported\n")
+	writeFile(t, dir, "core.py", "def Reexported() -> str:\n    \"\"\"Reexported lives in a sibling module.\"\"\"\n    return \"ok\"\n")
+	runGit(t, dir, "add", ".")
+	runGit(t, dir, "commit", "-q", "-m", "initial")
+	runGit(t, dir, "tag", "1.0.0")
+
+	store, badgerStore := testStores(t)
+	gitCache := git.NewCache(t.TempDir())
+	dep := domain.DependencyVersion{
+		Dependency: domain.Dependency{Ecosystem: domain.EcosystemPython, Name: "widget"},
+		Version:    "1.0.0",
+	}
+	sources := []registry.Source{{ID: "repository", Type: "git", URL: dir, Ref: "${version}", Authority: 100}}
+	gen, err := Create(ctx, store, badgerStore, dep)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if err := Build(ctx, gen, sources, gitCache, store, badgerStore, ""); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	chunks, err := badgerStore.ListGenerationChunks(ctx, gen.ID)
+	if err != nil {
+		t.Fatalf("ListGenerationChunks: %v", err)
+	}
+	byTitle := map[string]domain.KnowledgeObject{}
+	for _, c := range chunks {
+		obj, err := badgerStore.GetKnowledgeObject(ctx, c.ObjectID)
+		if err != nil || obj.ContentType != "symbol_doc" {
+			continue
+		}
+		byTitle[obj.Title] = obj
+	}
+
+	if _, ok := byTitle["_internal"]; ok {
+		t.Error("_internal (not exported) must never appear")
+	}
+	do, ok := byTitle["Do"]
+	if !ok || !strings.Contains(string(do.Content), "performs the widget's core action") {
+		t.Errorf("Do = %+v, ok=%v", do, ok)
+	}
+	reexp, ok := byTitle["Reexported"]
+	if !ok || !strings.Contains(string(reexp.Content), "lives in a sibling module") {
+		t.Errorf("Reexported (single-hop re-export) = %+v, ok=%v", reexp, ok)
+	}
+}
+
+// TestBuildFindsPydanticShapedPackageInASameNamedSubdirectory is
+// SUBDIR-001's own full-pipeline acceptance test: a real git fixture
+// shaped exactly like real pydantic — the package's __init__.py sits in
+// a same-named subdirectory of the repo root, README/LICENSE sit at the
+// true repo root (not duplicated inside the source subdirectory,
+// exactly like real pydantic's own repo) — synced end to end, must
+// produce BOTH real structured symbol_doc objects AND the root-level
+// README content, instead of the zero-everything this session's live
+// mem0 check found. That live check went through two real bugs, not
+// one: first, the same-named-subdirectory layout wasn't discovered at
+// all (the original, narrower version of this test caught that); then,
+// once discovery was fixed, scoping doc-shaped sparse patterns to the
+// discovered subdirectory too silently excluded the real root-level
+// README/LICENSE (real pydantic's own `pydantic/` source directory has
+// no README/LICENSE inside it at all) — this fixture's own root
+// README.md is what catches that second regression; the original
+// fixture had none, so it couldn't have. A decoy root-level .py file is
+// included to prove the fallback path doesn't accidentally still win.
+func TestBuildFindsPydanticShapedPackageInASameNamedSubdirectory(t *testing.T) {
+	requireGit(t)
+	requirePython(t)
+	ctx := context.Background()
+
+	dir := t.TempDir()
+	runGit(t, dir, "init", "-q", "-b", "main")
+	writeFile(t, dir, "README.md", "# widget\n\nThe widget package's real root-level README — not duplicated inside the source subdirectory, matching real pydantic's own repo shape.\n")
+	writeFile(t, dir, "widget/__init__.py", "\"\"\"The widget package does something useful.\"\"\"\n\n\ndef Do(x: str) -> int:\n    \"\"\"Do performs the widget's core action.\"\"\"\n    return len(x)\n")
+	writeFile(t, dir, "setup.py", "# a decoy root-level .py file — must never be mistaken for the real package\n")
+	runGit(t, dir, "add", ".")
+	runGit(t, dir, "commit", "-q", "-m", "initial")
+	runGit(t, dir, "tag", "1.0.0")
+
+	store, badgerStore := testStores(t)
+	gitCache := git.NewCache(t.TempDir())
+	dep := domain.DependencyVersion{
+		Dependency: domain.Dependency{Ecosystem: domain.EcosystemPython, Name: "widget"},
+		Version:    "1.0.0",
+	}
+	sources := []registry.Source{{ID: "repository", Type: "git", URL: dir, Ref: "${version}", Authority: 100}}
+	gen, err := Create(ctx, store, badgerStore, dep)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if err := Build(ctx, gen, sources, gitCache, store, badgerStore, ""); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	chunks, err := badgerStore.ListGenerationChunks(ctx, gen.ID)
+	if err != nil {
+		t.Fatalf("ListGenerationChunks: %v", err)
+	}
+	var sawDo, sawReadme bool
+	for _, c := range chunks {
+		obj, err := badgerStore.GetKnowledgeObject(ctx, c.ObjectID)
+		if err != nil {
+			continue
+		}
+		if obj.ContentType == "symbol_doc" && obj.Title == "Do" && strings.Contains(string(obj.Content), "performs the widget's core action") {
+			sawDo = true
+		}
+		if strings.Contains(string(obj.Content), "real root-level README") {
+			sawReadme = true
+		}
+	}
+	if !sawDo {
+		t.Error("never extracted widget's own Do() signature/doc — the same-named-subdirectory layout (real pydantic's own shape) wasn't discovered")
+	}
+	if !sawReadme {
+		t.Error("never indexed the root-level README — doc-shaped patterns were wrongly scoped to the discovered source subdirectory too (real pydantic's own repo has no README inside its pydantic/ source directory at all)")
 	}
 }
 
@@ -672,7 +1008,7 @@ func buildSubdirAt(t *testing.T, gitCache *git.Cache, repoDir, version string) (
 		t.Fatalf("Create: %v", err)
 	}
 	sources := []registry.Source{{ID: "repository", Type: "git", URL: repoDir, Ref: "sub/v${version}", Subdir: "sub", Authority: 0}}
-	if err := Build(context.Background(), gen, sources, gitCache, store, badgerStore); err != nil {
+	if err := Build(context.Background(), gen, sources, gitCache, store, badgerStore, ""); err != nil {
 		return "", err
 	}
 	return chunkText(t, badgerStore, gen.ID), nil
@@ -781,7 +1117,7 @@ func TestBuildTriesEveryRefTemplateUntilOneResolves(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := Build(ctx, gen, sources, gitCache, store, badgerStore); err != nil {
+	if err := Build(ctx, gen, sources, gitCache, store, badgerStore, ""); err != nil {
 		t.Fatalf("Build: %v, want the widget@3.4.3 template to resolve after v3.4.3 and 3.4.3 both miss", err)
 	}
 }
@@ -804,7 +1140,7 @@ func TestBuildFailsCleanlyWhenNoRefTemplateResolves(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = Build(ctx, gen, sources, gitCache, store, badgerStore)
+	err = Build(ctx, gen, sources, gitCache, store, badgerStore, "")
 	if !errors.Is(err, ErrAcquisition) || !strings.Contains(err.Error(), "v9.9.9 or 9.9.9") {
 		t.Errorf("err = %v, want an acquisition error naming both untried refs, no branch-head fallback", err)
 	}
@@ -842,12 +1178,211 @@ func TestDiscoverNodeSubdirFindsTheMatchingPackageJSON(t *testing.T) {
 		t.Fatalf("ResolveRef: %v", err)
 	}
 
-	subdir, err := discoverNodeSubdir(ctx, gitCache, repoPath, commit, "@scope/core")
-	if err != nil || subdir != "core" {
-		t.Errorf("discoverNodeSubdir(@scope/core) = %q, %v, want core, nil", subdir, err)
+	subdir, verified, ambiguous, err := discoverNodeSubdir(ctx, gitCache, repoPath, commit, "@scope/core")
+	if err != nil || !verified || ambiguous || subdir != "core" {
+		t.Errorf("discoverNodeSubdir(@scope/core) = %q, verified=%v, ambiguous=%v, %v, want core, true, false, nil", subdir, verified, ambiguous, err)
 	}
-	subdir, err = discoverNodeSubdir(ctx, gitCache, repoPath, commit, "@scope/nonexistent")
-	if err != nil || subdir != "" {
-		t.Errorf("discoverNodeSubdir(unmatched name) = %q, %v, want \"\", nil — never a guess", subdir, err)
+
+	// Two package.json files exist (api, core), but neither names this
+	// package — a genuine multi-package repo where it truly can't be
+	// found, not a single-package repo with unusual metadata.
+	subdir, verified, ambiguous, err = discoverNodeSubdir(ctx, gitCache, repoPath, commit, "@scope/nonexistent")
+	if err != nil || verified || !ambiguous || subdir != "" {
+		t.Errorf("discoverNodeSubdir(unmatched name, multi-package repo) = %q, verified=%v, ambiguous=%v, %v, want \"\", false, true, nil", subdir, verified, ambiguous, err)
+	}
+}
+
+// TestDiscoverNodeSubdirAmbiguousEvenForASingleMismatchedPackageJSON is
+// the audit-found regression for the exact shape REG-012's own
+// eslint-visitor-keys finding was: a resolved commit with only ONE
+// package.json in the whole tree (not a multi-package repo at all), but
+// its name doesn't match the target — a real, live-found signal of a
+// wrong repo/commit, not an unusual-but-harmless layout. A looser
+// "ambiguous only when more than one package.json exists" check would
+// have missed exactly this case (eslint-visitor-keys' bad match was a
+// single-package commit predating the monorepo restructure).
+func TestDiscoverNodeSubdirAmbiguousEvenForASingleMismatchedPackageJSON(t *testing.T) {
+	requireGit(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+	runGit(t, dir, "init", "-q", "-b", "main")
+	writeFile(t, dir, "package.json", `{"name": "some-other-name"}`)
+	runGit(t, dir, "add", ".")
+	runGit(t, dir, "commit", "-q", "-m", "initial")
+
+	gitCache := git.NewCache(t.TempDir())
+	repoPath, err := gitCache.EnsureMirror(ctx, dir)
+	if err != nil {
+		t.Fatalf("EnsureMirror: %v", err)
+	}
+	commit, err := gitCache.ResolveRef(ctx, repoPath, "HEAD")
+	if err != nil {
+		t.Fatalf("ResolveRef: %v", err)
+	}
+
+	_, verified, ambiguous, err := discoverNodeSubdir(ctx, gitCache, repoPath, commit, "target-package")
+	if err != nil || verified || !ambiguous {
+		t.Errorf("discoverNodeSubdir(single mismatched package.json) = verified=%v, ambiguous=%v, %v, want false, true, nil", verified, ambiguous, err)
+	}
+}
+
+// TestDiscoverNodeSubdirNotAmbiguousWhenNoPackageJSONExistsAtAll covers
+// the one genuinely safe fallback case left: a commit with literally no
+// package.json anywhere carries no name signal to contradict at all —
+// irreducible uncertainty, not a known mismatch, so falling back to the
+// root stays acceptable.
+func TestDiscoverNodeSubdirNotAmbiguousWhenNoPackageJSONExistsAtAll(t *testing.T) {
+	requireGit(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+	runGit(t, dir, "init", "-q", "-b", "main")
+	writeFile(t, dir, "README.md", "no package.json in this repo at all\n")
+	runGit(t, dir, "add", ".")
+	runGit(t, dir, "commit", "-q", "-m", "initial")
+
+	gitCache := git.NewCache(t.TempDir())
+	repoPath, err := gitCache.EnsureMirror(ctx, dir)
+	if err != nil {
+		t.Fatalf("EnsureMirror: %v", err)
+	}
+	commit, err := gitCache.ResolveRef(ctx, repoPath, "HEAD")
+	if err != nil {
+		t.Fatalf("ResolveRef: %v", err)
+	}
+
+	_, verified, ambiguous, err := discoverNodeSubdir(ctx, gitCache, repoPath, commit, "target-package")
+	if err != nil || verified || ambiguous {
+		t.Errorf("discoverNodeSubdir(no package.json anywhere) = verified=%v, ambiguous=%v, %v, want false, false, nil", verified, ambiguous, err)
+	}
+}
+
+func TestNormalizePythonName(t *testing.T) {
+	cases := map[string]string{
+		"pydantic":           "pydantic",
+		"typing-extensions":  "typing_extensions",
+		"Flask-SQLAlchemy":   "flask_sqlalchemy",
+		"zope.interface":     "zope_interface",
+		"ALREADY_UNDERSCORE": "already_underscore",
+	}
+	for in, want := range cases {
+		if got := normalizePythonName(in); got != want {
+			t.Errorf("normalizePythonName(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// TestDiscoverPythonSubdirFindsTheSameNamedSubdirectory is SUBDIR-001's
+// direct regression for real pydantic's own shape: the package's
+// __init__.py sits in a same-named subdirectory of the repo root, not
+// at the root itself.
+func TestDiscoverPythonSubdirFindsTheSameNamedSubdirectory(t *testing.T) {
+	requireGit(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+	runGit(t, dir, "init", "-q", "-b", "main")
+	writeFile(t, dir, "pydantic/__init__.py", "\"\"\"pydantic's real module doc.\"\"\"\n")
+	writeFile(t, dir, "README.md", "not the package itself\n")
+	runGit(t, dir, "add", ".")
+	runGit(t, dir, "commit", "-q", "-m", "initial")
+
+	gitCache := git.NewCache(t.TempDir())
+	repoPath, err := gitCache.EnsureMirror(ctx, dir)
+	if err != nil {
+		t.Fatalf("EnsureMirror: %v", err)
+	}
+	commit, err := gitCache.ResolveRef(ctx, repoPath, "HEAD")
+	if err != nil {
+		t.Fatalf("ResolveRef: %v", err)
+	}
+
+	subdir, verified, err := discoverPythonSubdir(ctx, gitCache, repoPath, commit, "pydantic")
+	if err != nil || !verified || subdir != "pydantic" {
+		t.Errorf("discoverPythonSubdir(pydantic) = %q, verified=%v, %v, want pydantic, true, nil", subdir, verified, err)
+	}
+}
+
+// TestDiscoverPythonSubdirFindsTheSrcLayoutWithNoSpecialCasing proves
+// the depth-independent rule catches the PyPA-recommended src/<pkg>/
+// layout via the exact same single rule as the root-adjacent shape
+// above — no src/-specific branch anywhere in discoverPythonSubdir.
+func TestDiscoverPythonSubdirFindsTheSrcLayoutWithNoSpecialCasing(t *testing.T) {
+	requireGit(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+	runGit(t, dir, "init", "-q", "-b", "main")
+	writeFile(t, dir, "src/widget/__init__.py", "\"\"\"widget's real module doc, src layout.\"\"\"\n")
+	runGit(t, dir, "add", ".")
+	runGit(t, dir, "commit", "-q", "-m", "initial")
+
+	gitCache := git.NewCache(t.TempDir())
+	repoPath, err := gitCache.EnsureMirror(ctx, dir)
+	if err != nil {
+		t.Fatalf("EnsureMirror: %v", err)
+	}
+	commit, err := gitCache.ResolveRef(ctx, repoPath, "HEAD")
+	if err != nil {
+		t.Fatalf("ResolveRef: %v", err)
+	}
+
+	subdir, verified, err := discoverPythonSubdir(ctx, gitCache, repoPath, commit, "widget")
+	if err != nil || !verified || subdir != "src/widget" {
+		t.Errorf("discoverPythonSubdir(widget, src layout) = %q, verified=%v, %v, want src/widget, true, nil", subdir, verified, err)
+	}
+}
+
+// TestDiscoverPythonSubdirFallsBackWhenNoMatchExists covers the
+// unchanged, existing baseline: nothing found means the caller acquires
+// at the repo root exactly as it always has.
+func TestDiscoverPythonSubdirFallsBackWhenNoMatchExists(t *testing.T) {
+	requireGit(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+	runGit(t, dir, "init", "-q", "-b", "main")
+	writeFile(t, dir, "__init__.py", "\"\"\"already at the root — nothing to discover.\"\"\"\n")
+	runGit(t, dir, "add", ".")
+	runGit(t, dir, "commit", "-q", "-m", "initial")
+
+	gitCache := git.NewCache(t.TempDir())
+	repoPath, err := gitCache.EnsureMirror(ctx, dir)
+	if err != nil {
+		t.Fatalf("EnsureMirror: %v", err)
+	}
+	commit, err := gitCache.ResolveRef(ctx, repoPath, "HEAD")
+	if err != nil {
+		t.Fatalf("ResolveRef: %v", err)
+	}
+
+	subdir, verified, err := discoverPythonSubdir(ctx, gitCache, repoPath, commit, "widget")
+	if err != nil || verified || subdir != "" {
+		t.Errorf("discoverPythonSubdir(widget, no match) = %q, verified=%v, %v, want \"\", false, nil", subdir, verified, err)
+	}
+}
+
+// TestDiscoverPythonSubdirAmbiguousNeverGuesses covers two different
+// directories both normalizing to the same name — must never pick one
+// arbitrarily.
+func TestDiscoverPythonSubdirAmbiguousNeverGuesses(t *testing.T) {
+	requireGit(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+	runGit(t, dir, "init", "-q", "-b", "main")
+	writeFile(t, dir, "widget/__init__.py", "\"\"\"one candidate.\"\"\"\n")
+	writeFile(t, dir, "vendor/widget/__init__.py", "\"\"\"a different, unrelated candidate with the same name.\"\"\"\n")
+	runGit(t, dir, "add", ".")
+	runGit(t, dir, "commit", "-q", "-m", "initial")
+
+	gitCache := git.NewCache(t.TempDir())
+	repoPath, err := gitCache.EnsureMirror(ctx, dir)
+	if err != nil {
+		t.Fatalf("EnsureMirror: %v", err)
+	}
+	commit, err := gitCache.ResolveRef(ctx, repoPath, "HEAD")
+	if err != nil {
+		t.Fatalf("ResolveRef: %v", err)
+	}
+
+	subdir, verified, err := discoverPythonSubdir(ctx, gitCache, repoPath, commit, "widget")
+	if err != nil || verified || subdir != "" {
+		t.Errorf("discoverPythonSubdir(widget, ambiguous) = %q, verified=%v, %v, want \"\", false, nil — must never guess among ambiguous candidates", subdir, verified, err)
 	}
 }

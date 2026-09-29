@@ -13,7 +13,7 @@ Sourced from a 2026-09 design review's own stress-test plan, in the order propos
 - [x] [STRESS-004](STRESS-004-multi-ecosystem-monorepo-scan.md) — A monorepo spanning two ecosystems (Go + Node); confirm correct multi-resolver dispatch in one scan. Done — both discovered in one pass, zero cross-contamination (7 Go deps, 69 Node deps, correctly separated).
 
 ### Stage 2 — `sync`
-- [x] [STRESS-005](STRESS-005-full-cold-sync-real-scale.md) — Cold sync of the STRESS-001 project; measure real wall-clock/disk usage post-GIT-005. Done — found and fixed the dominant real cause (nested-Go-module over-normalization, [epic 52](../../completed/52-nested-go-module-normalization-boundary/INDEX.md)); the whole-batch 30-minute ceiling itself remains a separate, still-open question ([epic 51](../../backlog/51-bulk-sync-batch-timeout/INDEX.md)).
+- [x] [STRESS-005](STRESS-005-full-cold-sync-real-scale.md) — Cold sync of the STRESS-001 project; measure real wall-clock/disk usage post-GIT-005. Done — found and fixed the dominant real cause (nested-Go-module over-normalization, [epic 52](../../completed/52-nested-go-module-normalization-boundary/INDEX.md)); the whole-batch 30-minute ceiling itself was its own follow-up ([epic 51](../../completed/51-bulk-sync-batch-timeout/INDEX.md), now shipped and closed).
 - [STRESS-006](STRESS-006-kill-daemon-mid-sync.md) — `kill -9` the daemon mid-sync; confirm no corrupted state and a clean resume/orphan path.
 - [STRESS-007](STRESS-007-concurrent-cross-project-sync-real-daemon.md) — VALID-002's scenario against a real daemon and real backend, not fakes.
 - [STRESS-008](STRESS-008-jit-sync-storm.md) — Many simultaneous JIT-sync triggers for different dependencies on one project.

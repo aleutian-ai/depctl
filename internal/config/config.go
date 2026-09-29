@@ -4,6 +4,7 @@
 package config
 
 import (
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -29,6 +30,25 @@ type Config struct {
 	Sync      SyncConfig      `yaml:"sync"`
 	Server    ServerConfig    `yaml:"server"`
 	Daemon    DaemonConfig    `yaml:"daemon"`
+	Git       GitConfig       `yaml:"git,omitempty"`
+}
+
+// GitConfig configures internal/source/git.Cache's optional local-seed
+// fallback tiers (epic 43) — both empty by default, so an existing
+// config file with no "git" key at all sees no behavior change.
+type GitConfig struct {
+	// MirrorSearchPaths (GIT-006): external directories laid out
+	// identically to ragctl's own mirror cache convention
+	// (<host>/<org>/<repo>.git) — e.g. a backup of another machine's
+	// ragctl data dir. Checked by exact path, in order, before a
+	// network clone; the first hit wins.
+	MirrorSearchPaths []string `yaml:"mirror_search_paths,omitempty"`
+	// CheckoutSearchPaths (GIT-007): external directories containing
+	// arbitrary real git working-tree checkouts (e.g. a personal
+	// corpus like ~/offline-knowledge) — discovered by walking each
+	// root and matching a checkout's own "origin" remote against the
+	// dependency being acquired, not by path convention.
+	CheckoutSearchPaths []string `yaml:"checkout_search_paths,omitempty"`
 }
 
 type StorageConfig struct {
@@ -127,9 +147,14 @@ func (d DaemonConfig) AutostartEnabled() bool {
 	return d.Autostart == nil || *d.Autostart
 }
 
+// ServerConfig is deliberately MCP-only — a Streamable HTTP transport
+// remains a documented future option on the MCP SDK (see docs/internal/
+// cli.md), not built, so no HTTPServerConfig-shaped field exists here
+// (CFG-001, epic 61): an unconsumed config field that looks functional
+// but silently does nothing is worse than no field at all. Add one back
+// only alongside a real consumer.
 type ServerConfig struct {
-	MCP  MCPServerConfig  `yaml:"mcp"`
-	HTTP HTTPServerConfig `yaml:"http"`
+	MCP MCPServerConfig `yaml:"mcp"`
 }
 
 type MCPServerConfig struct {
@@ -146,13 +171,36 @@ type MCPServerConfig struct {
 	EnableSyncTool bool `yaml:"enable_sync_tool"`
 }
 
-type HTTPServerConfig struct {
-	Listen string `yaml:"listen"`
-}
-
 // autostartDefault backs DaemonConfig.Autostart in Default; a pointer
 // field needs an addressable value.
 var autostartDefault = true
+
+// defaultCollectionName returns a per-install-unique Qdrant collection
+// name — SAFE-001 (epic 61): a plain, identical "ragctl" literal on
+// every fresh install meant that two independent instances (a real
+// install and an isolated/test one) sharing one Qdrant server would
+// silently commingle data the moment either one synced, since ambient
+// sync (SCOPE-002) fires automatically with no separate opt-in step.
+// Live-found: this happened for real, twice, during this session's own
+// live-verification work. A random suffix (not hostname-based — the
+// real incidents here were two installs on the *same* machine, in
+// different isolated $HOME directories) makes every fresh `ragctl init`
+// distinct by default, on any machine, without requiring the operator
+// to think about it. Never changes an existing config.yaml's already-
+// saved collection name — Load never re-derives defaults for a field
+// that's already on disk (see this package's own "no implicit
+// defaulting" convention), so this only affects installs from here on.
+func defaultCollectionName() string {
+	var b [4]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		// crypto/rand failing is effectively unheard-of on any real
+		// platform ragctl runs on; fall back to the old plain name
+		// rather than a zero-value/panic, since a collection name still
+		// has to be something.
+		return "ragctl"
+	}
+	return "ragctl-" + hex.EncodeToString(b[:])
+}
 
 // Default returns the documented v0.1 defaults, rooted at the given data
 // directory (control.db and badger/ live under it).
@@ -171,7 +219,7 @@ func Default(dataDir string) Config {
 		Vector: VectorConfig{
 			Backend:    "qdrant",
 			Endpoint:   "http://127.0.0.1:6333",
-			Collection: "ragctl",
+			Collection: defaultCollectionName(),
 			Managed:    true,
 		},
 		Retention: RetentionConfig{
@@ -188,8 +236,7 @@ func Default(dataDir string) Config {
 			MaxTotalConcurrency: 4,
 		},
 		Server: ServerConfig{
-			MCP:  MCPServerConfig{Enabled: true, EnableSyncTool: true},
-			HTTP: HTTPServerConfig{Listen: "127.0.0.1:7447"},
+			MCP: MCPServerConfig{Enabled: true, EnableSyncTool: true},
 		},
 		Daemon: DaemonConfig{Autostart: &autostartDefault},
 	}

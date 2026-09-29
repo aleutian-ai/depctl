@@ -248,6 +248,26 @@ func (c *Client) Query(ctx context.Context, req backend.QueryRequest) (backend.Q
 	return result, nil
 }
 
+// Count reports exactly how many points in namespace match filter, via
+// Qdrant's dedicated `points/count` endpoint (`exact: true` — an
+// approximate count would defeat the point: POINT-003 needs to tell
+// "zero points" apart from "a few points," not a ballpark).
+func (c *Client) Count(ctx context.Context, namespace string, filter *backend.Filter) (int, error) {
+	cr := countRequest{Exact: true}
+	if filter != nil {
+		cr.Filter = filterFrom(filter)
+	}
+	body, err := json.Marshal(cr)
+	if err != nil {
+		return 0, &Error{Op: "Count", Kind: ErrBackendRequest, Cause: err}
+	}
+	var parsed countResponse
+	if err := c.do(ctx, http.MethodPost, "/collections/"+namespace+"/points/count", body, "Count", &parsed); err != nil {
+		return 0, err
+	}
+	return parsed.Result.Count, nil
+}
+
 // do performs one HTTP round-trip and decodes a JSON response into out
 // (if non-nil), classifying failures per Error's Kind.
 func (c *Client) do(ctx context.Context, method, path string, body []byte, op string, out any) error {

@@ -182,7 +182,7 @@ func prioritizeFileHandler(j jitDeps) sdkmcp.ToolHandlerFor[PrioritizeFileIn, Pr
 			}
 			pending, syncErr := ensureDependencies(ctx, j, in.ProjectID, wanted)
 			if syncErr != nil {
-				return nil, PrioritizeFileOut{}, fmt.Errorf("prioritize_file: %w", syncErr)
+				return nil, PrioritizeFileOut{}, toolError(syncErr)
 			}
 			out.StillBuilding = len(pending) > 0
 		}

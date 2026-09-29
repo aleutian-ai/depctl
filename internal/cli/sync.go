@@ -34,13 +34,13 @@ import (
 func newSyncCmd() *cobra.Command {
 	var projectID string
 	var dependencies []string
-	var dryRun, offline, force bool
+	var dryRun, offline, force, rebuild bool
 
 	cmd := &cobra.Command{
 		Use:   "sync",
 		Short: "Execute the sync plan",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runSync(cmd, projectID, dependencies, dryRun, offline, force)
+			return runSync(cmd, projectID, dependencies, dryRun, offline, force, rebuild)
 		},
 	}
 	cmd.Flags().StringVar(&projectID, "project", "", "limit to one project ID")
@@ -48,10 +48,18 @@ func newSyncCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "print the plan and exit without executing")
 	cmd.Flags().BoolVar(&offline, "offline", false, "skip actions that require network access")
 	cmd.Flags().BoolVar(&force, "force", false, "promote a candidate even if VAL-002 sanity thresholds fail (structural/version-correctness failures are never forceable)")
+	cmd.Flags().BoolVar(&rebuild, "rebuild", false, "force a genuine rebuild of each --dependency even though its version hasn't changed (OPS-004) — for a generation ragctl doctor flagged as active but empty; requires --dependency, not supported with --dry-run")
 	return cmd
 }
 
-func runSync(cmd *cobra.Command, projectID string, dependencies []string, dryRun, offline, force bool) error {
+func runSync(cmd *cobra.Command, projectID string, dependencies []string, dryRun, offline, force, rebuild bool) error {
+	if rebuild && len(dependencies) == 0 {
+		return fmt.Errorf("--rebuild requires at least one --dependency — it forces a rebuild of exactly the named dependencies, never every dependency in scope")
+	}
+	if rebuild && dryRun {
+		return fmt.Errorf("--rebuild is not supported with --dry-run — the plan it would print doesn't reflect the rebuild's own effect, since --dry-run only reads the plan the daemon already has")
+	}
+
 	c, err := ensureDaemon(cmd.Context())
 	if err != nil {
 		return err
@@ -66,7 +74,7 @@ func runSync(cmd *cobra.Command, projectID string, dependencies []string, dryRun
 		return nil
 	}
 
-	req := api.SyncRequest{ProjectID: projectID, Dependencies: dependencies, Offline: offline, Force: force}
+	req := api.SyncRequest{ProjectID: projectID, Dependencies: dependencies, Offline: offline, Force: force, Rebuild: rebuild}
 	resp, err := c.Sync(cmd.Context(), req, cmd.OutOrStdout())
 	if err != nil {
 		return err
@@ -116,7 +124,73 @@ func runSync(cmd *cobra.Command, projectID string, dependencies []string, dryRun
 // normally takes long enough to observably overlap on their own.
 var syncActionConcurrencyHook = func() {}
 
-func RunSync(ctx context.Context, coordinator *daemon.BuildCoordinator, store *bboltstore.Store, badgerStore *badgerstore.Store, cfg config.Config, projectID string, dependencies []string, offline, force bool, out io.Writer, readiness *embeddingReadiness, vecReadiness *vectorReadiness, priority *daemon.SyncPriority, progress *daemon.SyncProgress, daemonSem chan struct{}) (synced, failed, skipped int, err error) {
+// clearForRebuild implements OPS-004 (epic 61): `ragctl sync --rebuild
+// --dependency X` clears X's active-generation pointer and this scope's
+// version reference(s) *before* planning, so planner.Plan's own
+// version-unchanged NOOP branch (internal/planner/planner.go) never gets
+// a chance to fire. This is the only way to force a genuine rebuild of a
+// generation whose real backend content is gone despite otherwise-
+// unchanged, healthy-looking bookkeeping — `ragctl doctor`'s "empty
+// active generations" check exists to detect exactly that state, and
+// plain --force cannot fix it (it only affects an already-selected
+// action, never which actions the planner selects). Live-found and
+// live-fixed this way for a real, ~132-generation incident (see
+// docs/architecture.md's OPS-003/OPS-004 section) before this command
+// existed — that fix needed a throwaway Go program against the real
+// database; this is the real, supported equivalent.
+//
+// projectID empty means every registered project, matching RunSync's
+// own convention — every project whose current resolution includes one
+// of dependencyNames gets that dependency's bookkeeping cleared, scoped
+// to exactly the named dependencies and nothing else in the same
+// project.
+func clearForRebuild(ctx context.Context, store *bboltstore.Store, backendName, projectID string, dependencyNames []string) error {
+	wanted := make(map[string]bool, len(dependencyNames))
+	for _, name := range dependencyNames {
+		wanted[name] = true
+	}
+
+	var projects []domain.Project
+	if projectID != "" {
+		p, err := store.GetProject(ctx, projectID)
+		if err != nil {
+			return fmt.Errorf("get project %s: %w", projectID, err)
+		}
+		projects = []domain.Project{p}
+	} else {
+		var err error
+		projects, err = store.ListProjects(ctx)
+		if err != nil {
+			return fmt.Errorf("list projects: %w", err)
+		}
+	}
+
+	for _, p := range projects {
+		resolution, err := store.GetResolution(ctx, p.ID)
+		if err != nil {
+			continue // no resolution yet for this project — nothing to rebuild
+		}
+		for _, dep := range resolution.Dependencies {
+			if !wanted[dep.Dependency.Name] {
+				continue
+			}
+			if err := store.RemoveReference(ctx, dep.Dependency.Ecosystem, dep.Dependency.Name, dep.Version, p.ID); err != nil {
+				return fmt.Errorf("clear reference for %s: %w", dep.Dependency.Name, err)
+			}
+			if err := store.ClearActiveGeneration(ctx, dep.Dependency.Ecosystem, dep.Dependency.Name, backendName); err != nil {
+				return fmt.Errorf("clear active generation for %s: %w", dep.Dependency.Name, err)
+			}
+		}
+	}
+	return nil
+}
+
+func RunSync(ctx context.Context, coordinator *daemon.BuildCoordinator, store *bboltstore.Store, badgerStore *badgerstore.Store, cfg config.Config, projectID string, dependencies []string, offline, force, rebuild bool, out io.Writer, readiness *embeddingReadiness, vecReadiness *vectorReadiness, priority *daemon.SyncPriority, progress *daemon.SyncProgress, daemonSem chan struct{}) (synced, failed, skipped int, err error) {
+	if rebuild && len(dependencies) > 0 {
+		if err := clearForRebuild(ctx, store, cfg.Vector.Backend, projectID, dependencies); err != nil {
+			return 0, 0, 0, fmt.Errorf("rebuild: %w", err)
+		}
+	}
 	plans, err := computePlans(ctx, store, cfg.Vector.Backend, projectID)
 	if err != nil {
 		return 0, 0, 0, err
@@ -157,7 +231,7 @@ func RunSync(ctx context.Context, coordinator *daemon.BuildCoordinator, store *b
 		if err != nil {
 			return nil, err
 		}
-		gitCache, err := buildGitCache()
+		gitCache, err := buildGitCache(cfg)
 		if err != nil {
 			return nil, err
 		}
@@ -188,7 +262,31 @@ func RunSync(ctx context.Context, coordinator *daemon.BuildCoordinator, store *b
 	// whatever's left, ahead of any other action kind too — "prioritize"
 	// means it runs next, not just next among other syncs.
 	actions := flattenActions(plans, dependencies, out)
-	progress.SetTotal(len(actions))
+	// MCP-004: Total/Done/Failed are specifically about *syncing a
+	// dependency's content* — only ActionSyncVersion represents that.
+	// NOOP ("nothing changed, nothing to plan") and the reference-
+	// bookkeeping kinds (ADD_REFERENCE/DROP_REFERENCE/GC_CANDIDATE) carry
+	// no information about sync success at all, so they must never count
+	// toward it — live-found: a re-sync of two dependencies whose real
+	// SYNC_VERSION attempt had just failed replanned as two NOOP actions
+	// (their reference hadn't changed), and the old "count every action"
+	// accounting reported that as "2 of 2 done, 0 failed" — indistinguishable
+	// from a real success. runSyncAction's own progress.Finish call below
+	// is scoped to match (only for ActionSyncVersion, mirroring
+	// progress.Begin's own existing scoping).
+	syncVersionCount := 0
+	var syncVersionNames []string
+	for _, a := range actions {
+		if a.Kind == planner.ActionSyncVersion {
+			syncVersionCount++
+			syncVersionNames = append(syncVersionNames, a.Dependency.Dependency.Name)
+		}
+	}
+	progress.SetTotal(syncVersionCount)
+	// BATCH-001 Option D: the full remaining-scope list, distinct from
+	// the plain count above — see SyncProgress.SetPlanned's own doc
+	// comment.
+	progress.SetPlanned(syncVersionNames)
 
 	// N workers pull from the same queue concurrently (epic 53/
 	// COORD-003) — bounded by cfg.Sync.MaxConcurrency, defaulting to 2
@@ -207,6 +305,8 @@ func RunSync(ctx context.Context, coordinator *daemon.BuildCoordinator, store *b
 
 	queue := newSyncQueue(actions)
 	var mu, outMu sync.Mutex
+	var completed int
+	var budgetExceeded sync.Once
 	writeLine := func(format string, args ...any) {
 		outMu.Lock()
 		defer outMu.Unlock()
@@ -219,6 +319,31 @@ func RunSync(ctx context.Context, coordinator *daemon.BuildCoordinator, store *b
 		go func() {
 			defer wg.Done()
 			for {
+				// BATCH-001 Option C: the shared batch context
+				// (internal/daemon/scheduler.go's maxActionDuration) bounds
+				// this whole RunSync call, not any single action —
+				// dependencySyncTimeout above only stops one huge
+				// dependency from starving the rest of the batch's share
+				// of that same clock. Once the aggregate clock itself is
+				// gone, every worker would otherwise pop and immediately
+				// fail its next action with the same generic "context
+				// deadline exceeded," cascading into a wall of messages
+				// that look like independent per-dependency failures
+				// (STRESS-005/epic 51's live-found bug: 407 of 561 this
+				// way in one real run). Checked here, before popping, so
+				// a worker stops cleanly instead of doing that — and
+				// budgetExceeded.Do ensures exactly one aggregate message
+				// is written regardless of how many workers notice at
+				// once.
+				if ctx.Err() != nil {
+					budgetExceeded.Do(func() {
+						mu.Lock()
+						done := completed
+						mu.Unlock()
+						writeLine("\nsync time budget exceeded after %d of %d actions completed; re-run to continue with the remaining %d\n", done, len(actions), len(actions)-done)
+					})
+					return
+				}
 				action, ok := queue.next(priority)
 				if !ok {
 					return
@@ -235,13 +360,16 @@ func RunSync(ctx context.Context, coordinator *daemon.BuildCoordinator, store *b
 				synced += s
 				failed += f
 				skipped += sk
+				completed++
 				mu.Unlock()
 			}
 		}()
 	}
 	wg.Wait()
 
-	writeLine("\n%d synced, %d failed, %d skipped\n", synced, failed, skipped)
+	if ctx.Err() == nil {
+		writeLine("\n%d synced, %d failed, %d skipped\n", synced, failed, skipped)
+	}
 	return synced, failed, skipped, nil
 }
 
@@ -320,8 +448,13 @@ func runSyncAction(ctx context.Context, coordinator *daemon.BuildCoordinator, st
 	if action.Kind == planner.ActionSyncVersion {
 		progress.Begin(name)
 		ctx = generation.WithProgress(ctx, func(done, total int) { progress.SetChunks(name, done, total) })
+		// MCP-004: scoped to match progress.Begin and SetTotal's own
+		// scoping above — Finish must only fire for the action kind that
+		// actually represents "syncing a dependency," or Done/Total drift
+		// out of sync with each other (Total no longer counts NOOP/
+		// bookkeeping actions, so Finish must not either).
+		defer func() { progress.Finish(name, failed > 0) }()
 	}
-	defer func() { progress.Finish(name, failed > 0) }()
 
 	switch action.Kind {
 	case planner.ActionSyncVersion:
@@ -539,6 +672,21 @@ type npmRepositoryObject struct {
 // repository-field shorthand.
 var npmShorthandRepo = regexp.MustCompile(`^(?:github:)?([\w.-]+)/([\w.-]+?)(?:\.git)?$`)
 
+// githubTreePath matches a GitHub *browse* URL pointing at a ref/path
+// within a repo ("/tree/<ref>/<path...>") rather than the repo itself.
+// Live-found scanning a real monorepo (mem0): some npm packages'
+// repository.url field is set to exactly this convenience link instead
+// of the proper clone URL (e.g. @babel/plugin-syntax-object-rest-spread
+// → "https://github.com/babel/babel/tree/master/packages/babel-plugin-
+// syntax-object-rest-spread") — `git clone --mirror` can't clone a
+// browse URL at all, it just fails outright, every time, for every
+// version. Stripping it to the bare repo clone URL and letting
+// discoverNodeSubdir (already built for REG-012's own monorepo case)
+// recover the directory from the tree itself — rather than trying to
+// parse a ref/path out of this URL directly — reuses already-tested
+// machinery instead of adding a second scoping path.
+var githubTreePath = regexp.MustCompile(`^(https://github\.com/[\w.-]+/[\w.-]+?)(?:\.git)?/tree/.*$`)
+
 // npmGitURL normalizes npm's several repository.url shapes
 // ("git+https://...", "git://...", "git+ssh://git@...", a bare
 // "https://...", or shorthand) to a plain https clone URL.
@@ -551,6 +699,9 @@ func npmGitURL(raw string) (string, bool) {
 	raw = strings.TrimSuffix(raw, ".git")
 	switch {
 	case strings.HasPrefix(raw, "https://"), strings.HasPrefix(raw, "http://"):
+		if m := githubTreePath.FindStringSubmatch(raw); m != nil {
+			return m[1], true
+		}
 		return raw, true
 	case strings.HasPrefix(raw, "git://"):
 		return "https://" + strings.TrimPrefix(raw, "git://"), true
@@ -838,13 +989,44 @@ func syncVersion(ctx context.Context, store *bboltstore.Store, badgerStore *badg
 		}
 	}
 
+	// POINT-004: re-check right before committing to a build. computePlans's
+	// own active-generation check (internal/cli/plan.go) is a stale,
+	// unlocked snapshot taken before this action was even queued, and
+	// BuildCoordinator's singleflight only coalesces callers still in
+	// flight together — it does nothing once the first caller has already
+	// returned. Two projects resolving the identical dependency+version
+	// can each pass computePlans's check and each reach here; re-checking
+	// immediately before generation.Create closes that window: if the
+	// exact version we're about to build has already been promoted by
+	// someone else since we planned, there is nothing left to do.
+	var prior *domain.Generation
+	var priorManifest *generation.Manifest
+	if p, err := store.GetActiveGeneration(ctx, dep.Dependency.Ecosystem, dep.Dependency.Name, vb.Name()); err == nil {
+		if p.Dependency.Version == dep.Version {
+			return nil
+		}
+		prior = &p
+		if pm, err := readGenerationManifest(ctx, badgerStore, p.ID); err == nil {
+			priorManifest = &pm
+		}
+	}
+
 	gen, err := generation.Create(ctx, store, badgerStore, dep)
 	if err != nil {
 		return fmt.Errorf("create generation: %w", err)
 	}
 
+	// GIT-004: best-effort — action.ProjectID not resolving to a live
+	// project (deleted mid-sync, or a construction path with no real
+	// project at all) just means the Node local-cache check can never
+	// hit for this build, same as any other miss; never a build failure.
+	var projectRoot string
+	if proj, err := store.GetProject(ctx, action.ProjectID); err == nil {
+		projectRoot = proj.Root
+	}
+
 	buildStart := time.Now()
-	buildErr := generation.Build(ctx, gen, manifest.Sources, gitCache, store, badgerStore)
+	buildErr := generation.Build(ctx, gen, manifest.Sources, gitCache, store, badgerStore, projectRoot)
 	timings.Build = time.Since(buildStart)
 	if buildErr != nil {
 		return fmt.Errorf("build: %w", buildErr)
@@ -866,15 +1048,11 @@ func syncVersion(ctx context.Context, store *bboltstore.Store, badgerStore *badg
 		return fmt.Errorf("read replica: %w", err)
 	}
 
-	var prior *domain.Generation
-	var priorManifest *generation.Manifest
-	if p, err := store.GetActiveGeneration(ctx, dep.Dependency.Ecosystem, dep.Dependency.Name, vb.Name()); err == nil {
-		prior = &p
-		if pm, err := readGenerationManifest(ctx, badgerStore, p.ID); err == nil {
-			priorManifest = &pm
-		}
-	}
-
+	// prior/priorManifest were already fetched above, right before
+	// generation.Create, as part of POINT-004's re-check — reused here for
+	// validate.Run's version-correctness drift comparison rather than
+	// re-fetched, since a build in between wouldn't change which
+	// generation was active *before* this one started.
 	validateStart := time.Now()
 	gen, report, err := validate.Run(ctx, gen, genManifest, replica, prior, priorManifest, validate.DefaultSanityConfig(), embedder, vb, ns, store, badgerStore)
 	timings.Validate = time.Since(validateStart)

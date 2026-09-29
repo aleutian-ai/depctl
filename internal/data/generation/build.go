@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -22,7 +23,9 @@ import (
 	"aleutian-ai/ragctl/internal/normalize/godoc"
 	"aleutian-ai/ragctl/internal/normalize/markdown"
 	"aleutian-ai/ragctl/internal/normalize/plaintext"
+	"aleutian-ai/ragctl/internal/normalize/pydoc"
 	"aleutian-ai/ragctl/internal/normalize/releasenotes"
+	"aleutian-ai/ragctl/internal/normalize/tsdoc"
 	"aleutian-ai/ragctl/internal/registry"
 	"aleutian-ai/ragctl/internal/source/git"
 )
@@ -52,6 +55,14 @@ type acquiredSource struct {
 	worktreeDir string
 	commit      string
 	cleanup     func() error
+	// pythonEntryDir is set only for SUBDIR-001's Python case: the
+	// discovered subdirectory pydoc's own entry-point search should use,
+	// distinct from worktreeDir (which stays the true repo root for
+	// Python specifically, so the doc-shaped WalkDir below still finds
+	// README/LICENSE there — see acquireGitSources' own Python branch
+	// for why these two roots differ, unlike every other ecosystem where
+	// they're the same directory).
+	pythonEntryDir string
 }
 
 // Build drives gen through source acquisition, normalization, and
@@ -67,12 +78,20 @@ type acquiredSource struct {
 // aborts the whole build and marks gen FAILED; a normalizer error on one
 // file fails the entire generation rather than silently dropping that
 // file, so a generation's content is never ambiguously partial.
-func Build(ctx context.Context, gen domain.Generation, sources []registry.Source, gitCache *git.Cache, store *bbolt.Store, badgerStore *badger.Store) error {
+// projectRoot (GIT-004) is the root of whichever specific project's sync
+// action triggered this build — resolved by the caller from
+// planner.Action.ProjectID, since domain.Generation itself deliberately
+// carries no project reference (a generation is shared across every
+// project that depends on it, never scoped to one). Only ever used for
+// Node's node_modules local-cache check, which is inherently
+// project-scoped; empty is always a safe, valid value (that check just
+// never hits, same as any other local-cache miss).
+func Build(ctx context.Context, gen domain.Generation, sources []registry.Source, gitCache *git.Cache, store *bbolt.Store, badgerStore *badger.Store, projectRoot string) error {
 	if err := setState(ctx, store, &gen, domain.GenAcquiring); err != nil {
 		return err
 	}
 
-	acquired, err := acquireGitSources(ctx, gitCache, gen.Dependency.Dependency.Name, gen.Dependency.Version, gen.Dependency.Dependency.Ecosystem, sources)
+	acquired, err := acquireGitSources(ctx, gitCache, gen.Dependency.Dependency.Name, gen.Dependency.Version, gen.Dependency.Dependency.Ecosystem, sources, projectRoot)
 	defer cleanupAll(acquired)
 	if err != nil {
 		fail(ctx, store, &gen, err.Error())
@@ -112,11 +131,29 @@ func Build(ctx context.Context, gen domain.Generation, sources []registry.Source
 // (source trees in other languages, binary assets, vendored
 // dependencies) is never fetched at all, not just skipped during
 // normalization.
-func acquireGitSources(ctx context.Context, gitCache *git.Cache, depName, version string, ecosystem domain.Ecosystem, sources []registry.Source) ([]acquiredSource, error) {
+//
+// GIT-004: before any of that, each source is checked against the
+// ecosystem's own local package-manager cache — if depName@version is
+// already extracted there, that directory is used directly as the
+// worktree and every git step (EnsureMirror, ref resolution,
+// MaterializeWorktree, subdir discovery) is skipped entirely for this
+// source. This is always correct with no subdir handling needed: unlike
+// a git clone of a whole repository, a package-manager cache entry is
+// by construction already scoped to exactly this one package — there
+// are no monorepo siblings mixed in to exclude.
+func acquireGitSources(ctx context.Context, gitCache *git.Cache, depName, version string, ecosystem domain.Ecosystem, sources []registry.Source, projectRoot string) ([]acquiredSource, error) {
 	basePatterns := normalize.SparsePatterns(ecosystem)
 	var acquired []acquiredSource
 	for _, s := range sources {
 		if s.Type != "git" {
+			continue
+		}
+
+		if dir, ok := localCacheSeed(ctx, ecosystem, depName, version, projectRoot); ok {
+			acquired = append(acquired, acquiredSource{
+				source: s, worktreeDir: dir, commit: "local-cache",
+				cleanup: func() error { return nil }, // never ours to delete
+			})
 			continue
 		}
 
@@ -154,17 +191,81 @@ func acquireGitSources(ctx context.Context, gitCache *git.Cache, depName, versio
 			// this from the package name alone — so find it the same way
 			// a person would: search the tree for the package.json that
 			// actually claims this name.
-			found, findErr := discoverNodeSubdir(ctx, gitCache, repoPath, commit, depName)
-			if findErr == nil {
+			found, verified, ambiguous, findErr := discoverNodeSubdir(ctx, gitCache, repoPath, commit, depName)
+			if findErr == nil && verified {
+				subdir = found
+			} else if findErr == nil && ambiguous {
+				// A genuine multi-package repo where this dependency's own
+				// package.json couldn't be found anywhere at this commit —
+				// live-found upstream metadata drift, not a scoping gap.
+				// Indexing repo-root content under this dependency's name
+				// would be confidently wrong, not just unscoped — fail
+				// cleanly instead, same principle as a missing git tag.
+				return acquired, fmt.Errorf("%w: source %s: could not locate %s's own package.json within a multi-package repository at commit %s", ErrAcquisition, s.ID, depName, commit)
+			}
+		}
+		if subdir == "" && ecosystem == domain.EcosystemPython {
+			// SUBDIR-001, live-found: PyPI has no registry-provided
+			// monorepo-directory signal at all (unlike npm's "directory"
+			// field), and a real, common, non-monorepo layout — the
+			// package's own __init__.py sitting in a same-named
+			// subdirectory of the repo root (real pydantic's own shape),
+			// or the PyPA-recommended src/<pkg>/ layout — was silently
+			// producing zero structured docs. Unlike Node's ambiguous
+			// case above, an unresolved match here just falls back to
+			// root (discoverPythonSubdir's own doc comment) — never a
+			// hard acquisition failure, since Python's root fallback
+			// can't mis-scope the way Node's monorepo-root bug once did.
+			if found, verified, findErr := discoverPythonSubdir(ctx, gitCache, repoPath, commit, depName); findErr == nil && verified {
 				subdir = found
 			}
 		}
 
-		worktreeDir, cleanup, err := gitCache.MaterializeWorktree(ctx, repoPath, commit, normalize.ScopeToSubdir(basePatterns, subdir))
+		var sparsePatterns []string
+		switch {
+		case ecosystem == domain.EcosystemNode:
+			// NORM-008's JSDoc fallback: fold the plain-.js entry point
+			// into this same single sparse-checkout call — see
+			// nodeJSEntryPatterns' own doc comment for why this avoids a
+			// second materialize. discoverNodeSubdir's match is a genuine
+			// monorepo submodule with its own independent docs, so the
+			// whole pattern set (docs included) is scoped together.
+			patterns := append(append([]string{}, basePatterns...), nodeJSEntryPatterns(ctx, gitCache, repoPath, commit, subdir)...)
+			sparsePatterns = normalize.ScopeToSubdir(patterns, subdir)
+		case ecosystem == domain.EcosystemPython && subdir != "":
+			// SUBDIR-001, live-found (real pydantic): unlike Node's
+			// monorepo submodules, a Python package found in a same-named
+			// subdirectory usually isn't a monorepo split — it's one
+			// package whose source happens to be nested, but whose real
+			// README/LICENSE/CHANGELOG still live at the true repo root.
+			// Scoping doc patterns to the subdirectory too silently
+			// excluded them (real pydantic's own `pydantic/` source
+			// directory has no README/LICENSE inside it at all) — only
+			// the source patterns are scoped; doc patterns stay unscoped
+			// at the root, same as an unscoped (no-subdir) acquisition.
+			sparsePatterns = append(append([]string{}, normalize.DocPatterns()...), normalize.ScopeToSubdir(normalize.PythonSourcePatterns(), subdir)...)
+		default:
+			sparsePatterns = normalize.ScopeToSubdir(basePatterns, subdir)
+		}
+		worktreeDir, cleanup, err := gitCache.MaterializeWorktree(ctx, repoPath, commit, sparsePatterns)
 		if err != nil {
 			return acquired, fmt.Errorf("%w: source %s: worktree: %v", ErrAcquisition, s.ID, err)
 		}
-		if subdir != "" {
+		var pythonEntryDir string
+		if subdir != "" && ecosystem == domain.EcosystemPython {
+			// SUBDIR-001: worktreeDir deliberately stays the true repo
+			// root here (unlike every other case below) — root-level
+			// README/LICENSE were just fetched unscoped above, and the
+			// doc-shaped WalkDir in normalizeSources needs to walk from
+			// the real root to find them. pydoc's own entry-point search
+			// gets the subdirectory separately, via pythonEntryDir.
+			scoped := filepath.Join(worktreeDir, filepath.FromSlash(subdir))
+			if info, statErr := os.Stat(scoped); statErr != nil || !info.IsDir() {
+				cleanup()
+				return acquired, fmt.Errorf("%w: source %s: subdir %q not found at commit %s", ErrAcquisition, s.ID, subdir, commit)
+			}
+			pythonEntryDir = scoped
+		} else if subdir != "" {
 			// A module inside a monorepo owns only its own directory;
 			// walking from the repo root would index every sibling
 			// module's content under this dependency.
@@ -176,7 +277,7 @@ func acquireGitSources(ctx context.Context, gitCache *git.Cache, depName, versio
 			worktreeDir = scoped
 		}
 
-		acquired = append(acquired, acquiredSource{source: s, worktreeDir: worktreeDir, commit: commit, cleanup: cleanup})
+		acquired = append(acquired, acquiredSource{source: s, worktreeDir: worktreeDir, commit: commit, cleanup: cleanup, pythonEntryDir: pythonEntryDir})
 	}
 	return acquired, nil
 }
@@ -184,15 +285,29 @@ func acquireGitSources(ctx context.Context, gitCache *git.Cache, depName, versio
 // discoverNodeSubdir searches repoPath's tree at commit for the
 // package.json that actually declares depName, structurally rather than
 // trusting npm registry metadata (which sometimes omits "directory" even
-// for a genuine monorepo package — see acquireGitSources). A root-level
-// match returns "" (not a monorepo); no match returns "" too, since
-// there's nothing more specific to scope to — the walk-time check in
-// normalizeSources (packageJSONBoundary) is the remaining safety net in
-// that case.
-func discoverNodeSubdir(ctx context.Context, gitCache *git.Cache, repoPath, commit, depName string) (string, error) {
+// for a genuine monorepo package — see acquireGitSources).
+//
+// verified is true only when a package.json exactly matching depName was
+// found — dir is "" for a root-level match, the subdirectory otherwise.
+// verified is false when no match was found; ambiguous then distinguishes
+// two very different situations: a single-package repo where nothing
+// else exists to accidentally blend in (ambiguous false — safe to fall
+// back to the root) versus a genuine multi-package repo where this
+// specific dependency's own location simply couldn't be confirmed
+// (ambiguous true) — live-found: @babel/plugin-syntax-object-rest-spread's
+// registry-reported repository URL names a subdirectory that doesn't
+// exist at that version's actual tag (upstream metadata drift, not a
+// ragctl bug), and babel/babel's own root package.json is a different,
+// unrelated package ("babel", the private monorepo-tooling root) —
+// falling back to indexing root-level content under the dependency's
+// name in that case would be exactly the wrong-content-under-a-
+// confident-label failure class BOUND-001/REG-012 already exist to
+// prevent, just via a different root cause (broken upstream metadata
+// rather than merely incomplete metadata).
+func discoverNodeSubdir(ctx context.Context, gitCache *git.Cache, repoPath, commit, depName string) (dir string, verified, ambiguous bool, err error) {
 	paths, err := gitCache.ListFiles(ctx, repoPath, commit, "package.json")
 	if err != nil {
-		return "", err
+		return "", false, false, err
 	}
 	for _, p := range paths {
 		content, readErr := gitCache.ReadFile(ctx, repoPath, commit, p)
@@ -203,13 +318,85 @@ func discoverNodeSubdir(ctx context.Context, gitCache *git.Cache, repoPath, comm
 		if !ok || name != depName {
 			continue
 		}
-		dir := strings.TrimSuffix(p, "/package.json")
-		if dir == "package.json" {
-			return "", nil
+		d := strings.TrimSuffix(p, "/package.json")
+		if d == "package.json" {
+			return "", true, false, nil
 		}
-		return dir, nil
+		return d, true, false, nil
 	}
-	return "", nil
+	// Not found anywhere. Any package.json existing at all (even just
+	// one, at the root) and NOT naming this dependency is a real red
+	// flag, not just an unusual layout — this is precisely the shape
+	// REG-012's own eslint-visitor-keys finding was: a bare tag resolved
+	// to a real, single-package commit that predated a monorepo
+	// restructure, whose one root package.json had an entirely
+	// different, unrelated name. len(paths) > 1 alone would have missed
+	// that exact case (only one package.json existed at that commit).
+	// Only a commit with literally zero package.json files anywhere
+	// carries no name signal to contradict at all — falling back there
+	// is irreducible uncertainty, not a known mismatch.
+	return "", false, len(paths) > 0, nil
+}
+
+// discoverPythonSubdir searches repoPath's tree at commit for a
+// directory whose name, normalized, matches depName — the real, common
+// "package lives in a same-named subdirectory of the repo root" layout
+// (real pydantic's own shape), or the PyPA-recommended src/<pkg>/
+// layout (SUBDIR-001). Matching by directory name alone, not a declared
+// manifest field, since Python has nothing inside a package directory
+// that names it the way package.json's "name" field does for Node —
+// this is a structural heuristic, not a declared-identity match.
+//
+// verified is true only when exactly one __init__.py's immediate parent
+// directory matches; zero or multiple matches both report verified
+// false (never guess among ambiguous candidates) — the caller falls
+// back to acquiring at the repo root, today's unchanged behavior,
+// rather than failing acquisition the way discoverNodeSubdir's
+// ambiguous case does. That asymmetry is deliberate: a Node monorepo's
+// root can contain another sibling module's own confidently-wrong
+// content under this dependency's name (the bug REG-012 fixed); a
+// Python repo's root, when the real package lives elsewhere, has
+// nothing analogous to confidently mis-name — at worst the existing,
+// already-accepted zero-coverage outcome.
+//
+// Depth-independent by construction: checking only the immediate parent
+// directory's name, not the full path, means pkg/pkg/__init__.py and
+// pkg/src/pkg/__init__.py both match the same single rule — no
+// src/-specific special-casing needed.
+func discoverPythonSubdir(ctx context.Context, gitCache *git.Cache, repoPath, commit, depName string) (dir string, verified bool, err error) {
+	paths, err := gitCache.ListFiles(ctx, repoPath, commit, "__init__.py")
+	if err != nil {
+		return "", false, err
+	}
+	want := normalizePythonName(depName)
+	var matches []string
+	for _, p := range paths {
+		parent := path.Dir(p)
+		if parent == "." {
+			continue // __init__.py at the repo root — not a subdirectory to discover
+		}
+		if normalizePythonName(path.Base(parent)) == want {
+			matches = append(matches, parent)
+		}
+	}
+	if len(matches) == 1 {
+		return matches[0], true, nil
+	}
+	return "", false, nil
+}
+
+// normalizePythonName implements the standard PyPI-distribution-name-
+// to-import-name convention: lowercase, with "-"/"." folded to "_"
+// (e.g. "Typing-Extensions" -> "typing_extensions"). Not a claim of
+// universal correctness — a distribution name that bears no resemblance
+// to its own import name at all (e.g. "beautifulsoup4" imports as
+// "bs4") can't be caught by this or any purely textual rule; a known,
+// accepted miss (see this ticket's Non-goals).
+func normalizePythonName(name string) string {
+	name = strings.ToLower(name)
+	name = strings.ReplaceAll(name, "-", "_")
+	name = strings.ReplaceAll(name, ".", "_")
+	return name
 }
 
 // packageJSONName extracts the "name" field from raw package.json content.
@@ -221,6 +408,60 @@ func packageJSONName(content []byte) (string, bool) {
 		return "", false
 	}
 	return doc.Name, true
+}
+
+// nodeJSEntryPatterns returns extra sparse-checkout patterns (relative to
+// subdir, git-path style forward slashes) covering the plain-.js entry
+// point tsdoc's JSDoc fallback (NORM-008's deferred scope) reads once a
+// worktree exists — reusing this package's own no-checkout
+// gitCache.ReadFile plumbing (already built for discoverNodeSubdir above)
+// to read package.json's "module"/"main" fields *before* the one
+// MaterializeWorktree call below, so the entry file is actually present
+// in the sparse checkout rather than requiring a second, costlier
+// materialize (the "two-phase acquisition" NORM-008's own ticket
+// originally assumed was necessary — avoided here since the plumbing to
+// read package.json pre-worktree already existed for a different
+// purpose). Errors reading/parsing package.json are not fatal here —
+// package.json is already in basePatterns and gets its own real
+// acquisition error later if genuinely missing; this only ever narrows
+// or defaults the extra pattern, never blocks acquisition. A
+// non-matching sparse pattern is harmless (git simply fetches nothing
+// for it), so no existence check is needed before returning —
+// tsdoc.entryJSFile's own on-disk fileExists checks are what actually
+// decide which candidate, if any, is real.
+func nodeJSEntryPatterns(ctx context.Context, gitCache *git.Cache, repoPath, commit, subdir string) []string {
+	pkgPath := "package.json"
+	if subdir != "" {
+		pkgPath = subdir + "/package.json"
+	}
+	content, err := gitCache.ReadFile(ctx, repoPath, commit, pkgPath)
+	if err != nil {
+		return []string{"index.js"}
+	}
+	var pkg struct {
+		Main   string `json:"main"`
+		Module string `json:"module"`
+	}
+	if err := json.Unmarshal(content, &pkg); err != nil {
+		return []string{"index.js"}
+	}
+
+	var patterns []string
+	for _, c := range []string{pkg.Module, pkg.Main} {
+		if c == "" {
+			continue
+		}
+		c = strings.TrimPrefix(path.Clean(c), "./")
+		patterns = append(patterns, c)
+		if path.Ext(c) == "" {
+			// package.json's "main" is commonly extensionless — Node
+			// itself resolves that to "<main>.js"; mirror that one
+			// bounded case (matches tsdoc.entryJSFile's own local-disk
+			// version of this same fallback).
+			patterns = append(patterns, c+".js")
+		}
+	}
+	return append(patterns, "index.js")
 }
 
 // gitRef substitutes "${version}" in source.Ref with version, stripped of
@@ -293,9 +534,44 @@ func cleanupAll(acquired []acquiredSource) {
 func normalizeSources(ctx context.Context, dep domain.DependencyVersion, acquired []acquiredSource) ([]domain.KnowledgeObject, error) {
 	normReg := normalize.NewRegistry(releasenotes.New(), markdown.New(), plaintext.New())
 	gd := godoc.New()
+	tsd := tsdoc.New()
+	pyd := pydoc.New()
 
 	var objects []domain.KnowledgeObject
 	for _, a := range acquired {
+		// Unlike godoc, a Node package's published entry point is
+		// conventionally singular at the package root (package.json's own
+		// "types"/"main" field) regardless of how deep the real
+		// implementation is nested — no per-directory walk needed, one
+		// call at the already-correctly-scoped worktree root (Subdir
+		// scoping, or the whole repo for a single-package one) is enough.
+		if dep.Dependency.Ecosystem == domain.EcosystemNode && tsd.Supports(domain.SourceSnapshot{LocalPath: a.worktreeDir}) {
+			objs, err := normalizeOne(ctx, tsd, a, a.worktreeDir)
+			if err != nil {
+				return nil, fmt.Errorf("%w: source %s: %v", ErrNormalization, a.source.ID, err)
+			}
+			objects = appendAttributed(objects, dep, a.source, objs)
+		}
+		// Same reasoning as tsdoc above: a Python package's entry module
+		// (__init__.py, conventionally) sits at the package root; deeper
+		// submodules are only ever reached through pydoc's own bounded
+		// single-hop re-export resolution, not a directory walk here.
+		// pythonEntryDir (SUBDIR-001), when set, is the discovered
+		// subdirectory pydoc should actually search — distinct from
+		// a.worktreeDir, which stays the true repo root for Python so
+		// the doc-shaped WalkDir below still finds README/LICENSE there.
+		pyEntry := a.worktreeDir
+		if a.pythonEntryDir != "" {
+			pyEntry = a.pythonEntryDir
+		}
+		if dep.Dependency.Ecosystem == domain.EcosystemPython && pyd.Supports(domain.SourceSnapshot{LocalPath: pyEntry}) {
+			objs, err := normalizeOne(ctx, pyd, a, pyEntry)
+			if err != nil {
+				return nil, fmt.Errorf("%w: source %s: %v", ErrNormalization, a.source.ID, err)
+			}
+			objects = appendAttributed(objects, dep, a.source, objs)
+		}
+
 		err := filepath.WalkDir(a.worktreeDir, func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
 				return err

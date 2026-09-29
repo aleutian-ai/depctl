@@ -201,7 +201,7 @@ type daemonSyncTrigger struct {
 func (t *daemonSyncTrigger) SyncProject(ctx context.Context, projectID string, dependencies []string, progress func(line string)) (synced, failed, skipped int, err error) {
 	resp, err := t.c.Sync(ctx, api.SyncRequest{ProjectID: projectID, Dependencies: dependencies}, lineWriter(progress))
 	if err != nil {
-		return 0, 0, 0, err
+		return 0, 0, 0, wrapQueryError(err)
 	}
 	for _, r := range resp.Results {
 		synced += r.Synced
@@ -233,9 +233,15 @@ func (r *daemonProgressReader) SyncProgress(ctx context.Context, projectID strin
 	if err != nil {
 		return mcp.SyncProgressOut{}, err
 	}
-	out := mcp.SyncProgressOut{Syncing: p.Syncing, Done: p.Done, Failed: p.Failed, Total: p.Total}
+	out := mcp.SyncProgressOut{Syncing: p.Syncing, Ran: p.Ran, Done: p.Done, Failed: p.Failed, Total: p.Total, Pending: p.Pending}
 	for _, d := range p.InFlight {
 		out.InFlight = append(out.InFlight, mcp.InFlightDependencyOut{Name: d.Name, ChunksDone: d.ChunksDone, ChunksTotal: d.ChunksTotal})
+	}
+	if p.Observed != nil {
+		out.Observed = &mcp.ObservedTimingOut{Samples: p.Observed.Samples, MedianDependencySeconds: p.Observed.MedianDependencySeconds, P90DependencySeconds: p.Observed.P90DependencySeconds}
+	}
+	if p.Estimate != nil {
+		out.Estimate = &mcp.SyncEstimateOut{RemainingSeconds: p.Estimate.RemainingSeconds, Confidence: p.Estimate.Confidence}
 	}
 	return out, nil
 }

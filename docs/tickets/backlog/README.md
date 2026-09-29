@@ -9,7 +9,7 @@ Same ticket format as `planned/`: each epic has an `INDEX.md`, each ticket is se
 ## Additional ecosystems (one at a time, after the Go slice is stable)
 
 20. Python resolver — done, moved to [../completed/20-python-resolver](../completed/20-python-resolver/INDEX.md).
-21. [21-node-resolver](21-node-resolver/INDEX.md) — partially done (npm/pnpm shipped; Yarn/Bun still open — see its own INDEX.md).
+21. Node resolver — done (2026-09), moved to [../completed/21-node-resolver](../completed/21-node-resolver/INDEX.md).
 22. [22-rust-resolver](22-rust-resolver/INDEX.md)
 23. [23-java-resolver](23-java-resolver/INDEX.md)
 
@@ -54,15 +54,15 @@ Epic 45 ([45-competitive-validation](../completed/45-competitive-validation/INDE
 
 Epic 50 ([50-go-monorepo-workspace-resolution](../completed/50-go-monorepo-workspace-resolution/INDEX.md)) was filed directly into `completed/` — a same-session fix (MONO-001) for a gap STRESS-001 found live, never sat in `backlog/` waiting to be picked up.
 
-51. [51-bulk-sync-batch-timeout](51-bulk-sync-batch-timeout/INDEX.md) — an untargeted `ragctl sync` against a large real project can't complete in one invocation: `internal/daemon/scheduler.go`'s `maxActionDuration` wraps the *entire* pending plan in one 30-minute ceiling, not per-dependency, and once exhausted every remaining action fails with a misleading, indistinguishable `context deadline exceeded`. Found live by [STRESS-005](../planned/49-full-loop-stress-testing/STRESS-005-full-cold-sync-real-scale.md) against real `hashicorp/terraform`. Its first trigger (`cloud.google.com/go`) turned out to be a separate bug, fixed same-session as [epic 52](../completed/52-nested-go-module-normalization-boundary/INDEX.md) — but a re-run against a freshly-wiped Qdrant hit the identical ceiling again on a different, genuinely huge single-module dependency (`alibaba-cloud-sdk-go`, 36k real `.go` files), confirming the batch-timeout question is real, not an artifact. `BATCH-001` lays out three options (raise the ceiling, replace it with a per-action + no-progress watchdog, or just fail the batch cleanly instead of cascading) — needs a decision, since the real fix (Option B) changes the daemon's liveness/hang-protection contract, not a self-contained bug fix.
+Epic 51 ([51-bulk-sync-batch-timeout](../completed/51-bulk-sync-batch-timeout/INDEX.md)) moved to `completed/` (2026-09) — BATCH-001's Options C+D shipped and were confirmed at real scale against `hashicorp/terraform` (555/569 synced, zero aggregate-timeout occurrences across the full run).
 
-Epic 43 ([43-local-cache-reuse](../planned/43-local-cache-reuse/INDEX.md)) moved to `planned/` — GIT-005 shipped after real usage showed the cost this epic was waiting for (see that epic's `INDEX.md`); GIT-004 remains unbuilt there.
+Epic 43 ([43-local-cache-reuse](../completed/43-local-cache-reuse/INDEX.md)) moved to `planned/`, then `completed/` (2026-09) — GIT-005 shipped first after real usage showed the cost this epic was waiting for; GIT-004/006/007 shipped in the same later pass, all four tickets now done.
 
 Epic 42 ([42-repo-graph-symbol-join](../completed/42-repo-graph-symbol-join/INDEX.md)) moved to `planned/` and then `completed/` — a 2026-09 competitive review reaffirmed this join's shape independently and prompted scoping it for real implementation (GRAPH-003/004 added, settling the provider choice GRAPH-001 originally deferred), and all four tickets shipped in one pass.
 
 ## Ticket ID prefixes in this directory
 
-`PY / NODE / RUST / JAVA / HTTP / VEC (010-014) / EVAL / OBS / EXT / SEC / LOCAL / LLAMA / CLIENT / DATA` — these match the task IDs used in the implementation plan directly, except `DATA` (see above). `REG` (epic 38, continuing from REG-008) continues epics 07/34's prefix. `NORM` (epic 40) continues epic 09's prefix into backlog use; `EMB`/`CHUNK` (epic 41) continue epics 12/10's prefixes. `CONF` (epic 39) is a new prefix, since Confluence/wiki acquisition doesn't exist yet elsewhere. `GIT` (epic 43, continuing from GIT-003) continues epic 08's prefix into backlog use. `GRAPH` (epic 42) has moved to `completed/README.md` along with the epic. `MONO` (epic 50) has likewise moved to `completed/README.md`. `BATCH` (epic 51) is a new prefix.
+`PY / RUST / JAVA / HTTP / VEC (010-014) / EVAL / OBS / EXT / SEC / LOCAL / LLAMA / CLIENT / DATA` — these match the task IDs used in the implementation plan directly, except `DATA` (see above). `NODE` (epic 21) has moved to `completed/README.md` along with the epic (2026-09). `REG` (epic 38, continuing from REG-008) continues epics 07/34's prefix. `NORM` (epic 40) continues epic 09's prefix into backlog use; `EMB`/`CHUNK` (epic 41) continue epics 12/10's prefixes. `CONF` (epic 39) is a new prefix, since Confluence/wiki acquisition doesn't exist yet elsewhere. `GRAPH` (epic 42) has moved to `completed/README.md` along with the epic. `MONO` (epic 50) has likewise moved to `completed/README.md`. `BATCH` (epic 51) has likewise moved to `completed/README.md` (2026-09). `GIT` (epic 43, continuing from GIT-003) has likewise moved to `completed/README.md` (2026-09) — no epic here continues that prefix into backlog use anymore.
 
 ## A note on `26-evaluation-framework`
 

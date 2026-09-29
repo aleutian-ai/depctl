@@ -118,7 +118,7 @@ func TestGCEndToEndRemovesOrphanedVersionLeavesReferencedVersionUntouched(t *tes
 	if err != nil {
 		t.Fatalf("Create orphan: %v", err)
 	}
-	if err := generation.Build(ctx, orphanGen, sources, gitCache, store, badgerStore); err != nil {
+	if err := generation.Build(ctx, orphanGen, sources, gitCache, store, badgerStore, ""); err != nil {
 		t.Fatalf("Build orphan: %v", err)
 	}
 	if err := generation.Replicate(ctx, orphanGen, sources, embedder, vb, ns, store, badgerStore); err != nil {
@@ -158,7 +158,7 @@ func TestGCEndToEndRemovesOrphanedVersionLeavesReferencedVersionUntouched(t *tes
 	if err != nil {
 		t.Fatalf("Create referenced: %v", err)
 	}
-	if err := generation.Build(ctx, refGen, sources, gitCache, store, badgerStore); err != nil {
+	if err := generation.Build(ctx, refGen, sources, gitCache, store, badgerStore, ""); err != nil {
 		t.Fatalf("Build referenced: %v", err)
 	}
 	if err := generation.Replicate(ctx, refGen, sources, embedder, vb, ns, store, badgerStore); err != nil {

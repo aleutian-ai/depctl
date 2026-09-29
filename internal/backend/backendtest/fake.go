@@ -122,6 +122,24 @@ func (b *Backend) Query(ctx context.Context, req backend.QueryRequest) (backend.
 	return backend.QueryResult{Points: scored}, nil
 }
 
+// Count reports exactly how many points in namespace match filter.
+func (b *Backend) Count(ctx context.Context, namespace string, filter *backend.Filter) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	pts, ok := b.points[namespace]
+	if !ok {
+		return 0, nil
+	}
+	n := 0
+	for _, p := range pts {
+		if filter != nil && !matches(p.Metadata, filter) {
+			continue
+		}
+		n++
+	}
+	return n, nil
+}
+
 // Health always succeeds — there's nothing external to be unreachable.
 func (b *Backend) Health(ctx context.Context) error { return nil }
 

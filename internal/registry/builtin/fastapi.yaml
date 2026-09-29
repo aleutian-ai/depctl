@@ -12,7 +12,15 @@ sources:
   - id: repository
     type: git
     url: https://github.com/fastapi/fastapi
-    ref: "v${version}"
+    # Live-found: fastapi tags releases as bare "X.Y.Z", not "vX.Y.Z" — of
+    # the repo's entire tag history, exactly one (v0.1.16, an ancient early
+    # release) has a "v" prefix; every real version since (verified via
+    # `git ls-remote --tags`, e.g. 0.115.8) does not. The old singular
+    # "v${version}" ref was silently broken for virtually every real
+    # version. Both candidates are tried, each verified to actually
+    # resolve before being trusted — same principle as REG-012/013's
+    # fallback manifests, applied here to a hand-curated one.
+    ref_templates: ["${version}", "v${version}"]
     authority: 100
   - id: docs
     type: website

@@ -82,7 +82,7 @@ Storage, sync, query, resolver, MCP, watch, and GC logic stay where they are. Ex
 
 ## Related
 
-- `docs/tickets/planned/19-watch-mode/` — WATCH-004 (this ADR) through WATCH-012 implement it.
+- `docs/tickets/completed/19-watch-mode/` — WATCH-004 (this ADR) through WATCH-012 implement it.
 - ADR-010 (native-first execution model) — amended: its "long-running `serve` daemon" is now `ragctl daemon run`; `serve` is a stdio proxy. The native-first reasoning is unchanged and applies to the daemon, which runs resolvers against the user's real toolchain.
 - ADR-006 (MCP as the primary agent interface) — unchanged: `internal/mcp` is still the only package importing the MCP SDK, and still contains no business logic.
 - `internal/control/bbolt` `ErrLocked` (epic 18, OPS-001) — the lock error this ADR builds ownership detection on.

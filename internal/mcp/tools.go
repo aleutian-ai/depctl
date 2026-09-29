@@ -117,6 +117,7 @@ type SearchResultChunk struct {
 	SourceType string            `json:"source_type"`
 	Authority  int               `json:"authority"`
 	TrustClass domain.TrustClass `json:"trust_class" jsonschema:"how much to trust this chunk: official/repository (high) vs community/user/unknown (lower) — weigh alongside authority when multiple chunks disagree"`
+	Breadcrumb string            `json:"breadcrumb" jsonschema:"structural location of this chunk within its dependency/version, e.g. \"grpc-go@1.72.0 > Authentication > Transport Credentials > NewTLS\""`
 }
 
 type SearchDependencyDocsOut struct {
@@ -187,7 +188,7 @@ func resultChunks(chunks []query.ResultChunk) []SearchResultChunk {
 			ChunkID: c.ChunkID, Content: c.Content, Score: c.Score,
 			Ecosystem: c.Ecosystem, Dependency: c.Dependency, Version: c.Version,
 			Generation: c.Generation, SourceType: c.SourceType, Authority: c.Authority,
-			TrustClass: c.TrustClass,
+			TrustClass: c.TrustClass, Breadcrumb: c.Breadcrumb,
 		}
 	}
 	return out
@@ -403,7 +404,7 @@ func syncProjectHandler(query QueryService, sync SyncTrigger, enabled bool) sdkm
 		select {
 		case r := <-done:
 			if r.err != nil {
-				return nil, SyncProjectOut{}, fmt.Errorf("sync_project: %w", r.err)
+				return nil, SyncProjectOut{}, toolError(r.err)
 			}
 			return nil, SyncProjectOut{Synced: r.synced, Failed: r.failed, Skipped: r.skipped, Note: securityNote}, nil
 		case <-time.After(mcpSyncWaitBound):
@@ -564,15 +565,43 @@ type InFlightDependencyOut struct {
 	ChunksTotal int    `json:"chunks_total"`
 }
 
+// ObservedTimingOut mirrors api.ObservedTiming — see its own doc
+// comment for why median/p90, not a mean.
+type ObservedTimingOut struct {
+	Samples                 int     `json:"samples"`
+	MedianDependencySeconds float64 `json:"median_dependency_seconds"`
+	P90DependencySeconds    float64 `json:"p90_dependency_seconds"`
+}
+
+// SyncEstimateOut mirrors api.SyncEstimate — a rough projection only,
+// weight it by Confidence, never treat RemainingSeconds as precise.
+type SyncEstimateOut struct {
+	RemainingSeconds float64 `json:"remaining_seconds"`
+	Confidence       string  `json:"confidence"`
+}
+
 // SyncProgressOut is sync_progress's result. Done, Failed and Total count
 // planned actions — nearly all one per dependency version.
 type SyncProgressOut struct {
-	Syncing  bool                    `json:"syncing"`
+	Syncing bool `json:"syncing"`
+	// Ran reports whether a sync has ever completed for this project —
+	// distinguishes "the last run found nothing new to sync" (Total == 0
+	// but Ran == true) from "no sync has ever run" (Ran == false); see
+	// syncProgressNote.
+	Ran      bool                    `json:"ran"`
 	Done     int                     `json:"done"`
 	Failed   int                     `json:"failed"`
 	Total    int                     `json:"total"`
 	InFlight []InFlightDependencyOut `json:"in_flight,omitempty"`
-	Note     string                  `json:"note"`
+	// BATCH-001 Option D: agent-facing scope-planning information — see
+	// ObservedTimingOut/SyncEstimateOut. Use this, alongside Pending, to
+	// decide whether to keep waiting, request a specific dependency via
+	// sync_project(dependency: "..."), or accept partial coverage —
+	// ragctl reports the data, it never makes that call itself.
+	Observed *ObservedTimingOut `json:"observed,omitempty"`
+	Estimate *SyncEstimateOut   `json:"estimate,omitempty"`
+	Pending  []string           `json:"pending,omitempty"`
+	Note     string             `json:"note"`
 }
 
 func syncProgressHandler(reader SyncProgressReader) sdkmcp.ToolHandlerFor[SyncProgressIn, SyncProgressOut] {
@@ -592,9 +621,18 @@ func syncProgressHandler(reader SyncProgressReader) sdkmcp.ToolHandlerFor[SyncPr
 func syncProgressNote(p SyncProgressOut) string {
 	switch {
 	case p.Syncing:
-		return fmt.Sprintf("a sync is running: %d of %d done (%d failed). This is progress, not a time estimate — one large dependency can take minutes. A dependency you search for that isn't done yet is built next, ahead of the rest of the queue.", p.Done, p.Total, p.Failed)
+		note := fmt.Sprintf("a sync is running: %d of %d done (%d failed).", p.Done, p.Total, p.Failed)
+		if p.Estimate != nil {
+			note += fmt.Sprintf(" Observed so far: median %.0fs/dependency (p90 %.0fs, %d samples); rough estimate ~%.0fs remaining, confidence %s — not precise, one large dependency can still take much longer than the median.", p.Observed.MedianDependencySeconds, p.Observed.P90DependencySeconds, p.Observed.Samples, p.Estimate.RemainingSeconds, p.Estimate.Confidence)
+		} else {
+			note += " This is progress, not a time estimate yet — too few dependencies have finished to project one."
+		}
+		note += " A dependency you search for that isn't done yet is built next, ahead of the rest of the queue. If you only need specific dependencies, call sync_project(dependency: \"...\") for each rather than waiting on the whole batch — see pending for what's left."
+		return note
 	case p.Total > 0:
 		return fmt.Sprintf("no sync is running; the last run finished %d of %d (%d failed). Call sync_project to run another.", p.Done, p.Total, p.Failed)
+	case p.Ran:
+		return "no sync is running; the last run found nothing new to sync — every dependency this project resolves already has current knowledge elsewhere in the fleet. Call sync_project to check again, or search directly."
 	default:
 		return "no sync has run for this project yet. Call sync_project to start one."
 	}

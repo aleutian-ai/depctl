@@ -47,6 +47,67 @@ func TestExportedFunctionSymbolProducesOneChunk(t *testing.T) {
 	}
 }
 
+// TestDependencyAndSourceTypePromotedToChunkMetadata is STRUCT-003's own
+// acceptance criterion: dependency/source_type sit on the parent
+// KnowledgeObject only, so a caller holding just a Chunk previously
+// needed a second lookup to know either — both must now be promoted
+// directly onto Chunk.Metadata.
+func TestDependencyAndSourceTypePromotedToChunkMetadata(t *testing.T) {
+	obj := domain.KnowledgeObject{
+		ID:          "ko_dep",
+		ContentType: "symbol_doc",
+		LogicalPath: "cobra",
+		Version:     "v1.8.0",
+		SourceType:  "godoc",
+		Dependency: domain.DependencyVersion{
+			Dependency: domain.Dependency{Name: "github.com/spf13/cobra"},
+		},
+		Content: []byte("Greet returns a friendly greeting for name."),
+		Metadata: map[string]string{
+			"package":   "cobra",
+			"symbol":    "Greet",
+			"signature": "func Greet(name string) string",
+		},
+	}
+
+	got, err := New().Chunk(context.Background(), obj)
+	if err != nil {
+		t.Fatalf("Chunk: %v", err)
+	}
+	if got[0].Metadata["dependency"] != "github.com/spf13/cobra" {
+		t.Errorf("dependency = %q, want github.com/spf13/cobra", got[0].Metadata["dependency"])
+	}
+	if got[0].Metadata["source_type"] != "godoc" {
+		t.Errorf("source_type = %q, want godoc", got[0].Metadata["source_type"])
+	}
+}
+
+// TestEmptyDependencyAndSourceTypeStillPresentNotOmitted covers the
+// ticket's edge case: an obj with no Dependency/SourceType set still
+// produces present-but-empty metadata keys, not an error or an omitted
+// key — Chunk never errors on missing identity fields.
+func TestEmptyDependencyAndSourceTypeStillPresentNotOmitted(t *testing.T) {
+	obj := domain.KnowledgeObject{
+		ID:      "ko_noDep",
+		Content: []byte("body"),
+		Metadata: map[string]string{
+			"package": "cobra",
+			"symbol":  "Greet",
+		},
+	}
+
+	got, err := New().Chunk(context.Background(), obj)
+	if err != nil {
+		t.Fatalf("Chunk: %v", err)
+	}
+	if v, ok := got[0].Metadata["dependency"]; !ok || v != "" {
+		t.Errorf("dependency = %q, ok=%v, want present and empty", v, ok)
+	}
+	if v, ok := got[0].Metadata["source_type"]; !ok || v != "" {
+		t.Errorf("source_type = %q, ok=%v, want present and empty", v, ok)
+	}
+}
+
 func TestPackageDocObjectHandledDistinctlyFromSymbol(t *testing.T) {
 	obj := domain.KnowledgeObject{
 		ID:          "ko_pkgdoc",

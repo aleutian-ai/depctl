@@ -205,6 +205,60 @@ func TestQueryAppliesFilterAndParsesResults(t *testing.T) {
 	}
 }
 
+func TestCountAppliesFilterAndRequestsExact(t *testing.T) {
+	var gotReq countRequest
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		json.NewDecoder(r.Body).Decode(&gotReq)
+		json.NewEncoder(w).Encode(countResponse{Result: struct {
+			Count int `json:"count"`
+		}{Count: 7}})
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL)
+	n, err := c.Count(context.Background(), "ragctl", &backend.Filter{Generation: "gen_abc"})
+	if err != nil {
+		t.Fatalf("Count: %v", err)
+	}
+	if n != 7 {
+		t.Errorf("Count = %d, want 7", n)
+	}
+	if gotPath != "/collections/ragctl/points/count" {
+		t.Errorf("path = %q, want the dedicated points/count endpoint", gotPath)
+	}
+	if !gotReq.Exact {
+		t.Error("request Exact = false, want true — an approximate count would defeat POINT-003's purpose")
+	}
+	if gotReq.Filter == nil || len(gotReq.Filter.Must) != 1 || gotReq.Filter.Must[0].Key != "generation" {
+		t.Errorf("request filter = %+v, want a single generation match", gotReq.Filter)
+	}
+}
+
+func TestCountWithNilFilterCountsWholeNamespace(t *testing.T) {
+	var gotReq countRequest
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewDecoder(r.Body).Decode(&gotReq)
+		json.NewEncoder(w).Encode(countResponse{Result: struct {
+			Count int `json:"count"`
+		}{Count: 42}})
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL)
+	n, err := c.Count(context.Background(), "ragctl", nil)
+	if err != nil {
+		t.Fatalf("Count: %v", err)
+	}
+	if n != 42 {
+		t.Errorf("Count = %d, want 42", n)
+	}
+	if gotReq.Filter != nil {
+		t.Errorf("request filter = %+v, want nil for an unconstrained count", gotReq.Filter)
+	}
+}
+
 // TestDeleteByIDsAndFilterSendsTwoSeparateRequests is a regression test:
 // Qdrant's points_delete selector is a "one of {points, filter}", and
 // empirically (verified against a real server) combining both into one

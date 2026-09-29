@@ -10,4 +10,4 @@ A second, compounding discovery: fixing the walk alone wasn't enough. GIT-005's 
 - [x] [BOUND-001](BOUND-001-skip-nested-go-module-during-normalization.md) — Done: `normalizeSources` now skips any subdirectory with its own `go.mod`; `go.mod` added to the Go sparse-checkout pattern set so the boundary is actually visible to detect. Live-reverified: `cloud.google.com/go` now syncs in ~35s total (clone+scan+sync) instead of consuming an entire 30-minute batch budget and failing.
 
 ## Non-goals
-- Doesn't change the batch-wide timeout ceiling itself ([epic 51](../../backlog/51-bulk-sync-batch-timeout/INDEX.md)'s own scope) — this fix removes the dominant real-world cause of hitting it, it doesn't remove the ceiling's existence for some other genuinely huge single dependency.
+- Doesn't change the batch-wide timeout ceiling itself ([epic 51](../51-bulk-sync-batch-timeout/INDEX.md)'s own scope) — this fix removes the dominant real-world cause of hitting it, it doesn't remove the ceiling's existence for some other genuinely huge single dependency.

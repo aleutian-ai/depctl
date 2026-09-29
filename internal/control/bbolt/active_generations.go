@@ -83,6 +83,46 @@ func (s *Store) PromoteGeneration(ctx context.Context, candidate domain.Generati
 	})
 }
 
+// ClearActiveGeneration removes the active-generation pointer for
+// (ecosystem, dependencyName, backendName), demoting whatever generation
+// it pointed at to SUPERSEDED — the inverse of PromoteGeneration's own
+// "supersede whichever was active" half. OPS-004 (epic 61): the only way
+// to make planner.Plan treat this dependency as if nothing were active
+// yet, forcing a genuine rebuild of a generation whose real backend
+// content is gone despite otherwise-unchanged, healthy-looking
+// bookkeeping — the exact condition `ragctl doctor`'s "empty active
+// generations" check exists to detect, and which `ragctl sync --force`
+// alone cannot fix (it only affects an already-selected action, never
+// which actions the planner selects). A no-op, not an error, if nothing
+// is currently active for this key.
+func (s *Store) ClearActiveGeneration(ctx context.Context, ecosystem domain.Ecosystem, dependencyName, backendName string) error {
+	key := activeGenerationKey(ecosystem, dependencyName, backendName)
+	return s.db.Update(func(tx *bolt.Tx) error {
+		activeBucket := tx.Bucket([]byte(activeGenerationsBucket))
+		genBucket := tx.Bucket([]byte(generationsBucket))
+		id := activeBucket.Get(key)
+		if id == nil {
+			return nil
+		}
+		if raw := genBucket.Get(id); raw != nil {
+			var g domain.Generation
+			if err := json.Unmarshal(raw, &g); err != nil {
+				return fmt.Errorf("unmarshal active generation %s: %w", id, err)
+			}
+			g.State = domain.GenSuperseded
+			g.UpdatedAt = time.Now()
+			data, err := json.Marshal(g)
+			if err != nil {
+				return fmt.Errorf("marshal superseded generation %s: %w", g.ID, err)
+			}
+			if err := genBucket.Put(id, data); err != nil {
+				return err
+			}
+		}
+		return activeBucket.Delete(key)
+	})
+}
+
 // GetActiveGeneration returns the currently active generation for
 // (ecosystem, dependencyName, backendName), or ErrNotFound if none has
 // been promoted yet.

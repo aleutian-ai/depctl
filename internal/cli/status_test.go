@@ -54,7 +54,16 @@ func deadBackendURL(t *testing.T) string {
 func healthyBackendURL(t *testing.T) string {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/healthz" {
+		switch {
+		case r.URL.Path == "/healthz":
+			return
+		case strings.HasSuffix(r.URL.Path, "/points/count"):
+			// A nonzero count for any filter — POINT-003's own check
+			// (checkEmptyActiveGenerations) needs this endpoint to look
+			// healthy too, not just /healthz. The exact number doesn't
+			// matter here, only that it's never zero.
+			json.NewEncoder(w).Encode(map[string]any{"result": map[string]any{"count": 5}, "status": "ok"})
+		default:
 			http.NotFound(w, r)
 		}
 	}))

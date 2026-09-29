@@ -11,8 +11,9 @@ import (
 	"path/filepath"
 )
 
-// lockfilePriority is the order Resolve tries lockfiles in when more than
-// one is present.
+// lockfilePriority is the order Resolve (resolve.go) tries lockfiles in
+// when more than one is present — resolve.go's lockfileResolvers map
+// keys off these same names, so the two can't silently drift apart.
 var lockfilePriority = []string{
 	"package-lock.json",
 	"pnpm-lock.yaml",

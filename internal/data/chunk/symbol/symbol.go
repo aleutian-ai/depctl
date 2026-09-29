@@ -23,9 +23,9 @@ func New() *Chunker {
 }
 
 // Chunk emits exactly one domain.Chunk wrapping obj's full content, with
-// package/symbol/signature/source_path/version metadata promoted from
-// obj. Missing metadata fields (e.g. no signature for a constant) are
-// left as empty strings rather than causing an error.
+// package/symbol/signature/source_path/version/dependency/source_type
+// metadata promoted from obj. Missing metadata fields (e.g. no signature
+// for a constant) are left as empty strings rather than causing an error.
 func (c *Chunker) Chunk(ctx context.Context, obj domain.KnowledgeObject) ([]domain.Chunk, error) {
 	metadata := map[string]string{
 		"package":     obj.Metadata["package"],
@@ -33,6 +33,11 @@ func (c *Chunker) Chunk(ctx context.Context, obj domain.KnowledgeObject) ([]doma
 		"signature":   obj.Metadata["signature"],
 		"source_path": obj.LogicalPath,
 		"version":     obj.Version,
+		// STRUCT-003: promoted from the parent KnowledgeObject so a
+		// caller holding only this Chunk never needs a second lookup to
+		// know its dependency/source-type identity.
+		"dependency":  obj.Dependency.Dependency.Name,
+		"source_type": obj.SourceType,
 	}
 
 	content := obj.Content

@@ -74,11 +74,17 @@ func buildVectorBackend(cfg config.Config) (backend.VectorBackend, error) {
 }
 
 // buildGitCache returns a git.Cache rooted under the configured data
-// directory's "git" subdirectory, matching GIT-001's documented layout.
-func buildGitCache() (*git.Cache, error) {
+// directory's "git" subdirectory, matching GIT-001's documented layout,
+// with cfg.Git's optional local-seed fallback tiers (GIT-006/GIT-007)
+// configured — both empty by default, zero behavior change unless a
+// user explicitly sets them.
+func buildGitCache(cfg config.Config) (*git.Cache, error) {
 	dataDir, err := config.DefaultDataDir()
 	if err != nil {
 		return nil, fmt.Errorf("resolve data dir: %w", err)
 	}
-	return git.NewCache(dataDir + "/git"), nil
+	return git.NewCache(dataDir+"/git",
+		git.WithExternalMirrorRoots(cfg.Git.MirrorSearchPaths),
+		git.WithCheckoutSearchRoots(cfg.Git.CheckoutSearchPaths),
+	), nil
 }

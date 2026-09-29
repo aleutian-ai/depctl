@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -71,6 +72,96 @@ func TestFencedCodeLanguagesAndLinks(t *testing.T) {
 		if !wantLinks[l] {
 			t.Errorf("unexpected link %q", l)
 		}
+	}
+}
+
+// codeBlocksOf unmarshals a KnowledgeObject's Metadata["code_blocks"]
+// (STRUCT-002) into []codeBlockRecord for assertions.
+func codeBlocksOf(t *testing.T, obj domain.KnowledgeObject) []codeBlockRecord {
+	t.Helper()
+	var blocks []codeBlockRecord
+	if err := json.Unmarshal([]byte(obj.Metadata["code_blocks"]), &blocks); err != nil {
+		t.Fatalf("code_blocks %q is not valid JSON: %v", obj.Metadata["code_blocks"], err)
+	}
+	return blocks
+}
+
+// TestFencedCodeBlocksStructuredRecords is STRUCT-002's own acceptance
+// criterion: code.md has two fenced blocks, both under the single "#
+// Examples" section, in document order.
+func TestFencedCodeBlocksStructuredRecords(t *testing.T) {
+	obj := normalizeFixture(t, "code.md", "examples.md")
+	blocks := codeBlocksOf(t, obj)
+	if len(blocks) != 2 {
+		t.Fatalf("code_blocks = %+v, want 2 records", blocks)
+	}
+	if blocks[0].Index != 0 || blocks[0].Language != "go" || !strings.Contains(blocks[0].Content, "func main()") {
+		t.Errorf("blocks[0] = %+v, want index 0, language go, content containing func main()", blocks[0])
+	}
+	if blocks[1].Index != 1 || blocks[1].Language != "python" || !strings.Contains(blocks[1].Content, "def main():") {
+		t.Errorf("blocks[1] = %+v, want index 1, language python, content containing def main():", blocks[1])
+	}
+	wantPath := []string{"Examples"}
+	if !reflect.DeepEqual(blocks[0].SectionPath, wantPath) || !reflect.DeepEqual(blocks[1].SectionPath, wantPath) {
+		t.Errorf("section_path = %v / %v, want both %v (both blocks sit under the same section)", blocks[0].SectionPath, blocks[1].SectionPath, wantPath)
+	}
+}
+
+// TestFencedCodeBlocksAcrossMultipleSections covers the ticket's other
+// stated case: several fenced blocks across different sections and
+// nesting levels — index increments in document order, and each
+// record's section_path reflects its own position, not a shared or
+// last-seen one.
+func TestFencedCodeBlocksAcrossMultipleSections(t *testing.T) {
+	content := "# Docs\n\n## Setup\n\n```bash\nnpm install\n```\n\n## Usage\n\n### Basic\n\n```js\nrun()\n```\n\nNo-language fence:\n\n```\nplain text\n```\n"
+	dir := t.TempDir()
+	path := filepath.Join(dir, "multi.md")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	n := New()
+	got, err := n.Normalize(context.Background(), domain.SourceSnapshot{LocalPath: path, LogicalPath: "multi.md"})
+	if err != nil {
+		t.Fatalf("Normalize: %v", err)
+	}
+	blocks := codeBlocksOf(t, got[0])
+	if len(blocks) != 3 {
+		t.Fatalf("code_blocks = %+v, want 3 records", blocks)
+	}
+
+	if blocks[0].Index != 0 || blocks[0].Language != "bash" {
+		t.Errorf("blocks[0] = %+v, want index 0, language bash", blocks[0])
+	}
+	if want := []string{"Docs", "Setup"}; !reflect.DeepEqual(blocks[0].SectionPath, want) {
+		t.Errorf("blocks[0].SectionPath = %v, want %v", blocks[0].SectionPath, want)
+	}
+
+	if blocks[1].Index != 1 || blocks[1].Language != "js" {
+		t.Errorf("blocks[1] = %+v, want index 1, language js", blocks[1])
+	}
+	if want := []string{"Docs", "Usage", "Basic"}; !reflect.DeepEqual(blocks[1].SectionPath, want) {
+		t.Errorf("blocks[1].SectionPath = %v, want %v", blocks[1].SectionPath, want)
+	}
+
+	// A fence with no info string still produces a record, Language ""
+	// — never dropped, and never counted into code_languages.
+	if blocks[2].Index != 2 || blocks[2].Language != "" {
+		t.Errorf("blocks[2] = %+v, want index 2, language \"\"", blocks[2])
+	}
+	if got[0].Metadata["code_languages"] != "bash,js" {
+		t.Errorf("code_languages = %q, want \"bash,js\" (the no-language fence excluded)", got[0].Metadata["code_languages"])
+	}
+}
+
+// TestNoCodeBlocksKeyAbsentWhenNoFencedCode is STRUCT-002's other stated
+// case: nested.md has no fenced code at all, so Metadata["code_blocks"]
+// must be entirely absent, matching code_languages/links' own
+// omit-when-empty convention — not present-but-empty/null.
+func TestNoCodeBlocksKeyAbsentWhenNoFencedCode(t *testing.T) {
+	obj := normalizeFixture(t, "nested.md", "docs/nested.md")
+	if _, ok := obj.Metadata["code_blocks"]; ok {
+		t.Errorf("Metadata[code_blocks] = %q, want the key absent entirely for a document with no fenced code", obj.Metadata["code_blocks"])
 	}
 }
 

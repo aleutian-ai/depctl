@@ -6,11 +6,14 @@ import (
 )
 
 // section is one heading-delimited slice of a document: the literal
-// heading line (e.g. "## Installation"), its full breadcrumb path, and
-// the body content strictly after it (up to the next heading or EOF).
-// headingLine is "" for content appearing before any heading at all.
+// heading line (e.g. "## Installation"), its full breadcrumb path (both
+// as a display string and as its own unjoined ancestor segments,
+// STRUCT-001), and the body content strictly after it (up to the next
+// heading or EOF). headingLine is "" for content appearing before any
+// heading at all.
 type section struct {
 	headingPath string
+	sectionPath []string
 	headingLine string
 	body        string
 }
@@ -39,7 +42,23 @@ func splitSections(content string) []section {
 	flush := func() {
 		body := strings.TrimSpace(current.String())
 		if body != "" || currentHeadingLine != "" {
-			sections = append(sections, section{headingPath: currentPath, headingLine: currentHeadingLine, body: body})
+			// Headless content (no heading seen yet) must produce a nil
+			// sectionPath, matching headingStack's own zero value — not
+			// append([]string{}, headingStack...), which returns a
+			// non-nil *empty* slice even when headingStack is nil,
+			// marshaling to "[]" instead of the "null" this ticket
+			// specifies (mirroring heading_path's own "" convention for
+			// the same case).
+			var path []string
+			if len(headingStack) > 0 {
+				path = append([]string{}, headingStack...)
+			}
+			sections = append(sections, section{
+				headingPath: currentPath,
+				sectionPath: path,
+				headingLine: currentHeadingLine,
+				body:        body,
+			})
 		}
 		current.Reset()
 	}

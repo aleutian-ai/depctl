@@ -7,9 +7,16 @@ package backend
 
 import "context"
 
-// VectorBackend stores and queries embedded chunks. Six methods only,
-// matching the design spec exactly — no speculative batch-update or
-// aggregate-query methods until a real use case needs them.
+// VectorBackend stores and queries embedded chunks. Originally six
+// methods, matching the design spec exactly — no speculative batch-update
+// or aggregate-query methods until a real use case needs them. Count is
+// the first (and so far only) addition past that original six, justified
+// by POINT-003: doctor needs to know how many points a generation
+// actually has, not a vector-similarity guess via Query, to detect an
+// ACTIVE generation whose points were silently overwritten by a sibling
+// (the exact failure class POINT-001's point-ID fix eliminated going
+// forward, but couldn't retroactively repair for a collection populated
+// before that fix shipped).
 type VectorBackend interface {
 	// Name identifies this backend (e.g. "qdrant").
 	Name() string
@@ -24,6 +31,10 @@ type VectorBackend interface {
 	// Query returns the top matches for req.Vector, constrained by
 	// req.Filter.
 	Query(ctx context.Context, req QueryRequest) (QueryResult, error)
+	// Count reports exactly how many points in namespace match filter
+	// (nil filter counts the whole namespace) — an exact count, not a
+	// TopK-bounded approximation.
+	Count(ctx context.Context, namespace string, filter *Filter) (int, error)
 	// Health is a cheap read-only reachability check, used by
 	// `ragctl doctor`/`status`.
 	Health(ctx context.Context) error

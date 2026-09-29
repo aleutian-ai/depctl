@@ -151,11 +151,25 @@ func TestDefaultsAreApplied(t *testing.T) {
 	if !c.Watch.Enabled {
 		t.Error("watch.enabled should default to true")
 	}
-	if c.Server.HTTP.Listen != "127.0.0.1:7447" {
-		t.Errorf("server.http.listen = %q, want 127.0.0.1:7447", c.Server.HTTP.Listen)
+}
+
+// TestDefaultCollectionNameIsUniquePerInstall is SAFE-001's (epic 61)
+// own regression proof: every fresh Default() call must get a distinct
+// collection name, not the old plain "ragctl" literal every install
+// shared — the actual root cause of two real live incidents this
+// session (isolated test instances silently commingling data with a
+// shared "ragctl" collection on the same machine).
+func TestDefaultCollectionNameIsUniquePerInstall(t *testing.T) {
+	a := Default("/data")
+	b := Default("/data")
+	if a.Vector.Collection == "ragctl" {
+		t.Errorf("Vector.Collection = %q, want a per-install-unique name, not the old shared literal", a.Vector.Collection)
 	}
-	if strings.Contains(c.Server.HTTP.Listen, "0.0.0.0") {
-		t.Error("default server address must not bind 0.0.0.0")
+	if a.Vector.Collection == b.Vector.Collection {
+		t.Errorf("two Default() calls produced the same collection name %q, want each fresh install to get its own", a.Vector.Collection)
+	}
+	if !strings.HasPrefix(a.Vector.Collection, "ragctl-") {
+		t.Errorf("Vector.Collection = %q, want a \"ragctl-\" prefix so it's still recognizable", a.Vector.Collection)
 	}
 }
 

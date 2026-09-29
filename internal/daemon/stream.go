@@ -23,7 +23,7 @@ func stream(w http.ResponseWriter, fn func(out io.Writer) (any, error)) {
 	lines.flushPartial()
 
 	if err != nil {
-		lines.send(api.StreamLine{Error: err.Error()})
+		lines.send(api.StreamLine{Error: err.Error(), Kind: errorKind(err)})
 		return
 	}
 	body, err := json.Marshal(result)

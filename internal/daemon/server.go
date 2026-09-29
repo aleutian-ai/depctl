@@ -52,6 +52,12 @@ type Engine interface {
 	// entirely separate eligibility path from GC's reference-based one,
 	// never combined into the same report or deletion run.
 	OrphanGC(ctx context.Context, dryRun bool, out io.Writer) (api.GCResult, error)
+	// SupersededDuplicatesGC runs POINT-004's cleanup: SUPERSEDED
+	// generations that share their exact dependency+version with a
+	// currently ACTIVE generation, left behind by a check-then-create
+	// build race — a third eligibility path, separate from both GC's and
+	// OrphanGC's, never combined into the same report or deletion run.
+	SupersededDuplicatesGC(ctx context.Context, dryRun bool, out io.Writer) (api.GCResult, error)
 
 	// Search, ProjectDependencies, DependencyVersion, ReleaseChanges, and
 	// KnowledgeStatus back the MCP query tools (internal/mcp.QueryService),

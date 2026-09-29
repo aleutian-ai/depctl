@@ -151,6 +151,13 @@ type SyncRequest struct {
 	Dependencies []string `json:"dependencies,omitempty"`
 	Offline      bool     `json:"offline,omitempty"`
 	Force        bool     `json:"force,omitempty"`
+	// Rebuild (OPS-004) clears the active-generation pointer and version
+	// reference for each named dependency before planning, forcing a
+	// genuine rebuild even though its version hasn't changed — the real
+	// fix for a generation whose backend content is gone despite
+	// otherwise-healthy-looking bookkeeping, which plain Force cannot do.
+	// Requires at least one entry in Dependency/Dependencies.
+	Rebuild bool `json:"rebuild,omitempty"`
 }
 
 // DependencySet is every dependency name the request limits the sync to;
@@ -171,13 +178,33 @@ type SyncResponse struct {
 // SyncProgress is a project's sync progress at one moment (SCOPE-001).
 // Done, Failed and Total count planned actions — nearly all one per
 // dependency version. With Syncing false they describe the last run, or
-// are all zero if the project has never synced.
+// are all zero if the project has never synced — except Total can also
+// be legitimately zero for a project that HAS synced (every dependency
+// already had a current generation elsewhere, so nothing needed
+// building); Ran is what actually distinguishes the two cases.
 type SyncProgress struct {
-	Syncing  bool                 `json:"syncing"`
+	Syncing bool `json:"syncing"`
+	// Ran reports whether a sync has ever completed for this project,
+	// independent of Total/Done/Failed all being zero — a run that finds
+	// nothing new to sync (Total == 0, the common, correct case once
+	// everything is already synced) still sets this true, so a caller
+	// can tell "nothing to do" apart from "never even tried."
+	Ran      bool                 `json:"ran"`
 	Done     int                  `json:"done"`
 	Failed   int                  `json:"failed"`
 	Total    int                  `json:"total"`
 	InFlight []InFlightDependency `json:"in_flight,omitempty"`
+	// BATCH-001 Option D: agent-facing scope-planning information — nil
+	// until at least one dependency has actually finished in this run.
+	// See ObservedTiming/SyncEstimate's own doc comments for why this
+	// exists and how it's meant to be used.
+	Observed *ObservedTiming `json:"observed,omitempty"`
+	Estimate *SyncEstimate   `json:"estimate,omitempty"`
+	// Pending names every planned SYNC_VERSION dependency not yet
+	// finished (done or failed) — distinct from InFlight, which is only
+	// what's actively building right now. Lets a caller see the whole
+	// remaining scope, not just the current worker snapshot.
+	Pending []string `json:"pending,omitempty"`
 }
 
 // SyncProgressRequest asks for one project's SyncProgress.
@@ -192,6 +219,31 @@ type InFlightDependency struct {
 	Name        string `json:"name"`
 	ChunksDone  int    `json:"chunks_done"`
 	ChunksTotal int    `json:"chunks_total"`
+}
+
+// ObservedTiming reports how long this run's completed SYNC_VERSION
+// actions have actually taken (BATCH-001 Option D) — median and p90
+// rather than a mean, since real timing data (STRESS-005/006) is
+// heavily skewed by a handful of large dependencies dominating total
+// runtime, which would make a naive average routinely misleading.
+type ObservedTiming struct {
+	Samples                 int     `json:"samples"`
+	MedianDependencySeconds float64 `json:"median_dependency_seconds"`
+	P90DependencySeconds    float64 `json:"p90_dependency_seconds"`
+}
+
+// SyncEstimate is a rough projection of how much longer the current run
+// needs (median duration times how many dependencies remain Pending).
+// Confidence is "low" below a real sample size, "medium"/"high" above
+// it depending on how skewed the observed durations are — never treat
+// RemainingSeconds as precise without checking Confidence. This is
+// information only: ragctl never uses it to decide anything itself
+// (BATCH-001's own non-goal) — an agent or human decides what to do
+// with a large Pending list (keep waiting, request a specific
+// dependency via sync_project, accept partial coverage, etc.).
+type SyncEstimate struct {
+	RemainingSeconds float64 `json:"remaining_seconds"`
+	Confidence       string  `json:"confidence"` // "low", "medium", or "high"
 }
 
 // SyncPriorityRequest asks the currently-running sync for ProjectID, if
@@ -220,6 +272,12 @@ type GCRequest struct {
 	// (FAILED/stuck-non-terminal generations) instead of the default
 	// reference-based path — never both in the same request.
 	Orphans bool `json:"orphans,omitempty"`
+	// SupersededDuplicates selects POINT-004's cleanup path (SUPERSEDED
+	// generations that share their exact dependency+version with a
+	// currently ACTIVE generation — the check-then-create race's leftover
+	// duplicates) instead of the default reference-based path — never
+	// combined with Orphans or the default in the same request.
+	SupersededDuplicates bool `json:"superseded_duplicates,omitempty"`
 }
 
 // GCResult summarizes a GC run.
@@ -415,6 +473,11 @@ type StreamLine struct {
 	Log    string          `json:"log,omitempty"`
 	Result json.RawMessage `json:"result,omitempty"`
 	Error  string          `json:"error,omitempty"`
+	// Kind mirrors Error's own field below (see its doc) — MCP-007:
+	// stream()'s error line dropped this entirely, so no sentinel ever
+	// survived a sync/scan/GC error's round trip, unlike every
+	// non-streaming call.
+	Kind string `json:"kind,omitempty"`
 }
 
 // Error is the body of every non-2xx response.
