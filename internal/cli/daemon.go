@@ -26,6 +26,9 @@ import (
 	"aleutian-ai/ragctl/internal/daemon/client"
 	badgerstore "aleutian-ai/ragctl/internal/data/badger"
 	"aleutian-ai/ragctl/internal/domain"
+	"aleutian-ai/ragctl/internal/observability"
+	"aleutian-ai/ragctl/internal/observability/metrics"
+	"aleutian-ai/ragctl/internal/observability/trace"
 	"aleutian-ai/ragctl/internal/query"
 	"aleutian-ai/ragctl/internal/source/git"
 	"aleutian-ai/ragctl/internal/watch"
@@ -963,12 +966,53 @@ func runDaemonRun(cmd *cobra.Command) error {
 		fmt.Fprintf(out, "%s "+format+"\n", append([]any{time.Now().Format("15:04:05")}, args...)...)
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	// OBS-001: the daemon's whole lifetime runs under one context carrying
+	// one structured logger — every function further down any call chain
+	// rooted here (sync, gc, query, ...) gets it via
+	// observability.FromContext without needing its own *slog.Logger
+	// parameter.
+	logger := observability.NewLogger(out, cfg.Log.JSON, cfg.Log.SlogLevel())
+	ctx, stop := signal.NotifyContext(observability.WithLogger(context.Background(), logger), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	go func() {
 		<-ctx.Done()
 		stop() // restore default handling, so a second Ctrl-C exits immediately
 	}()
+
+	// OBS-002: off by default (cfg.Observability.OTel.Enabled is false
+	// unless explicitly set) — see internal/observability/trace.
+	// shutdownTracing flushes any pending spans; a failed exporter never
+	// blocks or fails daemon startup (InitProvider's own contract).
+	shutdownTracing, err := trace.InitProvider(ctx, cfg.Observability.OTel, logger)
+	if err != nil {
+		return fmt.Errorf("init tracing: %w", err)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := shutdownTracing(shutdownCtx); err != nil {
+			logger.Warn("otel: tracer shutdown failed", "error", err)
+		}
+	}()
+
+	// OBS-003: off by default (cfg.Observability.Metrics.Enabled is false
+	// unless explicitly set) — see internal/observability/metrics. A bind
+	// failure is fatal only because metrics were explicitly requested;
+	// StartServer itself is a no-op (nil error) when disabled.
+	shutdownMetrics, err := metrics.StartServer(cfg.Observability.Metrics, logger)
+	if err != nil {
+		return fmt.Errorf("init metrics: %w", err)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := shutdownMetrics(shutdownCtx); err != nil {
+			logger.Warn("metrics: server shutdown failed", "error", err)
+		}
+	}()
+	if cfg.Observability.Metrics.Enabled {
+		go refreshStorageMetrics(ctx, store, cfg.Vector.Backend, badgerPath, storageMetricsRefreshInterval)
+	}
 
 	// Checked off the request path entirely (WATCH-014): a client that
 	// needs an embedder (sync, search) gets an immediate, actionable

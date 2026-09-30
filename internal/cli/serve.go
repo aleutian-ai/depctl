@@ -11,6 +11,7 @@ import (
 
 	"aleutian-ai/ragctl/internal/daemon/client"
 	"aleutian-ai/ragctl/internal/mcp"
+	"aleutian-ai/ragctl/internal/observability"
 	"aleutian-ai/ragctl/internal/symbolgraph"
 	"aleutian-ai/ragctl/internal/symbolgraph/gopackages"
 )
@@ -39,8 +40,6 @@ func newServeCmd() *cobra.Command {
 // config.yaml was edited after it started, this process's own fresh
 // read of it is not.
 func runServe(cmd *cobra.Command) error {
-	ctx := cmd.Context()
-
 	cfg, err := loadRagctlConfig()
 	if err != nil {
 		return err
@@ -48,6 +47,16 @@ func runServe(cmd *cobra.Command) error {
 	if !cfg.Server.MCP.Enabled {
 		return fmt.Errorf("MCP server disabled (server.mcp.enabled: false in config)")
 	}
+
+	// OBS-001: the MCP tool-call log (withToolLogging, internal/mcp)
+	// happens in *this* process, not the daemon's — a coding agent's
+	// tool calls are served here, over stdio, with the daemon doing the
+	// underlying store work over RPC. Without this, those log lines fell
+	// back to slog.Default() instead of this server's own configured
+	// logger, the same gap OBS-001 found and fixed daemon-side
+	// (internal/daemon/server.go's loggingMiddleware).
+	logger := observability.NewLogger(cmd.ErrOrStderr(), cfg.Log.JSON, cfg.Log.SlogLevel())
+	ctx := observability.WithLogger(cmd.Context(), logger)
 
 	c, err := ensureDaemon(ctx)
 	if err != nil {

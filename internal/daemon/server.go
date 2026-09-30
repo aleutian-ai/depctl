@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"aleutian-ai/ragctl/internal/daemon/api"
+	"aleutian-ai/ragctl/internal/observability"
 	"aleutian-ai/ragctl/internal/query"
 	"aleutian-ai/ragctl/internal/watch"
 )
@@ -126,6 +127,18 @@ type Server struct {
 	stopOnce  sync.Once
 	scheduler *Scheduler
 
+	// baseCtx is the daemon's own long-lived context (the one Serve's
+	// caller — runDaemonRun — carries its structured logger on, OBS-001),
+	// distinct from any single request's r.Context(). Handlers that
+	// derive their working context from r.Context() alone (handleResolve
+	// is the one real case found live — sync/GC instead run under
+	// s.scheduler's own runCtx, which already derives from baseCtx and
+	// so never had this gap) must merge baseCtx's logger in via
+	// observability.FromContext(s.baseCtx), or every log they emit
+	// silently falls back to slog.Default() instead of the daemon's
+	// actually-configured logger.
+	baseCtx context.Context
+
 	watcher   *watch.Watcher
 	watchedMu sync.Mutex
 	watched   map[string]watch.Project
@@ -151,6 +164,7 @@ func New(opts Options) *Server {
 // stores, which is what proves any socket file found here is stale.
 func (s *Server) Serve(ctx context.Context) error {
 	s.started = time.Now()
+	s.baseCtx = ctx
 
 	// Watching and syncing stop when Serve does, whether that was a
 	// signal or a shutdown request.
@@ -238,7 +252,28 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST "+api.PathProjectGet, s.handleProjectGet)
 	mux.HandleFunc("POST "+api.PathDescribe, s.handleDescribe)
 	mux.HandleFunc("POST "+api.PathDoctor, s.handleDoctor)
-	return mux
+	return s.loggingMiddleware(mux)
+}
+
+// loggingMiddleware (OBS-001) carries s.baseCtx's structured logger onto
+// every incoming request's own r.Context(), so every handler — present
+// and future — gets the daemon's actually-configured logger through
+// observability.FromContext(r.Context()) without each one needing to
+// remember to merge it in individually. Found live, the hard way: a real
+// end-to-end sync showed every scheduler-routed lifecycle log (sync, gc,
+// embed, ...) in the configured JSON shape, but the one HTTP-handler-only
+// operation tested at the time (resolve, via handleResolve) fell back to
+// slog.Default()'s plain-text format — r.Context() is a fresh context
+// tree Go's own http.Server creates per connection, not derived from the
+// context Serve was called with, so nothing to do with the daemon's own
+// setup carries onto it automatically. Preserves the connection's own
+// cancellation semantics (WithValue never strips WithCancel further up
+// the same chain) — this only adds a value, it doesn't rebuild the tree.
+func (s *Server) loggingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := observability.WithLogger(r.Context(), observability.FromContext(s.baseCtx))
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {

@@ -9,9 +9,12 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"go.opentelemetry.io/otel/attribute"
 
 	bboltstore "aleutian-ai/ragctl/internal/control/bbolt"
 	"aleutian-ai/ragctl/internal/domain"
+	"aleutian-ai/ragctl/internal/observability"
+	"aleutian-ai/ragctl/internal/observability/trace"
 	"aleutian-ai/ragctl/internal/project"
 	"aleutian-ai/ragctl/internal/resolver"
 	"aleutian-ai/ragctl/internal/resolver/golang"
@@ -149,15 +152,27 @@ func scanAndResolve(ctx context.Context, store *bboltstore.Store, root string, o
 				fmt.Fprintf(out, "resolve error %-8s %s: %v\n", dp.Ecosystem, dp.Root, err)
 				return
 			}
-			res, err := resolvers[dp.Ecosystem].Resolve(ctx, dp.Root)
+			spanCtx, end := trace.StartSpan(ctx, "resolve", attribute.String(observability.KeyProjectID, id))
+			defer end()
+			resolveStart := time.Now()
+			res, err := resolvers[dp.Ecosystem].Resolve(spanCtx, dp.Root)
 			if err != nil {
+				trace.RecordError(spanCtx, err)
+				observability.FromContext(ctx).Error("resolve failed", observability.KeyStage, "resolve", observability.KeyProjectID, id, observability.KeyDurationMS, time.Since(resolveStart).Milliseconds(), "error", err)
 				fmt.Fprintf(out, "resolve error %-8s %s: %v\n", dp.Ecosystem, dp.Root, err)
 				return
 			}
-			if err := store.PutResolution(ctx, id, res); err != nil {
+			if err := store.PutResolution(spanCtx, id, res); err != nil {
+				trace.RecordError(spanCtx, err)
 				fmt.Fprintf(out, "resolve error %-8s %s: %v\n", dp.Ecosystem, dp.Root, err)
 				return
 			}
+			observability.FromContext(ctx).Info("resolve completed",
+				observability.KeyStage, "resolve",
+				observability.KeyProjectID, id,
+				observability.KeyDurationMS, time.Since(resolveStart).Milliseconds(),
+				"dependencies", len(res.Dependencies),
+			)
 			fmt.Fprintf(out, "resolved     %-8s %s: %d dependencies\n", dp.Ecosystem, dp.Root, len(res.Dependencies))
 		}()
 	}

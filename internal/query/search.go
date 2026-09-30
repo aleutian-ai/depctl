@@ -5,10 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"aleutian-ai/ragctl/internal/backend"
 	"aleutian-ai/ragctl/internal/data/generation"
 	"aleutian-ai/ragctl/internal/domain"
+	"aleutian-ai/ragctl/internal/observability"
+	"aleutian-ai/ragctl/internal/observability/trace"
 )
 
 // Status summarizes fleet-wide sync readiness: every registered
@@ -155,18 +158,42 @@ func (s *Service) GetReleaseChanges(ctx context.Context, dependency, from, to st
 // there is no coherent single Filter for "all of this project's
 // dependencies at once."
 func (s *Service) SearchKnowledge(ctx context.Context, q Query) (SearchResult, error) {
+	ctx, end := trace.StartSpan(ctx, "query")
+	defer end()
+	start := time.Now()
+	logger := observability.FromContext(ctx).With(
+		observability.KeyProjectID, q.ProjectID,
+		observability.KeyDependency, q.Dependency,
+		observability.KeyBackend, s.backendName,
+	)
+
+	var result SearchResult
+	var err error
 	switch q.Mode {
 	case ModeProject:
-		return s.searchProject(ctx, q)
+		result, err = s.searchProject(ctx, q)
 	case ModeLatest:
-		return s.searchLatest(ctx, q)
+		result, err = s.searchLatest(ctx, q)
 	case ModeCompare:
-		return s.searchCompare(ctx, q)
+		result, err = s.searchCompare(ctx, q)
 	case ModeAllRetained:
-		return s.searchAllRetained(ctx, q)
+		result, err = s.searchAllRetained(ctx, q)
 	default:
 		return SearchResult{}, fmt.Errorf("query: unknown mode %q", q.Mode)
 	}
+	if err != nil {
+		trace.RecordError(ctx, err)
+		logger.Error("query failed", observability.KeyStage, "query", observability.KeyDurationMS, time.Since(start).Milliseconds(), "mode", string(q.Mode), "error", err)
+		return result, err
+	}
+	logger.Info("query completed",
+		observability.KeyStage, "query",
+		observability.KeyDurationMS, time.Since(start).Milliseconds(),
+		observability.KeyRetrievalTopK, q.TopK,
+		observability.KeyRetrievalCount, len(result.Chunks),
+		"mode", string(q.Mode),
+	)
+	return result, nil
 }
 
 func (s *Service) searchProject(ctx context.Context, q Query) (SearchResult, error) {

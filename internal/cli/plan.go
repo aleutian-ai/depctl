@@ -11,6 +11,7 @@ import (
 
 	bboltstore "aleutian-ai/ragctl/internal/control/bbolt"
 	"aleutian-ai/ragctl/internal/domain"
+	"aleutian-ai/ragctl/internal/observability/trace"
 	"aleutian-ai/ragctl/internal/planner"
 	"aleutian-ai/ragctl/internal/query"
 	"aleutian-ai/ragctl/internal/registry"
@@ -102,12 +103,16 @@ func computePlans(ctx context.Context, store *bboltstore.Store, backendName, pro
 			active[key] = err == nil
 		}
 
-		actions, err := planner.Plan(ctx, p, resolution, current, reg, active)
+		spanCtx, end := trace.StartSpan(ctx, "plan")
+		actions, err := planner.Plan(spanCtx, p, resolution, current, reg, active)
 		if err != nil {
+			trace.RecordError(spanCtx, err)
+			end()
 			pp.Warning = fmt.Sprintf("plan: %v", err)
 			plans = append(plans, pp)
 			continue
 		}
+		end()
 		pp.Actions = actions
 		plans = append(plans, pp)
 	}

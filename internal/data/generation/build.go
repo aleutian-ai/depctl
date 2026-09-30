@@ -26,6 +26,9 @@ import (
 	"aleutian-ai/ragctl/internal/normalize/pydoc"
 	"aleutian-ai/ragctl/internal/normalize/releasenotes"
 	"aleutian-ai/ragctl/internal/normalize/tsdoc"
+	"aleutian-ai/ragctl/internal/observability"
+	"aleutian-ai/ragctl/internal/observability/metrics"
+	"aleutian-ai/ragctl/internal/observability/trace"
 	"aleutian-ai/ragctl/internal/registry"
 	"aleutian-ai/ragctl/internal/source/git"
 )
@@ -87,33 +90,59 @@ type acquiredSource struct {
 // project-scoped; empty is always a safe, valid value (that check just
 // never hits, same as any other local-cache miss).
 func Build(ctx context.Context, gen domain.Generation, sources []registry.Source, gitCache *git.Cache, store *bbolt.Store, badgerStore *badger.Store, projectRoot string) error {
+	logger := observability.FromContext(ctx).With(
+		observability.KeyDependency, gen.Dependency.Dependency.Name,
+		observability.KeyVersion, gen.Dependency.Version,
+		observability.KeyGeneration, gen.ID,
+	)
+
 	if err := setState(ctx, store, &gen, domain.GenAcquiring); err != nil {
 		return err
 	}
 
-	acquired, err := acquireGitSources(ctx, gitCache, gen.Dependency.Dependency.Name, gen.Dependency.Version, gen.Dependency.Dependency.Ecosystem, sources, projectRoot)
+	acquireCtx, acquireEnd := trace.StartSpan(ctx, "acquire")
+	acquireStart := time.Now()
+	acquired, err := acquireGitSources(acquireCtx, gitCache, gen.Dependency.Dependency.Name, gen.Dependency.Version, gen.Dependency.Dependency.Ecosystem, sources, projectRoot)
 	defer cleanupAll(acquired)
+	metrics.AcquireSeconds.Observe(time.Since(acquireStart).Seconds())
 	if err != nil {
+		trace.RecordError(acquireCtx, err)
+		acquireEnd()
+		logger.Error("acquire failed", observability.KeyStage, "acquire", observability.KeyDurationMS, time.Since(acquireStart).Milliseconds(), "error", err)
 		fail(ctx, store, &gen, err.Error())
 		return err
 	}
+	acquireEnd()
+	logger.Info("acquire completed", observability.KeyStage, "acquire", observability.KeyDurationMS, time.Since(acquireStart).Milliseconds(), "sources", len(acquired))
 
 	if err := setState(ctx, store, &gen, domain.GenNormalizing); err != nil {
 		return err
 	}
-	objects, err := normalizeSources(ctx, gen.Dependency, acquired)
+	normalizeCtx, normalizeEnd := trace.StartSpan(ctx, "normalize")
+	normalizeStart := time.Now()
+	objects, err := normalizeSources(normalizeCtx, gen.Dependency, acquired)
+	metrics.NormalizeSeconds.Observe(time.Since(normalizeStart).Seconds())
 	if err != nil {
+		trace.RecordError(normalizeCtx, err)
+		normalizeEnd()
+		logger.Error("normalize failed", observability.KeyStage, "normalize", observability.KeyDurationMS, time.Since(normalizeStart).Milliseconds(), "error", err)
 		fail(ctx, store, &gen, err.Error())
 		return err
 	}
+	normalizeEnd()
+	logger.Info("normalize completed", observability.KeyStage, "normalize", observability.KeyDurationMS, time.Since(normalizeStart).Milliseconds(), "objects", len(objects))
 
 	if err := setState(ctx, store, &gen, domain.GenIndexing); err != nil {
 		return err
 	}
-	if err := indexObjects(ctx, gen, objects, badgerStore); err != nil {
+	chunkCtx, chunkEnd := trace.StartSpan(ctx, "chunk")
+	if err := indexObjects(chunkCtx, gen, objects, badgerStore); err != nil {
+		trace.RecordError(chunkCtx, err)
+		chunkEnd()
 		fail(ctx, store, &gen, err.Error())
 		return err
 	}
+	chunkEnd()
 
 	return nil
 }

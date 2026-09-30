@@ -12,6 +12,8 @@ import (
 	"aleutian-ai/ragctl/internal/data/generation"
 	"aleutian-ai/ragctl/internal/domain"
 	"aleutian-ai/ragctl/internal/embedding"
+	"aleutian-ai/ragctl/internal/observability"
+	"aleutian-ai/ragctl/internal/observability/trace"
 )
 
 // Report bundles VAL-001..003's three independent results, since a
@@ -54,7 +56,15 @@ func (r Report) Failures() []string {
 //
 // prior/priorManifest are nil for a dependency's first-ever generation
 // (Sanity auto-passes in that case, per VAL-002).
-func Run(ctx context.Context, gen domain.Generation, manifest generation.Manifest, replica domain.BackendReplica, prior *domain.Generation, priorManifest *generation.Manifest, cfg SanityConfig, embedder embedding.Embedder, vb backend.VectorBackend, ns backend.Namespace, store *bbolt.Store, badgerStore *badger.Store) (domain.Generation, Report, error) {
+func Run(ctx context.Context, gen domain.Generation, manifest generation.Manifest, replica domain.BackendReplica, prior *domain.Generation, priorManifest *generation.Manifest, cfg SanityConfig, embedder embedding.Embedder, vb backend.VectorBackend, ns backend.Namespace, store *bbolt.Store, badgerStore *badger.Store) (resultGen domain.Generation, resultReport Report, err error) {
+	ctx, end := trace.StartSpan(ctx, "validate")
+	defer func() {
+		if err != nil {
+			trace.RecordError(ctx, err)
+		}
+		end()
+	}()
+	validateStart := time.Now()
 	gen.State = domain.GenValidating
 	gen.UpdatedAt = time.Now()
 	if err := store.PutGeneration(ctx, gen); err != nil {
@@ -93,5 +103,13 @@ func Run(ctx context.Context, gen domain.Generation, manifest generation.Manifes
 		return gen, report, fmt.Errorf("validate: persist final state for %s: %w", gen.ID, err)
 	}
 
+	observability.FromContext(ctx).Info("validate completed",
+		observability.KeyStage, "validate",
+		observability.KeyDependency, gen.Dependency.Dependency.Name,
+		observability.KeyVersion, gen.Dependency.Version,
+		observability.KeyGeneration, gen.ID,
+		observability.KeyDurationMS, time.Since(validateStart).Milliseconds(),
+		"passed", report.Passed(),
+	)
 	return gen, report, nil
 }

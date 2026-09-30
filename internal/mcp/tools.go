@@ -8,11 +8,43 @@ import (
 	"time"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
+	"go.opentelemetry.io/otel/attribute"
 
 	"aleutian-ai/ragctl/internal/domain"
+	"aleutian-ai/ragctl/internal/observability"
+	"aleutian-ai/ragctl/internal/observability/trace"
 	"aleutian-ai/ragctl/internal/query"
 	"aleutian-ai/ragctl/internal/symbolgraph"
 )
+
+// withToolLogging wraps any MCP tool handler with a single structured
+// completion log (OBS-001) and an OBS-002 trace span, both tagged with
+// the OpenTelemetry GenAI convention's own tool-call attribute
+// (gen_ai.tool.name) rather than a ragctl-invented key — this is exactly
+// the "tool span" that convention describes, so the span attribute and
+// the log field never need to diverge. Applied uniformly in registerTools
+// so no tool can be added later without it.
+func withToolLogging[In, Out any](name string, handler sdkmcp.ToolHandlerFor[In, Out]) sdkmcp.ToolHandlerFor[In, Out] {
+	return func(ctx context.Context, req *sdkmcp.CallToolRequest, in In) (*sdkmcp.CallToolResult, Out, error) {
+		ctx, end := trace.StartSpan(ctx, "mcp.tool_call", attribute.String(observability.KeyGenAIToolName, name))
+		defer end()
+
+		start := time.Now()
+		result, out, err := handler(ctx, req, in)
+		logger := observability.FromContext(ctx)
+		fields := []any{
+			observability.KeyGenAIToolName, name,
+			observability.KeyDurationMS, time.Since(start).Milliseconds(),
+		}
+		if err != nil {
+			trace.RecordError(ctx, err)
+			logger.Error("mcp tool call failed", append(fields, "error", err)...)
+		} else {
+			logger.Info("mcp tool call completed", fields...)
+		}
+		return result, out, err
+	}
+}
 
 // registerTools wires every MCP-003 tool onto sdk, backed by deps.
 func registerTools(sdk *sdkmcp.Server, deps Deps) {
@@ -21,52 +53,52 @@ func registerTools(sdk *sdkmcp.Server, deps Deps) {
 	sdkmcp.AddTool(sdk, &sdkmcp.Tool{
 		Name:        "search_dependency_docs",
 		Description: "Search version-correct documentation/source for a project's dependency. Returns matched chunks with provenance. If the dependency hasn't been synced yet, this triggers a sync scoped to just that one dependency and retries automatically (when server.mcp.enable_sync_tool is true) — no need to call sync_project first for a single missing dependency.",
-	}, searchDependencyDocsHandler(deps.Query, deps.Sync, deps.EnableSyncTool, deps.Priority))
+	}, withToolLogging("search_dependency_docs", searchDependencyDocsHandler(deps.Query, deps.Sync, deps.EnableSyncTool, deps.Priority)))
 
 	sdkmcp.AddTool(sdk, &sdkmcp.Tool{
 		Name:        "get_dependency_version",
 		Description: "Get the exact resolved version of a package a project currently depends on.",
-	}, getDependencyVersionHandler(deps.Query))
+	}, withToolLogging("get_dependency_version", getDependencyVersionHandler(deps.Query)))
 
 	sdkmcp.AddTool(sdk, &sdkmcp.Tool{
 		Name:        "list_project_dependencies",
 		Description: "List every dependency a registered project resolves to, and whether each has synced knowledge available.",
-	}, listProjectDependenciesHandler(deps.Query))
+	}, withToolLogging("list_project_dependencies", listProjectDependenciesHandler(deps.Query)))
 
 	sdkmcp.AddTool(sdk, &sdkmcp.Tool{
 		Name:        "get_release_changes",
 		Description: "Get release-note excerpts for a dependency at two exact versions (not a full range walk — see tool output notes).",
-	}, getReleaseChangesHandler(deps.Query))
+	}, withToolLogging("get_release_changes", getReleaseChangesHandler(deps.Query)))
 
 	sdkmcp.AddTool(sdk, &sdkmcp.Tool{
 		Name:        "knowledge_status",
 		Description: "Summarize how much of the registered fleet's dependencies have synced knowledge available, and list every registered project with its real project_id. Call this first if you don't already know the current project's project_id — every other tool requires the exact ID (e.g. \"proj_...\"), not a directory name or path.",
-	}, knowledgeStatusHandler(deps.Query))
+	}, withToolLogging("knowledge_status", knowledgeStatusHandler(deps.Query)))
 
 	sdkmcp.AddTool(sdk, &sdkmcp.Tool{
 		Name:        "sync_project",
 		Description: "Trigger a knowledge sync for a project: builds/updates its searchable dependency documentation. Enabled by default (server.mcp.enable_sync_tool: false to disable for a read-only session). A first sync of a project with many dependencies clones and indexes each one, which can take a while — attach a progress token to the call to receive one notification per dependency as it completes. This call itself returns within a bounded time regardless: if the response has still_running: true, the sync did not fail and is continuing on the server — call sync_progress to see how far along it is, or call sync_project again, rather than treating it as an error.",
-	}, syncProjectHandler(deps.Query, deps.Sync, deps.EnableSyncTool))
+	}, withToolLogging("sync_project", syncProjectHandler(deps.Query, deps.Sync, deps.EnableSyncTool)))
 
 	sdkmcp.AddTool(sdk, &sdkmcp.Tool{
 		Name:        "prioritize_file",
 		Description: "Tell ragctl which Go file you are about to work on, so the dependencies it imports are built next — ahead of the rest of the background sync — instead of waiting their turn. Pass the file (absolute, or relative to the project root). It reads the file's imports, matches them to the project's resolved dependencies, and requests exactly those, in one go. Returns within a bounded time: still_building: true means the rest of the file's dependencies are moving to the front and this did not fail — search for them or check sync_progress. A non-Go file, or one importing nothing from the project's dependencies, is a quiet no-op. Needs server.mcp.enable_sync_tool, like sync_project.",
-	}, prioritizeFileHandler(jit))
+	}, withToolLogging("prioritize_file", prioritizeFileHandler(jit)))
 
 	sdkmcp.AddTool(sdk, &sdkmcp.Tool{
 		Name:        "sync_progress",
 		Description: "Check how far along a project's background sync is, without waiting on it: how many dependencies are done of the total, and which are being built right now with how many of their chunks are embedded. Read-only and instant — call it whenever sync_project returned still_running, or before deciding whether to wait. It is a progress report, not a time estimate: dependencies vary from seconds to many minutes. Anything you search for that isn't ready yet is built next, ahead of the rest of the queue.",
-	}, syncProgressHandler(deps.Progress))
+	}, withToolLogging("sync_progress", syncProgressHandler(deps.Progress)))
 
 	sdkmcp.AddTool(sdk, &sdkmcp.Tool{
 		Name:        "scan_project",
 		Description: "Discover and register the project(s) under a directory (default: the MCP server's own working directory, typically the project you're already in) so the other tools have a project_id to work with. Call this first whenever knowledge_status shows no matching project — it's always safe to (re-)run. Registration only; call sync_project afterward to actually build searchable knowledge.",
-	}, scanProjectHandler(deps.Scan))
+	}, withToolLogging("scan_project", scanProjectHandler(deps.Scan)))
 
 	sdkmcp.AddTool(sdk, &sdkmcp.Tool{
 		Name:        "explain_call_site",
 		Description: "Resolve one source call site (file/line/column) to the exact-version dependency evidence relevant to it — what it's calling, and version-correct documentation for that call, without having to already know the dependency's name.",
-	}, explainCallSiteHandler(deps.Symbols, jit))
+	}, withToolLogging("explain_call_site", explainCallSiteHandler(deps.Symbols, jit)))
 }
 
 // progressReporter returns nil (meaning "don't bother") when the call

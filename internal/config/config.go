@@ -9,7 +9,9 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -21,17 +23,87 @@ import (
 var ErrConfigNotFound = errors.New("config file not found")
 
 type Config struct {
-	Version   int             `yaml:"version"`
-	Storage   StorageConfig   `yaml:"storage"`
-	Embedding EmbeddingConfig `yaml:"embedding"`
-	Vector    VectorConfig    `yaml:"vector"`
-	Retention RetentionConfig `yaml:"retention"`
-	Watch     WatchConfig     `yaml:"watch"`
-	Sync      SyncConfig      `yaml:"sync"`
-	Server    ServerConfig    `yaml:"server"`
-	Daemon    DaemonConfig    `yaml:"daemon"`
-	Git       GitConfig       `yaml:"git,omitempty"`
-	Fetch     FetchConfig     `yaml:"fetch,omitempty"`
+	Version       int                 `yaml:"version"`
+	Storage       StorageConfig       `yaml:"storage"`
+	Embedding     EmbeddingConfig     `yaml:"embedding"`
+	Vector        VectorConfig        `yaml:"vector"`
+	Retention     RetentionConfig     `yaml:"retention"`
+	Watch         WatchConfig         `yaml:"watch"`
+	Sync          SyncConfig          `yaml:"sync"`
+	Server        ServerConfig        `yaml:"server"`
+	Daemon        DaemonConfig        `yaml:"daemon"`
+	Git           GitConfig           `yaml:"git,omitempty"`
+	Fetch         FetchConfig         `yaml:"fetch,omitempty"`
+	Log           LogConfig           `yaml:"log,omitempty"`
+	Observability ObservabilityConfig `yaml:"observability,omitempty"`
+}
+
+// ObservabilityConfig groups the opt-in observability integrations (OBS-002
+// tracing, OBS-003 metrics) — deliberately separate from LogConfig, which
+// is always on (OBS-001). A zero value means everything here stays off,
+// matching the project's local-first, no-telemetry-by-default posture.
+type ObservabilityConfig struct {
+	OTel    OTelConfig    `yaml:"otel,omitempty"`
+	Metrics MetricsConfig `yaml:"metrics,omitempty"`
+}
+
+// OTelConfig configures OBS-002's OpenTelemetry tracing. Off by default —
+// Enabled must be explicitly set true, and Endpoint must be non-empty, for
+// any span to ever leave the process; see internal/observability/trace.
+type OTelConfig struct {
+	Enabled  bool   `yaml:"enabled,omitempty"`
+	Endpoint string `yaml:"endpoint,omitempty"`
+}
+
+// MetricsConfig configures OBS-003's Prometheus /metrics endpoint. Off by
+// default; Listen defaults to localhost-only when unset, matching the
+// project's local-first security defaults — see
+// MetricsConfig.ListenOrDefault.
+type MetricsConfig struct {
+	Enabled bool   `yaml:"enabled,omitempty"`
+	Listen  string `yaml:"listen,omitempty"`
+}
+
+// DefaultMetricsListen is used whenever Listen is unset — localhost-only,
+// never 0.0.0.0, so enabling metrics never exposes the endpoint beyond the
+// local machine unless an operator deliberately overrides it.
+const DefaultMetricsListen = "127.0.0.1:9090"
+
+// ListenOrDefault returns m.Listen, or DefaultMetricsListen if unset.
+func (m MetricsConfig) ListenOrDefault() string {
+	if m.Listen == "" {
+		return DefaultMetricsListen
+	}
+	return m.Listen
+}
+
+// LogConfig configures OBS-001's structured logging. A zero value means
+// human-readable text at info level, to stderr — the same default a
+// terminal user gets today; JSON is opt-in for log-aggregation use.
+type LogConfig struct {
+	// JSON switches the log handler from human-readable text to JSON
+	// lines — for piping to a log aggregator, not interactive use.
+	JSON bool `yaml:"json,omitempty"`
+	// Level is one of "debug", "info", "warn", "error" — empty means
+	// "info".
+	Level string `yaml:"level,omitempty"`
+}
+
+// SlogLevel parses Level into a slog.Level, defaulting to
+// slog.LevelInfo for an empty or unrecognized value rather than
+// erroring — a typo'd log level should degrade to a sane default, never
+// prevent the daemon from starting.
+func (l LogConfig) SlogLevel() slog.Level {
+	switch strings.ToLower(l.Level) {
+	case "debug":
+		return slog.LevelDebug
+	case "warn", "warning":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelInfo
+	}
 }
 
 // FetchConfig bounds worst-case resource consumption from untrusted
@@ -60,7 +132,7 @@ type FetchConfig struct {
 // Defaults, applied wherever a zero FetchConfig field is used — see
 // FetchConfig's own doc comment for the "0 means unset" convention.
 const (
-	DefaultMaxFetchFileSize         int64 = 10 * 1024 * 1024  // 10 MiB
+	DefaultMaxFetchFileSize         int64 = 10 * 1024 * 1024 // 10 MiB
 	DefaultMaxFetchRedirects        int   = 5
 	DefaultMaxFetchSourceTotalBytes int64 = 500 * 1024 * 1024 // 500 MiB
 )
@@ -349,6 +421,9 @@ func (c Config) Validate() error {
 	}
 	if c.Sync.MaxTotalConcurrency < 0 {
 		return errors.New("sync.max_total_concurrency: must be non-negative")
+	}
+	if c.Observability.OTel.Enabled && c.Observability.OTel.Endpoint == "" {
+		return errors.New("observability.otel.endpoint: must be set when observability.otel.enabled is true")
 	}
 	return nil
 }

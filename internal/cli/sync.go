@@ -18,6 +18,7 @@ import (
 	"aleutian-ai/ragctl/internal/config"
 	bboltstore "aleutian-ai/ragctl/internal/control/bbolt"
 	"aleutian-ai/ragctl/internal/daemon"
+	"aleutian-ai/ragctl/internal/observability/metrics"
 	"aleutian-ai/ragctl/internal/daemon/api"
 	badgerstore "aleutian-ai/ragctl/internal/data/badger"
 	"aleutian-ai/ragctl/internal/data/generation"
@@ -451,6 +452,21 @@ var dependencySyncTimeout = 10 * time.Minute
 // propagate into cancelling another's unrelated in-flight work, unlike
 // errgroup's default cancel-on-first-error behavior).
 func runSyncAction(ctx context.Context, coordinator *daemon.BuildCoordinator, store *bboltstore.Store, badgerStore *badgerstore.Store, reg *registry.Registry, getPipeline func() (*syncPipeline, error), action planner.Action, offline, force bool, progress *daemon.SyncProgress, writeLine func(string, ...any)) (synced, failed, skipped int) {
+	// OBS-003: recorded once, on every exit path, regardless of which
+	// switch case below actually ran — same reasoning as RunGC's own
+	// defer-based metric/log recording (internal/cli/gc.go).
+	defer func() {
+		state := "success"
+		switch {
+		case failed > 0:
+			state = "failure"
+			metrics.SyncFailuresTotal.Inc()
+		case skipped > 0:
+			state = "skipped"
+		}
+		metrics.SyncJobsTotal.WithLabelValues(string(action.Kind), state).Inc()
+	}()
+
 	name := action.Dependency.Dependency.Name
 	if action.Kind == planner.ActionSyncVersion {
 		progress.Begin(name)

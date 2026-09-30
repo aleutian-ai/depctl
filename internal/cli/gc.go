@@ -14,6 +14,9 @@ import (
 	"aleutian-ai/ragctl/internal/daemon/api"
 	badgerstore "aleutian-ai/ragctl/internal/data/badger"
 	"aleutian-ai/ragctl/internal/lifecycle/gc"
+	"aleutian-ai/ragctl/internal/observability"
+	"aleutian-ai/ragctl/internal/observability/metrics"
+	"aleutian-ai/ragctl/internal/observability/trace"
 	"aleutian-ai/ragctl/internal/retention"
 )
 
@@ -52,13 +55,38 @@ func runGC(cmd *cobra.Command, dryRun, orphans, supersededDuplicates bool) error
 
 // RunGC plans and executes garbage collection, writing its report to
 // out. It runs inside the daemon, against the stores it holds open.
-func RunGC(ctx context.Context, store *bboltstore.Store, badgerStore *badgerstore.Store, cfg config.Config, dryRun bool, out io.Writer, vecReadiness *vectorReadiness) (api.GCResult, error) {
+func RunGC(ctx context.Context, store *bboltstore.Store, badgerStore *badgerstore.Store, cfg config.Config, dryRun bool, out io.Writer, vecReadiness *vectorReadiness) (result api.GCResult, err error) {
+	ctx, spanEnd := trace.StartSpan(ctx, "gc")
+	gcStart := time.Now()
+	// A defer, not a call at each return point, so every exit path —
+	// zero candidates, dry-run, or a real deletion run — logs exactly
+	// once with whatever result/err this call actually produced.
+	defer func() {
+		if err != nil {
+			trace.RecordError(ctx, err)
+		}
+		spanEnd()
+		logger := observability.FromContext(ctx)
+		fields := []any{
+			observability.KeyStage, "gc",
+			observability.KeyBackend, cfg.Vector.Backend,
+			observability.KeyDurationMS, time.Since(gcStart).Milliseconds(),
+			"dry_run", dryRun, "candidates", result.Candidates, "deleted", result.Deleted, "failed", result.Failed,
+		}
+		if err != nil {
+			logger.Error("gc failed", append(fields, "error", err)...)
+		} else {
+			logger.Info("gc completed", fields...)
+		}
+	}()
+
 	candidates, err := retention.PlanGC(ctx, store, cfg.Vector.Backend, cfg.Retention.GracePeriod, time.Now())
 	if err != nil {
 		return api.GCResult{}, fmt.Errorf("plan GC: %w", err)
 	}
 
-	result := api.GCResult{Candidates: len(candidates), DryRun: dryRun}
+	result = api.GCResult{Candidates: len(candidates), DryRun: dryRun}
+	metrics.GCCandidates.Set(float64(len(candidates)))
 	if len(candidates) == 0 {
 		fmt.Fprintln(out, "nothing eligible for garbage collection")
 		return result, nil
