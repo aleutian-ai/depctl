@@ -7,10 +7,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"aleutian-ai/ragctl/internal/control/bbolt"
 	"aleutian-ai/ragctl/internal/domain"
 	"aleutian-ai/ragctl/internal/lifecycle/validate"
+	"aleutian-ai/ragctl/internal/observability"
+	"aleutian-ai/ragctl/internal/observability/trace"
 )
 
 // ErrValidationFailed is returned when any supplied validate.StructuralResult
@@ -35,13 +38,32 @@ var ErrNotReady = errors.New("promote: candidate is not READY")
 // (VEC-003 tracks replica status per backend too), and Promote can't
 // derive a backend name from a domain.Generation alone.
 func Promote(ctx context.Context, store *bbolt.Store, candidate domain.Generation, backendName string, results ...validate.StructuralResult) error {
+	ctx, end := trace.StartSpan(ctx, "promote")
+	defer end()
+	start := time.Now()
 	for _, r := range results {
 		if !r.Passed {
-			return fmt.Errorf("%w: %s: %v", ErrValidationFailed, candidate.ID, r.Failures)
+			err := fmt.Errorf("%w: %s: %v", ErrValidationFailed, candidate.ID, r.Failures)
+			trace.RecordError(ctx, err)
+			return err
 		}
 	}
 	if candidate.State != domain.GenReady {
-		return fmt.Errorf("%w: %s is in state %s", ErrNotReady, candidate.ID, candidate.State)
+		err := fmt.Errorf("%w: %s is in state %s", ErrNotReady, candidate.ID, candidate.State)
+		trace.RecordError(ctx, err)
+		return err
 	}
-	return store.PromoteGeneration(ctx, candidate, backendName)
+	if err := store.PromoteGeneration(ctx, candidate, backendName); err != nil {
+		trace.RecordError(ctx, err)
+		return err
+	}
+	observability.FromContext(ctx).Info("promote completed",
+		observability.KeyStage, "promote",
+		observability.KeyDependency, candidate.Dependency.Dependency.Name,
+		observability.KeyVersion, candidate.Dependency.Version,
+		observability.KeyGeneration, candidate.ID,
+		observability.KeyBackend, backendName,
+		observability.KeyDurationMS, time.Since(start).Milliseconds(),
+	)
+	return nil
 }

@@ -16,11 +16,16 @@ import (
 	bboltstore "aleutian-ai/ragctl/internal/control/bbolt"
 	"aleutian-ai/ragctl/internal/daemon/api"
 	"aleutian-ai/ragctl/internal/domain"
+	"aleutian-ai/ragctl/internal/observability/metrics"
 )
 
 // backendHealthTimeout bounds the live backend probe, so an unreachable
 // host can't stall `status` or `doctor`.
 const backendHealthTimeout = 3 * time.Second
+
+// storageMetricsRefreshInterval is how often refreshStorageMetrics
+// recomputes OBS-003's ActiveGenerations/BadgerBytes gauges.
+const storageMetricsRefreshInterval = 30 * time.Second
 
 // Status, JobStats, and BackendStatus are the daemon API's status
 // types; `ragctl status` renders them as text or JSON.
@@ -85,6 +90,7 @@ func buildStatus(ctx context.Context, store *bboltstore.Store, backendName, cont
 		return Status{}, fmt.Errorf("list active generations: %w", err)
 	}
 	st.ActiveGenerations = len(pointers)
+	metrics.ActiveGenerations.Set(float64(st.ActiveGenerations))
 
 	st.LastSync, err = lastPromotion(ctx, store, pointers)
 	if err != nil {
@@ -103,7 +109,43 @@ func buildStatus(ctx context.Context, store *bboltstore.Store, backendName, cont
 	if st.StorageBadgerBytes, err = diskUsage(badgerPath); err != nil {
 		return Status{}, err
 	}
+	metrics.BadgerBytes.Set(float64(st.StorageBadgerBytes))
 	return st, nil
+}
+
+// refreshStorageMetrics periodically sets OBS-003's ActiveGenerations and
+// BadgerBytes gauges (called as its own goroutine from runDaemonRun, only
+// when metrics are enabled) — without this, those two gauges would only
+// ever reflect whatever `ragctl status` last happened to compute, so a
+// real Prometheus scrape between status calls would read stale or
+// zero-value data. Every other metric in this package is updated
+// event-driven, at the same call site that already computes the value
+// for OBS-001/002; these two have no such natural per-request call site
+// (nothing on ragctl's own request path needs "how many active
+// generations exist right now"), so a small periodic refresh is the
+// simplest fix — matching the existing checkEmbeddingReadiness/
+// checkVectorReadiness background-goroutine pattern already established
+// in this package.
+func refreshStorageMetrics(ctx context.Context, store *bboltstore.Store, backendName, badgerPath string, interval time.Duration) {
+	tick := func() {
+		if pointers, err := store.ListActivePointers(ctx, backendName); err == nil {
+			metrics.ActiveGenerations.Set(float64(len(pointers)))
+		}
+		if bytes, err := diskUsage(badgerPath); err == nil {
+			metrics.BadgerBytes.Set(float64(bytes))
+		}
+	}
+	tick()
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			tick()
+		}
+	}
 }
 
 // lastPromotion returns the newest UpdatedAt among active generations, or

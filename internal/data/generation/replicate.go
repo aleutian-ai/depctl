@@ -10,6 +10,9 @@ import (
 	"aleutian-ai/ragctl/internal/data/badger"
 	"aleutian-ai/ragctl/internal/domain"
 	"aleutian-ai/ragctl/internal/embedding"
+	"aleutian-ai/ragctl/internal/observability"
+	"aleutian-ai/ragctl/internal/observability/metrics"
+	"aleutian-ai/ragctl/internal/observability/trace"
 	"aleutian-ai/ragctl/internal/registry"
 )
 
@@ -47,6 +50,18 @@ const defaultReplicateBatchSize = 64
 // sources (e.g. removed from config since acquisition) falls back to
 // the object's own stored fields rather than losing that metadata.
 func Replicate(ctx context.Context, gen domain.Generation, sources []registry.Source, embedder embedding.Embedder, vb backend.VectorBackend, ns backend.Namespace, store *bbolt.Store, badgerStore *badger.Store) error {
+	ctx, replicateSpanEnd := trace.StartSpan(ctx, "replicate")
+	defer replicateSpanEnd()
+	replicateStart := time.Now()
+	logger := observability.FromContext(ctx).With(
+		observability.KeyDependency, gen.Dependency.Dependency.Name,
+		observability.KeyVersion, gen.Dependency.Version,
+		observability.KeyGeneration, gen.ID,
+		observability.KeyBackend, vb.Name(),
+	)
+	var embedDuration time.Duration
+	var embeddedChunks int
+
 	sourcesByID := make(map[string]registry.Source, len(sources))
 	for _, s := range sources {
 		sourcesByID[s.ID] = s
@@ -78,12 +93,24 @@ func Replicate(ctx context.Context, gen domain.Generation, sources []registry.So
 		end := min(start+defaultReplicateBatchSize, len(chunks))
 		batch := chunks[start:end]
 
-		points, err := embedBatch(ctx, embedder, badgerStore, objectCache, gen, sourcesByID, batch)
+		embedCtx, embedEnd := trace.StartSpan(ctx, "embed")
+		embedStart := time.Now()
+		points, err := embedBatch(embedCtx, embedder, badgerStore, objectCache, gen, sourcesByID, batch)
+		metrics.EmbedSeconds.Observe(time.Since(embedStart).Seconds())
+		embedDuration += time.Since(embedStart)
+		embeddedChunks += len(batch)
 		if err != nil {
+			trace.RecordError(embedCtx, err)
+			embedEnd()
+			logger.Error("embed failed", observability.KeyStage, "embed", observability.KeyGenAIOperationName, "embeddings", observability.KeyEmbeddingModelName, embedder.ModelID(), "error", err)
 			return failReplica(ctx, store, &replica, &gen, err)
 		}
+		embedEnd()
 
-		if err := vb.Upsert(ctx, backend.UpsertRequest{Namespace: ns.Name, Points: points}); err != nil {
+		upsertStart := time.Now()
+		err = vb.Upsert(ctx, backend.UpsertRequest{Namespace: ns.Name, Points: points})
+		metrics.BackendUpsertSeconds.Observe(time.Since(upsertStart).Seconds())
+		if err != nil {
 			return failReplica(ctx, store, &replica, &gen, fmt.Errorf("%w: upsert batch: %v", ErrReplication, err))
 		}
 
@@ -100,6 +127,19 @@ func Replicate(ctx context.Context, gen domain.Generation, sources []registry.So
 	if err := store.PutBackendReplica(ctx, replica); err != nil {
 		return fmt.Errorf("%w: persist final replica state: %v", ErrReplication, err)
 	}
+
+	logger.Info("embed completed",
+		observability.KeyStage, "embed",
+		observability.KeyGenAIOperationName, "embeddings",
+		observability.KeyEmbeddingModelName, embedder.ModelID(),
+		observability.KeyDurationMS, embedDuration.Milliseconds(),
+		"chunks", embeddedChunks,
+	)
+	logger.Info("replicate completed",
+		observability.KeyStage, "replicate",
+		observability.KeyDurationMS, time.Since(replicateStart).Milliseconds(),
+		"points", replica.PointCount,
+	)
 	return nil
 }
 

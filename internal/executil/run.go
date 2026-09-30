@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"time"
 )
@@ -45,6 +46,26 @@ func Run(ctx context.Context, opts RunOptions) (RunResult, error) {
 
 	cmd := exec.CommandContext(ctx, opts.Args[0], opts.Args[1:]...)
 	cmd.Dir = opts.Dir
+	if cmd.Dir == "" {
+		// An empty Dir makes exec.Cmd inherit the calling process's own
+		// cwd — fine for a short-lived CLI command, but the daemon is a
+		// long-lived background process whose ambient cwd can silently
+		// become invalid (the directory it happened to be launched
+		// from, or a project directory, removed or moved while it kept
+		// running). A subprocess started with an already-deleted cwd
+		// fails immediately, identically, for every command, for a
+		// reason that has nothing to do with the command itself — found
+		// live: every `git clone --mirror` call in a real daemon failed
+		// with "fatal: Unable to read current working directory" once
+		// its own working directory was removed out from under it,
+		// long after startup, misleadingly looking like a per-dependency
+		// git/network failure. Defaulting to os.TempDir() — always
+		// present, valid for the whole process lifetime — means a
+		// caller only needs to set Dir when the command's own semantics
+		// actually require a specific directory (most call sites in
+		// this codebase already do).
+		cmd.Dir = os.TempDir()
+	}
 	if len(opts.Env) > 0 {
 		cmd.Env = append(cmd.Environ(), opts.Env...)
 	}

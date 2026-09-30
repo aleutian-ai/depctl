@@ -81,7 +81,7 @@ func TestRunSyncNoopActionsDoNotCountAsProgress(t *testing.T) {
 
 	progress := &daemon.SyncProgress{}
 	coordinator := daemon.NewBuildCoordinator()
-	synced, failed, skipped, err := RunSync(context.Background(), coordinator, store, badgerStore, cfg, projectID, nil, false, false, false, io.Discard, nil, nil, nil, progress, nil)
+	synced, failed, skipped, err := RunSync(context.Background(), coordinator, store, badgerStore, cfg, projectID, nil, false, false, false, io.Discard, nil, nil, nil, progress, nil, nil)
 	if err != nil {
 		t.Fatalf("RunSync: %v", err)
 	}

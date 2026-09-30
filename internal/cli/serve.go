@@ -11,6 +11,7 @@ import (
 
 	"aleutian-ai/ragctl/internal/daemon/client"
 	"aleutian-ai/ragctl/internal/mcp"
+	"aleutian-ai/ragctl/internal/observability"
 	"aleutian-ai/ragctl/internal/symbolgraph"
 	"aleutian-ai/ragctl/internal/symbolgraph/gopackages"
 )
@@ -39,8 +40,6 @@ func newServeCmd() *cobra.Command {
 // config.yaml was edited after it started, this process's own fresh
 // read of it is not.
 func runServe(cmd *cobra.Command) error {
-	ctx := cmd.Context()
-
 	cfg, err := loadRagctlConfig()
 	if err != nil {
 		return err
@@ -48,6 +47,16 @@ func runServe(cmd *cobra.Command) error {
 	if !cfg.Server.MCP.Enabled {
 		return fmt.Errorf("MCP server disabled (server.mcp.enabled: false in config)")
 	}
+
+	// OBS-001: the MCP tool-call log (withToolLogging, internal/mcp)
+	// happens in *this* process, not the daemon's — a coding agent's
+	// tool calls are served here, over stdio, with the daemon doing the
+	// underlying store work over RPC. Without this, those log lines fell
+	// back to slog.Default() instead of this server's own configured
+	// logger, the same gap OBS-001 found and fixed daemon-side
+	// (internal/daemon/server.go's loggingMiddleware).
+	logger := observability.NewLogger(cmd.ErrOrStderr(), cfg.Log.JSON, cfg.Log.SlogLevel())
+	ctx := observability.WithLogger(cmd.Context(), logger)
 
 	c, err := ensureDaemon(ctx)
 	if err != nil {
@@ -70,22 +79,49 @@ func runServe(cmd *cobra.Command) error {
 		Progress:       &daemonProgressReader{c: c},
 		Symbols:        callSiteResolver(c),
 	}
-	startupScan(ctx, cmd.ErrOrStderr(), deps.Scan, deps.Query)
+	return serveMCP(ctx, deps, cmd.ErrOrStderr(), &sdkmcp.StdioTransport{})
+}
+
+// serveMCP starts startupScan and the MCP loop and returns once the loop
+// ends — split out from runServe so a test can exercise the ordering
+// between them (MCP-009) against an in-memory transport, without a real
+// daemon or real stdio.
+//
+// startupScan runs in the background, not awaited: a cold-cache
+// first-time resolution of a real project (`go list -m -json all`
+// hitting the network for uncached modules, the ecosystem equivalent
+// for Node/Python) has no bound, and used to run before the MCP loop
+// even started, so a slow scan silently blocked the whole handshake
+// with no way for the connecting client to tell the server was even
+// alive — confirmed live against a real, never-before-scanned
+// dependency-heavy Go project. The MCP loop starting immediately,
+// unconditionally, is the actual fix; a fresh/cold project simply shows
+// an empty fleet to any tool call that lands before this finishes,
+// exactly like calling scan_project manually would, rather than
+// blocking the connection.
+func serveMCP(ctx context.Context, deps mcp.Deps, stderr io.Writer, transport sdkmcp.Transport) error {
+	go startupScan(ctx, stderr, deps.Scan, deps.Query)
 
 	server := mcp.New(deps)
 
-	fmt.Fprintln(cmd.ErrOrStderr(), "ragctl MCP server starting (stdio transport)")
-	return server.Run(ctx, &sdkmcp.StdioTransport{})
+	fmt.Fprintln(stderr, "ragctl MCP server starting (stdio transport)")
+	return server.Run(ctx, transport)
 }
 
-// startupScan registers the server's own working directory (MCP-006)
-// before the MCP loop starts, so an agent's first tool call already
-// sees real dependency status instead of an empty fleet — the same
-// scan_project path, just moved earlier; always safe to re-run. This is
+// startupScan registers the server's own working directory (MCP-006),
+// run in the background alongside the MCP loop (MCP-009) rather than
+// awaited before it starts, so an agent's first tool call sees real
+// dependency status as soon as this finishes instead of an empty fleet
+// for the server's whole lifetime — the same scan_project path, just
+// triggered automatically; always safe to re-run. This is
 // registration + status only (manifest parsing and version resolution),
-// never a sync: no dependency is cloned or embedded here, so the cost
-// stays bounded even for a session that never asks about dependencies.
-// A failure here is logged, not fatal — the agent can always fall back
+// never a sync: no dependency is cloned or embedded here, so a session
+// that never asks about dependencies never pays an embed/clone cost.
+// Resolution itself is NOT wall-clock bounded, though — a cold-cache
+// `go list -m -json all` (or the Node/Python equivalent) can hit the
+// real network, which is exactly why this must never again be awaited
+// before the MCP loop starts (MCP-009's finding). A failure here is
+// logged, not fatal — the agent can always fall back
 // to calling scan_project itself, mirroring callSiteResolver's own
 // non-fatal posture above for a similar os.Getwd()-dependent step.
 func startupScan(ctx context.Context, stderr io.Writer, scan mcp.ScanTrigger, q mcp.QueryService) {

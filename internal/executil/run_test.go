@@ -3,6 +3,7 @@ package executil
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -88,6 +89,71 @@ func TestRunRespectsDir(t *testing.T) {
 	}
 	if got != dir && got != want {
 		t.Errorf("pwd = %q, want %q", got, dir)
+	}
+}
+
+// TestRunDefaultsDirWhenUnset covers the real bug this default exists
+// for: an unset Dir must never silently make the subprocess inherit
+// whatever the calling process's own cwd happens to be — it defaults to
+// os.TempDir() instead, which is always valid for the process's whole
+// lifetime.
+func TestRunDefaultsDirWhenUnset(t *testing.T) {
+	result, err := Run(context.Background(), RunOptions{Args: []string{"pwd"}})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	got := strings.TrimSpace(string(result.Stdout))
+	want := os.TempDir()
+	if resolved, err := filepath.EvalSymlinks(want); err == nil {
+		want = resolved
+	}
+	gotResolved := got
+	if resolved, err := filepath.EvalSymlinks(got); err == nil {
+		gotResolved = resolved
+	}
+	if gotResolved != want {
+		t.Errorf("pwd = %q, want os.TempDir() (%q)", got, want)
+	}
+}
+
+// TestRunSurvivesADeletedCallerCWD is the exact real-world reproduction:
+// a long-lived process (like the daemon) whose own working directory
+// gets removed out from under it must still be able to spawn
+// subprocesses — without this fix, every one of them failed identically
+// (observed live: every `git clone --mirror` call in a real user's
+// daemon, after their daemon's own launch directory was deleted, with
+// git reporting "fatal: Unable to read current working directory").
+func TestRunSurvivesADeletedCallerCWD(t *testing.T) {
+	prev, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd: %v", err)
+	}
+	dir, err := os.MkdirTemp("", "executil-deleted-cwd-")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir(%s): %v", dir, err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(prev); err != nil {
+			t.Errorf("restore cwd to %s: %v", prev, err)
+		}
+	})
+
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatalf("remove %s out from under the process: %v", dir, err)
+	}
+
+	// pwd (unlike e.g. echo) actually calls getcwd() — the same class of
+	// call real git subcommands make internally, which is what failed
+	// live ("fatal: Unable to read current working directory").
+	result, err := Run(context.Background(), RunOptions{Args: []string{"pwd"}})
+	if err != nil {
+		t.Fatalf("Run with a deleted caller cwd and no explicit Dir: %v (this is exactly the real bug)", err)
+	}
+	if result.ExitCode != 0 {
+		t.Errorf("pwd exit code = %d, stderr = %q; want 0 (the deleted caller cwd should never have been inherited)", result.ExitCode, result.Stderr)
 	}
 }
 

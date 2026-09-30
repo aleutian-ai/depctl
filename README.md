@@ -89,6 +89,8 @@ hack/test-linux.sh                                       # Linux, via Podman + A
 ## Docs
 
 - [docs/offline-quickstart.md](docs/offline-quickstart.md) — index your own docs repo and query it offline via a local model over MCP.
+- [docs/observability-guide.md](docs/observability-guide.md) — structured logs, OpenTelemetry tracing, and Prometheus metrics: what's on by default, what's opt-in, and how to try each against a real Jaeger/Prometheus.
+- [docs/security-hardening.md](docs/security-hardening.md) — the five security invariants ragctl enforces in code (trust labeling, prompt-injection labeling, fetch limits, no downloaded-code execution, no telemetry), each with a concrete example.
 - [docs/architecture.md](docs/architecture.md) — current implemented architecture, updated as tickets land.
 - [docs/adr/](docs/adr/) — architecture decision records.
 - [docs/tickets/](docs/tickets/README.md) — the full build plan, split into `planned/` (v0.1 critical path) and `backlog/` (deferred epics).

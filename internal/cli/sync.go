@@ -23,8 +23,10 @@ import (
 	"aleutian-ai/ragctl/internal/data/generation"
 	"aleutian-ai/ragctl/internal/domain"
 	"aleutian-ai/ragctl/internal/embedding"
+	"aleutian-ai/ragctl/internal/httplimit"
 	"aleutian-ai/ragctl/internal/lifecycle/promote"
 	"aleutian-ai/ragctl/internal/lifecycle/validate"
+	"aleutian-ai/ragctl/internal/observability/metrics"
 	"aleutian-ai/ragctl/internal/planner"
 	"aleutian-ai/ragctl/internal/registry"
 	"aleutian-ai/ragctl/internal/retention"
@@ -185,7 +187,17 @@ func clearForRebuild(ctx context.Context, store *bboltstore.Store, backendName, 
 	return nil
 }
 
-func RunSync(ctx context.Context, coordinator *daemon.BuildCoordinator, store *bboltstore.Store, badgerStore *badgerstore.Store, cfg config.Config, projectID string, dependencies []string, offline, force, rebuild bool, out io.Writer, readiness *embeddingReadiness, vecReadiness *vectorReadiness, priority *daemon.SyncPriority, progress *daemon.SyncProgress, daemonSem chan struct{}) (synced, failed, skipped int, err error) {
+func RunSync(ctx context.Context, coordinator *daemon.BuildCoordinator, store *bboltstore.Store, badgerStore *badgerstore.Store, cfg config.Config, projectID string, dependencies []string, offline, force, rebuild bool, out io.Writer, readiness *embeddingReadiness, vecReadiness *vectorReadiness, priority *daemon.SyncPriority, progress *daemon.SyncProgress, daemonSem chan struct{}, gitCache *git.Cache) (synced, failed, skipped int, err error) {
+	// SEC-003: applied once per call, ahead of any fallback-manifest
+	// fetch this run might trigger. A plain package var, not threaded as
+	// a parameter through the several fallback-manifest call layers
+	// below (registry matching -> npm/pypi/vanity-import resolution) —
+	// deliberately, matching this codebase's existing convention for
+	// rarely-changing, process-wide tunables (e.g. vanityImportTimeout).
+	// Benign under epic 53's concurrent syncs: every concurrent RunSync
+	// call in a real daemon loads the same on-disk config, so a race
+	// here can only ever race a value against an identical one.
+	syncFetchLimits = cfg.Fetch
 	if rebuild && len(dependencies) > 0 {
 		if err := clearForRebuild(ctx, store, cfg.Vector.Backend, projectID, dependencies); err != nil {
 			return 0, 0, 0, fmt.Errorf("rebuild: %w", err)
@@ -228,10 +240,6 @@ func RunSync(ctx context.Context, coordinator *daemon.BuildCoordinator, store *b
 			return nil, err
 		}
 		vb, err := buildVectorBackend(cfg)
-		if err != nil {
-			return nil, err
-		}
-		gitCache, err := buildGitCache(cfg)
 		if err != nil {
 			return nil, err
 		}
@@ -444,6 +452,21 @@ var dependencySyncTimeout = 10 * time.Minute
 // propagate into cancelling another's unrelated in-flight work, unlike
 // errgroup's default cancel-on-first-error behavior).
 func runSyncAction(ctx context.Context, coordinator *daemon.BuildCoordinator, store *bboltstore.Store, badgerStore *badgerstore.Store, reg *registry.Registry, getPipeline func() (*syncPipeline, error), action planner.Action, offline, force bool, progress *daemon.SyncProgress, writeLine func(string, ...any)) (synced, failed, skipped int) {
+	// OBS-003: recorded once, on every exit path, regardless of which
+	// switch case below actually ran — same reasoning as RunGC's own
+	// defer-based metric/log recording (internal/cli/gc.go).
+	defer func() {
+		state := "success"
+		switch {
+		case failed > 0:
+			state = "failure"
+			metrics.SyncFailuresTotal.Inc()
+		case skipped > 0:
+			state = "skipped"
+		}
+		metrics.SyncJobsTotal.WithLabelValues(string(action.Kind), state).Inc()
+	}()
+
 	name := action.Dependency.Dependency.Name
 	if action.Kind == planner.ActionSyncVersion {
 		progress.Begin(name)
@@ -650,10 +673,28 @@ func npmTagCandidates(name, subdir string) []string {
 	return []string{"v${version}", "${version}", name + "@${version}", name + "-v${version}"}
 }
 
+// syncFetchLimits holds this run's SEC-003 fetch limits, applied once at
+// RunSync's entry — see its own assignment there for why this is a plain
+// package var rather than a threaded parameter.
+var syncFetchLimits config.FetchConfig
+
+// fetchLimitRedirectPolicy is shared by all three registry/vanity-import
+// HTTP clients below — it reads syncFetchLimits at redirect time (not at
+// client-construction time, which happens at package init, before
+// RunSync has set it), so it's always current for whichever sync run is
+// actually in flight.
+func fetchLimitRedirectPolicy(req *http.Request, via []*http.Request) error {
+	max := syncFetchLimits.MaxRedirectsOrDefault()
+	if len(via) > max {
+		return fmt.Errorf("%w: more than %d redirects", httplimit.ErrFetchLimitExceeded, max)
+	}
+	return nil
+}
+
 // npmRegistryHTTPClient issues npmRepository's lookup — a var so tests can
 // redirect it to a local httptest.Server, matching
 // vanityImportHTTPClient's own convention.
-var npmRegistryHTTPClient = http.DefaultClient
+var npmRegistryHTTPClient = &http.Client{CheckRedirect: fetchLimitRedirectPolicy}
 
 // npmRepositoryField is the subset of the npm registry's package document
 // this needs. repository can be a plain string ("github:org/repo",
@@ -734,8 +775,12 @@ func npmRepository(ctx context.Context, name string) (url, subdir string, ok boo
 	if resp.StatusCode != http.StatusOK {
 		return "", "", false
 	}
+	data, err := httplimit.ReadLimited(resp.Body, syncFetchLimits.MaxFileSizeOrDefault())
+	if err != nil {
+		return "", "", false
+	}
 	var doc npmRegistryDoc
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&doc); err != nil || len(doc.Repository) == 0 {
+	if err := json.Unmarshal(data, &doc); err != nil || len(doc.Repository) == 0 {
 		return "", "", false
 	}
 
@@ -780,7 +825,7 @@ func pypiFallbackManifest(ctx context.Context, dep domain.Dependency) (registry.
 // pypiRegistryHTTPClient issues pypiRepository's lookup — a var so tests
 // can redirect it to a local httptest.Server, matching
 // npmRegistryHTTPClient's own convention.
-var pypiRegistryHTTPClient = http.DefaultClient
+var pypiRegistryHTTPClient = &http.Client{CheckRedirect: fetchLimitRedirectPolicy}
 
 // pypiRegistryDoc is the subset of PyPI's JSON API response this needs.
 type pypiRegistryDoc struct {
@@ -843,8 +888,12 @@ func pypiRepository(ctx context.Context, name string) (url string, ok bool) {
 	if resp.StatusCode != http.StatusOK {
 		return "", false
 	}
+	data, err := httplimit.ReadLimited(resp.Body, syncFetchLimits.MaxFileSizeOrDefault())
+	if err != nil {
+		return "", false
+	}
 	var doc pypiRegistryDoc
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&doc); err != nil {
+	if err := json.Unmarshal(data, &doc); err != nil {
 		return "", false
 	}
 
@@ -910,7 +959,7 @@ var goImportMetaTag = regexp.MustCompile(`<meta\s+name=["']go-import["']\s+conte
 // vanityImportHTTPClient issues resolveVanityImport's lookup — a var so
 // tests can redirect it to a local httptest.Server instead of making a
 // real network call against an actual vanity-import host.
-var vanityImportHTTPClient = http.DefaultClient
+var vanityImportHTTPClient = &http.Client{CheckRedirect: fetchLimitRedirectPolicy}
 
 // resolveVanityImport performs the same lookup `go get` uses for a
 // module path with no known VCS host: GET .../<path>?go-get=1 and parse
@@ -932,7 +981,7 @@ func resolveVanityImport(ctx context.Context, modulePath string) (root, repoURL 
 	if resp.StatusCode != http.StatusOK {
 		return "", "", false
 	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	body, err := httplimit.ReadLimited(resp.Body, syncFetchLimits.MaxFileSizeOrDefault())
 	if err != nil {
 		return "", "", false
 	}

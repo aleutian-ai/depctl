@@ -768,8 +768,8 @@ func TestNpmGitURLNormalizesEveryShape(t *testing.T) {
 func TestNpmGitURLStripsAGitHubBrowseURLDownToTheCloneURL(t *testing.T) {
 	cases := map[string]string{
 		"https://github.com/babel/babel/tree/master/packages/babel-plugin-syntax-object-rest-spread": "https://github.com/babel/babel",
-		"https://github.com/nodelib/nodelib/tree/master/packages/fs/fs.scandir":                       "https://github.com/nodelib/nodelib",
-		"git+https://github.com/babel/babel.git/tree/master/packages/babel-core":                      "https://github.com/babel/babel",
+		"https://github.com/nodelib/nodelib/tree/master/packages/fs/fs.scandir":                      "https://github.com/nodelib/nodelib",
+		"git+https://github.com/babel/babel.git/tree/master/packages/babel-core":                     "https://github.com/babel/babel",
 	}
 	for raw, want := range cases {
 		got, ok := npmGitURL(raw)
@@ -994,7 +994,7 @@ func TestRunSyncDaemonSemBoundsConcurrencyAcrossSeparateCalls(t *testing.T) {
 
 	run := func(projectID string, sem chan struct{}) {
 		coordinator := daemon.NewBuildCoordinator()
-		RunSync(ctx, coordinator, store, badgerStore, cfg, projectID, nil, true /* offline */, false, false, io.Discard, nil, nil, nil, nil, sem)
+		RunSync(ctx, coordinator, store, badgerStore, cfg, projectID, nil, true /* offline */, false, false, io.Discard, nil, nil, nil, nil, sem, nil)
 	}
 
 	checkBound := func(t *testing.T, sem chan struct{}, semSize int, wantOverlap bool) {

@@ -49,7 +49,7 @@ func TestRunSyncExhaustedBudgetStopsCleanlyInsteadOfCascading(t *testing.T) {
 
 	var out strings.Builder
 	coordinator := daemon.NewBuildCoordinator()
-	synced, failed, skipped, err := RunSync(ctx, coordinator, store, badgerStore, cfg, "", nil, false, false, false, &out, nil, nil, nil, nil, nil)
+	synced, failed, skipped, err := RunSync(ctx, coordinator, store, badgerStore, cfg, "", nil, false, false, false, &out, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("RunSync: %v", err)
 	}

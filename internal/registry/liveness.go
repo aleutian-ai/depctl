@@ -6,7 +6,9 @@ import (
 	"net/http"
 	"time"
 
+	"aleutian-ai/ragctl/internal/config"
 	"aleutian-ai/ragctl/internal/executil"
+	"aleutian-ai/ragctl/internal/httplimit"
 )
 
 // livenessTimeout bounds a single liveness check — this is a quick
@@ -65,7 +67,15 @@ func checkWebsiteLiveness(ctx context.Context, url string) error {
 	if err != nil {
 		return err
 	}
-	client := &http.Client{Timeout: livenessTimeout}
+	client := &http.Client{
+		Timeout: livenessTimeout,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) > config.DefaultMaxFetchRedirects {
+				return fmt.Errorf("%w: more than %d redirects", httplimit.ErrFetchLimitExceeded, config.DefaultMaxFetchRedirects)
+			}
+			return nil
+		},
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("HEAD %s: %w", url, err)

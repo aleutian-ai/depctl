@@ -9,9 +9,12 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"go.opentelemetry.io/otel/attribute"
 
 	bboltstore "aleutian-ai/ragctl/internal/control/bbolt"
 	"aleutian-ai/ragctl/internal/domain"
+	"aleutian-ai/ragctl/internal/observability"
+	"aleutian-ai/ragctl/internal/observability/trace"
 	"aleutian-ai/ragctl/internal/project"
 	"aleutian-ai/ragctl/internal/resolver"
 	"aleutian-ai/ragctl/internal/resolver/golang"
@@ -26,6 +29,29 @@ var supportedEcosystems = map[domain.Ecosystem]bool{
 	domain.EcosystemGo:     true,
 	domain.EcosystemPython: true,
 	domain.EcosystemNode:   true,
+}
+
+// ErrUnregisteredProjectRoot is returned when something attempts to run
+// a resolver command (`go list`, `cargo metadata`, `npm ls`, ...) against
+// a directory that isn't a project ragctl has actually registered
+// (SEC-004). In normal operation this is unreachable — scanAndResolve
+// and resolveProject both already only ever call a Resolver with a root
+// that was just persisted via PutProject, or read back from an existing
+// domain.Project — this check makes that invariant explicit and enforced
+// rather than merely true by the current call order, so a future
+// refactor that reorders or bypasses registration fails loudly instead
+// of quietly shelling out to a resolver command against an arbitrary,
+// possibly attacker-influenced path (e.g. a fetched dependency's own
+// worktree, which must never be treated as a project root).
+var ErrUnregisteredProjectRoot = errors.New("refusing to run a resolver command: project root is not registered")
+
+// requireRegisteredProjectRoot confirms id is a real, persisted project
+// before a resolver is allowed to run against its root.
+func requireRegisteredProjectRoot(ctx context.Context, store *bboltstore.Store, id string) error {
+	if _, err := store.GetProject(ctx, id); err != nil {
+		return fmt.Errorf("%w: %s: %v", ErrUnregisteredProjectRoot, id, err)
+	}
+	return nil
 }
 
 // resolvers maps ecosystem to the resolver.Resolver that resolves it. Only
@@ -122,15 +148,31 @@ func scanAndResolve(ctx context.Context, store *bboltstore.Store, root string, o
 				fmt.Fprintf(out, "existing     %-8s %s\n", dp.Ecosystem, dp.Root)
 			}
 
-			res, err := resolvers[dp.Ecosystem].Resolve(ctx, dp.Root)
+			if err := requireRegisteredProjectRoot(ctx, store, id); err != nil {
+				fmt.Fprintf(out, "resolve error %-8s %s: %v\n", dp.Ecosystem, dp.Root, err)
+				return
+			}
+			spanCtx, end := trace.StartSpan(ctx, "resolve", attribute.String(observability.KeyProjectID, id))
+			defer end()
+			resolveStart := time.Now()
+			res, err := resolvers[dp.Ecosystem].Resolve(spanCtx, dp.Root)
 			if err != nil {
+				trace.RecordError(spanCtx, err)
+				observability.FromContext(ctx).Error("resolve failed", observability.KeyStage, "resolve", observability.KeyProjectID, id, observability.KeyDurationMS, time.Since(resolveStart).Milliseconds(), "error", err)
 				fmt.Fprintf(out, "resolve error %-8s %s: %v\n", dp.Ecosystem, dp.Root, err)
 				return
 			}
-			if err := store.PutResolution(ctx, id, res); err != nil {
+			if err := store.PutResolution(spanCtx, id, res); err != nil {
+				trace.RecordError(spanCtx, err)
 				fmt.Fprintf(out, "resolve error %-8s %s: %v\n", dp.Ecosystem, dp.Root, err)
 				return
 			}
+			observability.FromContext(ctx).Info("resolve completed",
+				observability.KeyStage, "resolve",
+				observability.KeyProjectID, id,
+				observability.KeyDurationMS, time.Since(resolveStart).Milliseconds(),
+				"dependencies", len(res.Dependencies),
+			)
 			fmt.Fprintf(out, "resolved     %-8s %s: %d dependencies\n", dp.Ecosystem, dp.Root, len(res.Dependencies))
 		}()
 	}

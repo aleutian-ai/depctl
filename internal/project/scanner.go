@@ -104,10 +104,30 @@ func Scan(ctx context.Context, root string) ([]DetectedProject, error) {
 	return results, nil
 }
 
+// canonicalize resolves path to the same string regardless of how it was
+// spelled, so the project ID it feeds into stays stable across every
+// call path (PROJ-002). filepath.Abs alone isn't enough: it's a no-op
+// Clean for an already-absolute path (preserving a symlink component
+// verbatim, e.g. macOS's /tmp -> /private/tmp), but resolves a relative
+// path via os.Getwd(), which falls back to the kernel's getcwd() (always
+// fully symlink-resolved) whenever $PWD is unset or stale — exactly the
+// case for a daemon/MCP-spawned subprocess. `ragctl scan /tmp/foo`
+// (literal, absolute) and ragctl serve's own startup scan (".", relative,
+// from a working directory under /tmp) used to diverge into two
+// different canonical roots — and therefore two different project IDs —
+// for the identical physical directory. EvalSymlinks closes that gap by
+// always resolving to the same real path either way. If it fails (e.g. a
+// dangling symlink, or a permissions error resolving an ancestor), that's
+// treated as non-fatal: better to canonicalize as well as Abs+Clean
+// managed than to fail the scan entirely over a display-path oddity.
 func canonicalize(path string) (string, error) {
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		return "", err
 	}
-	return filepath.Clean(abs), nil
+	abs = filepath.Clean(abs)
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+		return resolved, nil
+	}
+	return abs, nil
 }

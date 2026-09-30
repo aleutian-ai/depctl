@@ -29,6 +29,8 @@ func (s *Server) handleResolve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// r.Context() already carries the daemon's real logger — see
+	// loggingMiddleware, applied to every route in routes().
 	ctx, cancel := context.WithTimeout(r.Context(), maxActionDuration)
 	defer cancel()
 

@@ -21,9 +21,9 @@ Same ticket format as `planned/`: each epic has an `INDEX.md`, each ticket is se
 ## Quality, ops, and ecosystem integration
 
 26. [26-evaluation-framework](26-evaluation-framework/INDEX.md) — eval cases, deterministic version-correctness metrics, `ragctl eval`, promotion gate
-27. [27-observability](27-observability/INDEX.md) — structured logging, OpenTelemetry, Prometheus metrics
+27. Observability — done, moved to [../completed/27-observability](../completed/27-observability/INDEX.md).
 28. [28-external-eval-integrations](28-external-eval-integrations/INDEX.md) — Ragas/DeepEval/Promptfoo exports, Phoenix/Langfuse docs
-29. [29-security-hardening](29-security-hardening/INDEX.md) — source trust metadata, prompt-injection labeling, fetch limits, no downloaded-code execution
+29. Security hardening — done, moved to [../completed/29-security-hardening](../completed/29-security-hardening/INDEX.md).
 30. [30-local-retrieval-mode](30-local-retrieval-mode/INDEX.md) — Bleve lexical adapter, local query fallback
 31. [31-llamaindex-adapter](31-llamaindex-adapter/INDEX.md) — external normalizer protocol, example sidecar
 32. [32-client-integration-examples](32-client-integration-examples/INDEX.md) — LibreChat, Goose, generic MCP client docs

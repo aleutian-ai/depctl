@@ -26,7 +26,11 @@ import (
 	"aleutian-ai/ragctl/internal/daemon/client"
 	badgerstore "aleutian-ai/ragctl/internal/data/badger"
 	"aleutian-ai/ragctl/internal/domain"
+	"aleutian-ai/ragctl/internal/observability"
+	"aleutian-ai/ragctl/internal/observability/metrics"
+	"aleutian-ai/ragctl/internal/observability/trace"
 	"aleutian-ai/ragctl/internal/query"
+	"aleutian-ai/ragctl/internal/source/git"
 	"aleutian-ai/ragctl/internal/watch"
 )
 
@@ -469,6 +473,16 @@ type engine struct {
 	// project's Sync call for this engine's whole lifetime, sized once at
 	// construction from cfg.Sync.MaxTotalConcurrency.
 	syncSem chan struct{}
+
+	// gitCache is one instance shared by every project's Sync call for
+	// this engine's whole lifetime (OPS-007) — RunSync used to build a
+	// fresh git.Cache per call, which meant its EnsureMirror in-process
+	// mirrorLocks map started empty every time, so it could never
+	// actually protect two genuinely concurrent Sync calls (epic 53) that
+	// both need the same underlying repository (e.g. two projects on
+	// different tags of one monorepo) from racing on the same `git clone
+	// --mirror` target directory.
+	gitCache *git.Cache
 }
 
 // newEngine constructs an engine with its daemon-wide sync semaphore
@@ -476,16 +490,21 @@ type engine struct {
 // so every construction site (real daemon startup, tests) gets the same
 // "0 unmarshals as unset" default-substitution RunSync's own
 // MaxConcurrency already establishes, rather than each caller repeating it.
-func newEngine(store *bboltstore.Store, badgerStore *badgerstore.Store, cfg config.Config, controlPath, badgerPath string, embeddingReadiness *embeddingReadiness, vecReadiness *vectorReadiness) *engine {
+func newEngine(store *bboltstore.Store, badgerStore *badgerstore.Store, cfg config.Config, controlPath, badgerPath string, embeddingReadiness *embeddingReadiness, vecReadiness *vectorReadiness) (*engine, error) {
 	maxTotal := cfg.Sync.MaxTotalConcurrency
 	if maxTotal < 1 {
 		maxTotal = 4
 	}
+	gitCache, err := buildGitCache(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("build git cache: %w", err)
+	}
 	return &engine{
 		store: store, badgerStore: badgerStore, cfg: cfg, controlPath: controlPath, badgerPath: badgerPath,
 		embeddingReadiness: embeddingReadiness, vectorReadiness: vecReadiness,
-		syncSem: make(chan struct{}, maxTotal),
-	}
+		syncSem:  make(chan struct{}, maxTotal),
+		gitCache: gitCache,
+	}, nil
 }
 
 // baseQueryService returns e's memoized, stores-only query.Service —
@@ -564,7 +583,7 @@ func (e *engine) Sync(ctx context.Context, coordinator *daemon.BuildCoordinator,
 			return api.SyncResult{}, err
 		}
 	}
-	synced, failed, skipped, err := RunSync(ctx, coordinator, e.store, e.badgerStore, e.cfg, projectID, opts.Dependencies, opts.Offline, opts.Force, opts.Rebuild, out, e.embeddingReadiness, e.vectorReadiness, opts.Priority, opts.Progress, e.syncSem)
+	synced, failed, skipped, err := RunSync(ctx, coordinator, e.store, e.badgerStore, e.cfg, projectID, opts.Dependencies, opts.Offline, opts.Force, opts.Rebuild, out, e.embeddingReadiness, e.vectorReadiness, opts.Priority, opts.Progress, e.syncSem, e.gitCache)
 	return api.SyncResult{ProjectID: projectID, Synced: synced, Failed: failed, Skipped: skipped}, err
 }
 
@@ -947,12 +966,53 @@ func runDaemonRun(cmd *cobra.Command) error {
 		fmt.Fprintf(out, "%s "+format+"\n", append([]any{time.Now().Format("15:04:05")}, args...)...)
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	// OBS-001: the daemon's whole lifetime runs under one context carrying
+	// one structured logger — every function further down any call chain
+	// rooted here (sync, gc, query, ...) gets it via
+	// observability.FromContext without needing its own *slog.Logger
+	// parameter.
+	logger := observability.NewLogger(out, cfg.Log.JSON, cfg.Log.SlogLevel())
+	ctx, stop := signal.NotifyContext(observability.WithLogger(context.Background(), logger), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	go func() {
 		<-ctx.Done()
 		stop() // restore default handling, so a second Ctrl-C exits immediately
 	}()
+
+	// OBS-002: off by default (cfg.Observability.OTel.Enabled is false
+	// unless explicitly set) — see internal/observability/trace.
+	// shutdownTracing flushes any pending spans; a failed exporter never
+	// blocks or fails daemon startup (InitProvider's own contract).
+	shutdownTracing, err := trace.InitProvider(ctx, cfg.Observability.OTel, logger)
+	if err != nil {
+		return fmt.Errorf("init tracing: %w", err)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := shutdownTracing(shutdownCtx); err != nil {
+			logger.Warn("otel: tracer shutdown failed", "error", err)
+		}
+	}()
+
+	// OBS-003: off by default (cfg.Observability.Metrics.Enabled is false
+	// unless explicitly set) — see internal/observability/metrics. A bind
+	// failure is fatal only because metrics were explicitly requested;
+	// StartServer itself is a no-op (nil error) when disabled.
+	shutdownMetrics, err := metrics.StartServer(cfg.Observability.Metrics, logger)
+	if err != nil {
+		return fmt.Errorf("init metrics: %w", err)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := shutdownMetrics(shutdownCtx); err != nil {
+			logger.Warn("metrics: server shutdown failed", "error", err)
+		}
+	}()
+	if cfg.Observability.Metrics.Enabled {
+		go refreshStorageMetrics(ctx, store, cfg.Vector.Backend, badgerPath, storageMetricsRefreshInterval)
+	}
 
 	// Checked off the request path entirely (WATCH-014): a client that
 	// needs an embedder (sync, search) gets an immediate, actionable
@@ -975,8 +1035,12 @@ func runDaemonRun(cmd *cobra.Command) error {
 	// warning, never a refusal.
 	go checkForeignCollectionData(ctx, cfg, store, logf)
 
+	engine, err := newEngine(store, badgerStore, cfg, controlPath, badgerPath, readiness, vecReadiness)
+	if err != nil {
+		return err
+	}
 	srv := daemon.New(daemon.Options{
-		Engine:             newEngine(store, badgerStore, cfg, controlPath, badgerPath, readiness, vecReadiness),
+		Engine:             engine,
 		Socket:             socket,
 		ControlPath:        controlPath,
 		Version:            ragctlVersion,
@@ -1097,6 +1161,26 @@ func runDaemonStop(cmd *cobra.Command) error {
 		}
 		return err
 	}
+
+	// OPS-006: remember the daemon's real PID before shutting it down.
+	// The socket stops accepting connections as soon as the HTTP
+	// listener's own graceful shutdown completes (bounded by
+	// shutdownGrace, ~30s) — which can happen well before the process
+	// itself actually exits: Server.Serve doesn't return until
+	// Scheduler.Wait() does, and any sync/GC already in flight keeps
+	// running underneath that, bounded only by its own per-run
+	// maxActionDuration (30m), decoupled from the daemon's own shutdown
+	// signal (by design — see Scheduler's context.WithoutCancel(s.base)).
+	// Without this PID check, the loop below declares "stopped" the
+	// moment the *socket* is gone, which is exactly the false-positive
+	// STRESS-017 found live. A failed Health call degrades to the
+	// pre-existing socket-only behavior rather than erroring — never
+	// worse than before this fix.
+	pid := 0
+	if h, err := c.Health(cmd.Context()); err == nil {
+		pid = h.PID
+	}
+
 	if err := c.Shutdown(cmd.Context()); err != nil {
 		return err
 	}
@@ -1104,12 +1188,86 @@ func runDaemonStop(cmd *cobra.Command) error {
 	deadline := time.Now().Add(stopWait)
 	for time.Now().Before(deadline) {
 		if _, err := client.Dial(cmd.Context(), socket); errors.Is(err, client.ErrNotRunning) {
-			fmt.Fprintln(cmd.OutOrStdout(), "stopped")
+			// The socket necessarily closes strictly before the process
+			// finishes its own teardown (the final store Close() calls
+			// run after Server.Serve returns) — even with nothing ever
+			// in flight, there's a real, normally-brief window here.
+			// waitForProcessExit absorbs exactly that expected lag
+			// before deciding whether this is "just finishing teardown"
+			// (report "stopped") or "genuinely still running a long
+			// sync/GC" (report the honest still-finishing message).
+			stopped := waitForProcessExit(pid, processExitGrace)
+			if stopped {
+				fmt.Fprintln(cmd.OutOrStdout(), "stopped")
+			} else {
+				fmt.Fprintln(cmd.OutOrStdout(), stopOutcomeMessage(pid))
+			}
 			return nil
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
 	return fmt.Errorf("daemon did not stop within %s", stopWait)
+}
+
+// processExitGrace is how long waitForProcessExit tolerates after the
+// daemon's socket closes before concluding the process is genuinely
+// still busy (as opposed to just finishing its own ordinary teardown) —
+// short relative to the up-to-30-minute in-flight-work ceiling this
+// check exists to catch, per OPS-006.
+const processExitGrace = 2 * time.Second
+
+// waitForProcessExit polls pid (via processAlive) for up to grace,
+// returning true as soon as it's no longer alive, false if it's still
+// alive once grace elapses. A pid of 0 (Health call failed earlier)
+// always reports true — degrades to the pre-existing socket-only
+// behavior rather than blocking on a check that was never possible.
+func waitForProcessExit(pid int, grace time.Duration) bool {
+	if pid == 0 {
+		return true
+	}
+	deadline := time.Now().Add(grace)
+	for {
+		if !processAlive(pid) {
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// stopOutcomeMessage decides what `ragctl daemon stop` tells the user
+// once the socket is confirmed gone — split out from runDaemonStop so
+// the decision itself (not the socket-polling loop around it) is
+// directly unit-testable without a real daemon.
+//
+// `ragctl daemon status` would misreport "not running" in the
+// still-finishing case too (it dials the same socket), so the message
+// points at `ps` instead — the one check that's actually accurate in
+// this window.
+func stopOutcomeMessage(pid int) string {
+	if pid == 0 || !processAlive(pid) {
+		return "stopped"
+	}
+	return fmt.Sprintf(
+		"shutdown requested; daemon (pid %d) is finishing an in-flight sync/GC before it exits on its own (bounded to 30m) — check with `ps -p %d`",
+		pid, pid)
+}
+
+// processAlive reports whether pid names a live process, via a signal-0
+// liveness probe (sends no actual signal — Unix-standard way to check
+// existence/permission without affecting the process). False for pid <=
+// 0 or any error (including "no such process"), never a false positive.
+func processAlive(pid int) bool {
+	if pid <= 0 {
+		return false
+	}
+	proc, err := os.FindProcess(pid)
+	if err != nil {
+		return false
+	}
+	return proc.Signal(syscall.Signal(0)) == nil
 }
 
 // lockedWriter serializes writes from the daemon's goroutines onto one
