@@ -187,17 +187,32 @@ func searchDependencyDocsHandler(svc QueryService, sync SyncTrigger, enableSync 
 			if priority != nil {
 				bumped, _ = priority.BumpSyncPriority(ctx, in.ProjectID, in.Dependency)
 			}
+			stillRunning := false
 			if bumped {
 				result, err = waitForDependencyGeneration(ctx, svc, q)
 			} else {
 				// WATCH-019: no background sync running — a resolvable
 				// dependency simply hasn't been synced yet, so trigger
-				// one scoped to just this package and retry once. If
-				// the JIT sync itself fails, fall through and report the
-				// original, well-understood error below rather than a
-				// confusing second one from a call the agent didn't know
-				// was happening.
-				if _, failed, _, syncErr := sync.SyncProject(ctx, in.ProjectID, []string{in.Dependency}, false, nil); syncErr == nil && failed == 0 {
+				// one scoped to just this package and retry once. Bounded
+				// (triggerAndAwaitSync), not a direct blocking call to
+				// SyncTrigger.SyncProject: a real, previously-unsynced
+				// large dependency's first build can take minutes
+				// (protobuf, live-observed: ~14,900 chunks, ~131s just to
+				// embed), and SyncProject's own underlying HTTP call has
+				// no meaningful bound of its own — without this, a single
+				// search_dependency_docs call could block for however
+				// long the build takes, exceeding the calling MCP
+				// client's own tool-call timeout and triggering a
+				// duplicate-request stampede (live-observed: a second,
+				// independent search arriving while the first sync was
+				// still running server-side). The sync itself keeps
+				// running in the background either way (triggerAndAwaitSync
+				// detaches it) — a bound here only changes how long *this*
+				// call waits before telling the agent to check back,
+				// never whether the build itself completes.
+				var ok bool
+				ok, stillRunning = triggerAndAwaitSync(ctx, sync, in.ProjectID, in.Dependency, false)
+				if ok {
 					result, err = svc.SearchKnowledge(ctx, q)
 				}
 				// Self-healing (OPS-005's MCP-facing fix): a plain sync
@@ -211,11 +226,24 @@ func searchDependencyDocsHandler(svc QueryService, sync SyncTrigger, enableSync 
 				// pointer/reference before planning) before ever
 				// surfacing an error to the agent — no separate
 				// diagnostic step, no second tool call needed.
-				if err != nil && errors.Is(err, query.ErrNoActiveGeneration) {
-					if _, failed, _, syncErr := sync.SyncProject(ctx, in.ProjectID, []string{in.Dependency}, true, nil); syncErr == nil && failed == 0 {
+				if !stillRunning && err != nil && errors.Is(err, query.ErrNoActiveGeneration) {
+					ok, stillRunning = triggerAndAwaitSync(ctx, sync, in.ProjectID, in.Dependency, true)
+					if ok {
 						result, err = svc.SearchKnowledge(ctx, q)
 					}
 				}
+			}
+			// A sync is genuinely still building in the background
+			// (bounded wait elapsed, not a real failure) — tell the
+			// agent plainly rather than reporting a bare
+			// ErrNoActiveGeneration indistinguishable from "never
+			// tried." sync_progress already computes a real
+			// median/p90/confidence estimate (BATCH-001) — point at it
+			// instead of a second, duplicate estimation mechanism here.
+			if stillRunning && err != nil && errors.Is(err, query.ErrNoActiveGeneration) {
+				return nil, SearchDependencyDocsOut{}, fmt.Errorf(
+					"%s is being synced now (triggered by this call) but hasn't finished within %s — this can legitimately take minutes for a large, first-time dependency; call sync_progress for a real time estimate (median/p90 from observed dependencies so far), then retry search_dependency_docs once it reports done: %w",
+					in.Dependency, jitSyncPriorityWaitBound, query.ErrNoActiveGeneration)
 			}
 		}
 		if err != nil {
@@ -574,6 +602,37 @@ func explainCallSiteHandler(symbols CallSiteResolver, jit jitDeps) sdkmcp.ToolHa
 			Chunks: resultChunks(bundle.Result.Chunks),
 			Note:   securityNote,
 		}, nil
+	}
+}
+
+// triggerAndAwaitSync runs a JIT sync (plain or rebuild) for one
+// dependency in the background and waits up to jitSyncPriorityWaitBound
+// for it to finish, rather than blocking on SyncTrigger.SyncProject's own
+// effectively unbounded call directly (its underlying HTTP timeout is
+// measured in hours, sized for a real bulk sync, not a single-dependency
+// JIT one an MCP client is waiting on synchronously). The sync is
+// started via context.WithoutCancel so it keeps running to completion in
+// the background even if this bounded wait times out — matching
+// Scheduler's own established "never abandon in-flight work just because
+// a caller stopped waiting" convention (internal/daemon/scheduler.go).
+//
+// ok is true only if the sync finished within the bound with no error
+// and zero failures — the only case worth retrying the search for.
+// stillRunning is true when the bound elapsed before the sync finished
+// (as opposed to a real, fast failure) — the caller uses this to give
+// the agent an accurate "still building, check back" message instead of
+// a bare, indistinguishable-from-permanent error.
+func triggerAndAwaitSync(ctx context.Context, sync SyncTrigger, projectID, dependency string, rebuild bool) (ok, stillRunning bool) {
+	done := make(chan bool, 1)
+	go func() {
+		_, failed, _, syncErr := sync.SyncProject(context.WithoutCancel(ctx), projectID, []string{dependency}, rebuild, nil)
+		done <- syncErr == nil && failed == 0
+	}()
+	select {
+	case ok = <-done:
+		return ok, false
+	case <-time.After(jitSyncPriorityWaitBound):
+		return false, true
 	}
 }
 

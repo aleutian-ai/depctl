@@ -399,6 +399,48 @@ func TestSearchDependencyDocsHandlerSkipsJITSyncWhenDisabled(t *testing.T) {
 // (rebuild: false) JIT sync doesn't fix the miss, the handler must
 // retry once more with rebuild: true before ever surfacing an error to
 // the agent, with no extra tool call required on its part.
+// TestSearchDependencyDocsHandlerReportsStillRunningRatherThanBlocking
+// is the fix for a real production finding: a large, first-time
+// dependency's build (live-observed: protobuf, ~14,900 chunks, ~131s to
+// embed) can take far longer than jitSyncPriorityWaitBound, and
+// SyncTrigger.SyncProject's own underlying call has no bound of its own
+// — without triggerAndAwaitSync's bound, the handler would block for
+// however long the real build takes, risking the calling MCP client's
+// own tool-call timeout. This proves the handler instead returns within
+// the bound, with a message telling the agent a sync is genuinely still
+// running (not permanently failed) and to check sync_progress for a real
+// time estimate.
+func TestSearchDependencyDocsHandlerReportsStillRunningRatherThanBlocking(t *testing.T) {
+	prev := jitSyncPriorityWaitBound
+	jitSyncPriorityWaitBound = 50 * time.Millisecond
+	defer func() { jitSyncPriorityWaitBound = prev }()
+
+	env := newTestEnv(t)
+	env.control.projects["proj_1"] = domain.Project{ID: "proj_1", Root: "/repo"}
+	env.control.resolutions["proj_1"] = domain.Resolution{Dependencies: []domain.DependencyVersion{
+		{Dependency: domain.Dependency{Ecosystem: domain.EcosystemGo, Name: "google.golang.org/protobuf"}, Version: "v1.36.11"},
+	}}
+	trigger := newBlockingSyncTrigger() // never released within this test — simulates a real, slow, in-progress build
+
+	start := time.Now()
+	handler := searchDependencyDocsHandler(env.svc, trigger, true, nil)
+	_, _, err := handler(context.Background(), nil, SearchDependencyDocsIn{ProjectID: "proj_1", Query: "marshal", Dependency: "google.golang.org/protobuf"})
+	elapsed := time.Since(start)
+
+	if elapsed > 2*time.Second {
+		t.Errorf("handler took %s, want it bounded to roughly jitSyncPriorityWaitBound (%s), not blocking on the full (unfinished) sync", elapsed, jitSyncPriorityWaitBound)
+	}
+	if err == nil {
+		t.Fatal("handler succeeded despite the sync never finishing, want the still-running message")
+	}
+	if !errors.Is(err, query.ErrNoActiveGeneration) {
+		t.Errorf("err = %v, want wrapping ErrNoActiveGeneration", err)
+	}
+	if !strings.Contains(err.Error(), "sync_progress") {
+		t.Errorf("err = %v, want it to point the agent at sync_progress for a real time estimate", err)
+	}
+}
+
 func TestSearchDependencyDocsHandlerSelfHealsWithRebuildOnPersistentMiss(t *testing.T) {
 	env := newTestEnv(t)
 	env.control.projects["proj_1"] = domain.Project{ID: "proj_1", Root: "/repo"}
