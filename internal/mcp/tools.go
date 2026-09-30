@@ -52,8 +52,8 @@ func registerTools(sdk *sdkmcp.Server, deps Deps) {
 
 	sdkmcp.AddTool(sdk, &sdkmcp.Tool{
 		Name:        "search_dependency_docs",
-		Description: "Search version-correct documentation/source for a project's dependency. Returns matched chunks with provenance. If the dependency hasn't been synced yet, this triggers a sync scoped to just that one dependency and retries automatically (when server.mcp.enable_sync_tool is true) — no need to call sync_project first for a single missing dependency.",
-	}, withToolLogging("search_dependency_docs", searchDependencyDocsHandler(deps.Query, deps.Sync, deps.EnableSyncTool, deps.Priority)))
+		Description: "Search version-correct documentation/source for a project's dependency. Returns matched chunks with provenance. If the dependency hasn't been synced yet, this triggers a sync scoped to just that one dependency and retries automatically (when server.mcp.enable_sync_tool is true) — no need to call sync_project first for a single missing dependency. If you need to sync several dependencies at once, prefer one sync_project call over many parallel calls to this tool — each triggered sync shares a bounded daemon-wide concurrency limit, so many at once queue behind each other instead of finishing faster.",
+	}, withToolLogging("search_dependency_docs", searchDependencyDocsHandler(deps.Query, deps.Sync, deps.EnableSyncTool, deps.Priority, deps.Progress)))
 
 	sdkmcp.AddTool(sdk, &sdkmcp.Tool{
 		Name:        "get_dependency_version",
@@ -168,8 +168,11 @@ var jitSyncPriorityWaitBound = 90 * time.Second
 // purely for WATCH-019/WATCH-020's JIT-sync-on-miss branch below — nil
 // sync (or enableSync false) leaves search behavior identical to before
 // those tickets; nil priority just means BumpSyncPriority is never
-// tried, falling straight to WATCH-019's plain path.
-func searchDependencyDocsHandler(svc QueryService, sync SyncTrigger, enableSync bool, priority PriorityBumper) sdkmcp.ToolHandlerFor[SearchDependencyDocsIn, SearchDependencyDocsOut] {
+// tried, falling straight to WATCH-019's plain path. progress is
+// optional too (nil in tests, or a server with sync_progress
+// unconfigured) — used only to embed a real time estimate in the
+// still-running message below; its absence just means a plainer message.
+func searchDependencyDocsHandler(svc QueryService, sync SyncTrigger, enableSync bool, priority PriorityBumper, progress SyncProgressReader) sdkmcp.ToolHandlerFor[SearchDependencyDocsIn, SearchDependencyDocsOut] {
 	return func(ctx context.Context, req *sdkmcp.CallToolRequest, in SearchDependencyDocsIn) (*sdkmcp.CallToolResult, SearchDependencyDocsOut, error) {
 		mode := query.QueryMode(in.Mode)
 		if mode == "" {
@@ -238,12 +241,21 @@ func searchDependencyDocsHandler(svc QueryService, sync SyncTrigger, enableSync 
 			// agent plainly rather than reporting a bare
 			// ErrNoActiveGeneration indistinguishable from "never
 			// tried." sync_progress already computes a real
-			// median/p90/confidence estimate (BATCH-001) — point at it
-			// instead of a second, duplicate estimation mechanism here.
+			// median/p90/confidence estimate (BATCH-001) — fetched and
+			// embedded directly here (rather than just naming the tool)
+			// so the agent gets a concrete number in this same response,
+			// no extra round trip needed to relay something useful back
+			// to whoever's waiting on it.
 			if stillRunning && err != nil && errors.Is(err, query.ErrNoActiveGeneration) {
+				detail := "call sync_progress for a time estimate, then retry search_dependency_docs once it reports done"
+				if progress != nil {
+					if p, progErr := progress.SyncProgress(ctx, in.ProjectID); progErr == nil {
+						detail = syncProgressNote(p)
+					}
+				}
 				return nil, SearchDependencyDocsOut{}, fmt.Errorf(
-					"%s is being synced now (triggered by this call) but hasn't finished within %s — this can legitimately take minutes for a large, first-time dependency; call sync_progress for a real time estimate (median/p90 from observed dependencies so far), then retry search_dependency_docs once it reports done: %w",
-					in.Dependency, jitSyncPriorityWaitBound, query.ErrNoActiveGeneration)
+					"%s is being synced now (triggered by this call) but hasn't finished within %s — this can legitimately take minutes for a large, first-time dependency. %s: %w",
+					in.Dependency, jitSyncPriorityWaitBound, detail, query.ErrNoActiveGeneration)
 			}
 		}
 		if err != nil {
@@ -307,7 +319,7 @@ type DependencyInfo struct {
 	Package             string `json:"package"`
 	Version             string `json:"version"`
 	Direct              bool   `json:"direct"`
-	HasActiveGeneration bool   `json:"has_active_generation"`
+	HasActiveGeneration bool   `json:"has_active_generation" jsonschema:"real state as of this call, not a stale or best-effort flag — false means this exact version has no synced knowledge yet. It becomes true the moment a sync (background, sync_project, or search_dependency_docs's own automatic one-shot sync on a miss) actually completes for it. You don't need to sync a false one before searching it: search_dependency_docs already triggers and waits on that sync for you. Syncing many false ones at once is faster with one sync_project call than with many parallel search_dependency_docs calls, which share a bounded daemon-wide concurrency limit and so queue behind each other rather than running faster in parallel."`
 }
 
 type ListProjectDependenciesOut struct {

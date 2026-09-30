@@ -266,7 +266,7 @@ func TestSearchDependencyDocsHandlerReturnsChunksWithSecurityNote(t *testing.T) 
 	}}
 	env.seedChunk(t, domain.EcosystemGo, "google.golang.org/grpc", "v1.67.0", "gen_1", "chk_1", "grpc retry docs")
 
-	handler := searchDependencyDocsHandler(env.svc, nil, false, nil)
+	handler := searchDependencyDocsHandler(env.svc, nil, false, nil, nil)
 	_, out, err := handler(context.Background(), nil, SearchDependencyDocsIn{ProjectID: "proj_1", Query: "retry", Dependency: "google.golang.org/grpc"})
 	if err != nil {
 		t.Fatalf("handler: %v", err)
@@ -303,7 +303,7 @@ func TestSearchDependencyDocsHandlerBreadcrumbRoundTripsThroughJSON(t *testing.T
 		Metadata: map[string]string{"symbol": "(*Tx).Bucket", "source_path": "tx.go"},
 	}
 
-	handler := searchDependencyDocsHandler(env.svc, nil, false, nil)
+	handler := searchDependencyDocsHandler(env.svc, nil, false, nil, nil)
 	_, out, err := handler(context.Background(), nil, SearchDependencyDocsIn{ProjectID: "proj_1", Query: "retry", Dependency: "google.golang.org/grpc"})
 	if err != nil {
 		t.Fatalf("handler: %v", err)
@@ -350,7 +350,7 @@ func TestSearchDependencyDocsHandlerTriggersJITSyncOnMissingGeneration(t *testin
 		env.seedChunk(t, domain.EcosystemGo, "google.golang.org/grpc", "v1.67.0", "gen_1", "chk_1", "grpc retry docs")
 	}}
 
-	handler := searchDependencyDocsHandler(env.svc, trigger, true, nil)
+	handler := searchDependencyDocsHandler(env.svc, trigger, true, nil, nil)
 	_, out, err := handler(context.Background(), nil, SearchDependencyDocsIn{ProjectID: "proj_1", Query: "retry", Dependency: "google.golang.org/grpc"})
 	if err != nil {
 		t.Fatalf("handler: %v", err)
@@ -378,7 +378,7 @@ func TestSearchDependencyDocsHandlerSkipsJITSyncWhenDisabled(t *testing.T) {
 	}}
 	trigger := &fakeSyncTrigger{}
 
-	handler := searchDependencyDocsHandler(env.svc, trigger, false, nil)
+	handler := searchDependencyDocsHandler(env.svc, trigger, false, nil, nil)
 	_, _, err := handler(context.Background(), nil, SearchDependencyDocsIn{ProjectID: "proj_1", Query: "retry", Dependency: "google.golang.org/grpc"})
 	if err == nil {
 		t.Fatal("handler succeeded despite no active generation and no sync, want the original error")
@@ -423,7 +423,7 @@ func TestSearchDependencyDocsHandlerReportsStillRunningRatherThanBlocking(t *tes
 	trigger := newBlockingSyncTrigger() // never released within this test — simulates a real, slow, in-progress build
 
 	start := time.Now()
-	handler := searchDependencyDocsHandler(env.svc, trigger, true, nil)
+	handler := searchDependencyDocsHandler(env.svc, trigger, true, nil, nil)
 	_, _, err := handler(context.Background(), nil, SearchDependencyDocsIn{ProjectID: "proj_1", Query: "marshal", Dependency: "google.golang.org/protobuf"})
 	elapsed := time.Since(start)
 
@@ -441,6 +441,34 @@ func TestSearchDependencyDocsHandlerReportsStillRunningRatherThanBlocking(t *tes
 	}
 }
 
+// TestSearchDependencyDocsHandlerStillRunningEmbedsRealEstimate proves
+// the still-running message includes sync_progress's own real
+// median/p90/confidence estimate directly, when a SyncProgressReader is
+// configured — saving the agent a second round trip to get a concrete
+// number instead of just being told where to look for one.
+func TestSearchDependencyDocsHandlerStillRunningEmbedsRealEstimate(t *testing.T) {
+	prev := jitSyncPriorityWaitBound
+	jitSyncPriorityWaitBound = 50 * time.Millisecond
+	defer func() { jitSyncPriorityWaitBound = prev }()
+
+	env := newTestEnv(t)
+	env.control.projects["proj_1"] = domain.Project{ID: "proj_1", Root: "/repo"}
+	env.control.resolutions["proj_1"] = domain.Resolution{Dependencies: []domain.DependencyVersion{
+		{Dependency: domain.Dependency{Ecosystem: domain.EcosystemGo, Name: "google.golang.org/protobuf"}, Version: "v1.36.11"},
+	}}
+	trigger := newBlockingSyncTrigger() // never released — simulates a real, slow, in-progress build
+	reader := fakeProgressReader{out: SyncProgressOut{Syncing: true, Done: 3, Failed: 0, Total: 10}}
+
+	handler := searchDependencyDocsHandler(env.svc, trigger, true, nil, reader)
+	_, _, err := handler(context.Background(), nil, SearchDependencyDocsIn{ProjectID: "proj_1", Query: "marshal", Dependency: "google.golang.org/protobuf"})
+	if err == nil {
+		t.Fatal("handler succeeded despite the sync never finishing, want the still-running message")
+	}
+	if !strings.Contains(err.Error(), "3 of 10 done") {
+		t.Errorf("err = %v, want it to embed sync_progress's own real note (\"3 of 10 done\"), not just point at the tool", err)
+	}
+}
+
 func TestSearchDependencyDocsHandlerSelfHealsWithRebuildOnPersistentMiss(t *testing.T) {
 	env := newTestEnv(t)
 	env.control.projects["proj_1"] = domain.Project{ID: "proj_1", Root: "/repo"}
@@ -455,7 +483,7 @@ func TestSearchDependencyDocsHandlerSelfHealsWithRebuildOnPersistentMiss(t *test
 		env.seedChunk(t, domain.EcosystemGo, "google.golang.org/protobuf", "v1.36.11", "gen_1", "chk_1", "protobuf marshal docs")
 	}}
 
-	handler := searchDependencyDocsHandler(env.svc, trigger, true, nil)
+	handler := searchDependencyDocsHandler(env.svc, trigger, true, nil, nil)
 	_, out, err := handler(context.Background(), nil, SearchDependencyDocsIn{ProjectID: "proj_1", Query: "marshal", Dependency: "google.golang.org/protobuf"})
 	if err != nil {
 		t.Fatalf("handler: %v", err)
@@ -483,7 +511,7 @@ func TestSearchDependencyDocsHandlerReportsOriginalErrorWhenJITSyncFails(t *test
 	}}
 	trigger := &fakeSyncTrigger{failed: 1}
 
-	handler := searchDependencyDocsHandler(env.svc, trigger, true, nil)
+	handler := searchDependencyDocsHandler(env.svc, trigger, true, nil, nil)
 	_, _, err := handler(context.Background(), nil, SearchDependencyDocsIn{ProjectID: "proj_1", Query: "retry", Dependency: "google.golang.org/grpc"})
 	if err == nil {
 		t.Fatal("handler succeeded despite the JIT sync failing, want the original error")
@@ -516,7 +544,7 @@ func TestSearchDependencyDocsHandlerPrefersPriorityBumpOverNewSync(t *testing.T)
 		return true, nil
 	}}
 
-	handler := searchDependencyDocsHandler(env.svc, trigger, true, bumper)
+	handler := searchDependencyDocsHandler(env.svc, trigger, true, bumper, nil)
 	_, out, err := handler(context.Background(), nil, SearchDependencyDocsIn{ProjectID: "proj_1", Query: "retry", Dependency: "google.golang.org/grpc"})
 	if err != nil {
 		t.Fatalf("handler: %v", err)
@@ -547,7 +575,7 @@ func TestSearchDependencyDocsHandlerFallsBackWhenNoBumpTarget(t *testing.T) {
 	}}
 	bumper := &fakePriorityBumper{} // bump == nil: always returns false, no sync running
 
-	handler := searchDependencyDocsHandler(env.svc, trigger, true, bumper)
+	handler := searchDependencyDocsHandler(env.svc, trigger, true, bumper, nil)
 	_, out, err := handler(context.Background(), nil, SearchDependencyDocsIn{ProjectID: "proj_1", Query: "retry", Dependency: "google.golang.org/grpc"})
 	if err != nil {
 		t.Fatalf("handler: %v", err)
@@ -585,7 +613,7 @@ func TestSearchDependencyDocsHandlerBumpWaitTimesOutCleanly(t *testing.T) {
 		return true, nil // bumped, but nothing ever seeds the generation
 	}}
 
-	handler := searchDependencyDocsHandler(env.svc, trigger, true, bumper)
+	handler := searchDependencyDocsHandler(env.svc, trigger, true, bumper, nil)
 	_, _, err := handler(context.Background(), nil, SearchDependencyDocsIn{ProjectID: "proj_1", Query: "retry", Dependency: "google.golang.org/grpc"})
 	if err == nil {
 		t.Fatal("handler succeeded despite the bumped dependency never becoming active, want a timeout error")
@@ -600,7 +628,7 @@ func TestSearchDependencyDocsHandlerBumpWaitTimesOutCleanly(t *testing.T) {
 
 func TestSearchDependencyDocsHandlerMapsUnknownProjectToActionableError(t *testing.T) {
 	env := newTestEnv(t)
-	handler := searchDependencyDocsHandler(env.svc, nil, false, nil)
+	handler := searchDependencyDocsHandler(env.svc, nil, false, nil, nil)
 	_, _, err := handler(context.Background(), nil, SearchDependencyDocsIn{ProjectID: "proj_missing", Query: "x", Dependency: "google.golang.org/grpc"})
 	if err == nil {
 		t.Fatal("handler succeeded, want error")
