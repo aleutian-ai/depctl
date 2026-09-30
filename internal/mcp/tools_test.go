@@ -141,16 +141,21 @@ type fakeSyncTrigger struct {
 	calledProjectID         string
 	calledDependency        string   // dependencies joined by ","
 	calledDependencies      []string // exactly what SyncProject received
+	calledRebuild           bool     // rebuild flag from the most recent call
+	calledRebuilds          []bool   // rebuild flag from every call, in order
 	progressLines           []string // lines this fake "streams" via the progress callback
 	onSync                  func()   // WATCH-019: simulates a real sync's side effect (an active generation appearing)
+	onRebuildSync           func()   // like onSync, but only fires when rebuild is true — simulates a plain sync NOOPing while a rebuild actually builds
 }
 
-func (f *fakeSyncTrigger) SyncProject(ctx context.Context, projectID string, dependencies []string, progress func(line string)) (int, int, int, error) {
+func (f *fakeSyncTrigger) SyncProject(ctx context.Context, projectID string, dependencies []string, rebuild bool, progress func(line string)) (int, int, int, error) {
 	f.called = true
 	f.calls++
 	f.calledProjectID = projectID
 	f.calledDependency = strings.Join(dependencies, ",")
 	f.calledDependencies = dependencies
+	f.calledRebuild = rebuild
+	f.calledRebuilds = append(f.calledRebuilds, rebuild)
 	if progress != nil {
 		for _, line := range f.progressLines {
 			progress(line)
@@ -158,6 +163,9 @@ func (f *fakeSyncTrigger) SyncProject(ctx context.Context, projectID string, dep
 	}
 	if f.onSync != nil {
 		f.onSync()
+	}
+	if rebuild && f.onRebuildSync != nil {
+		f.onRebuildSync()
 	}
 	return f.synced, f.failed, f.skipped, f.err
 }
@@ -383,6 +391,44 @@ func TestSearchDependencyDocsHandlerSkipsJITSyncWhenDisabled(t *testing.T) {
 	}
 }
 
+// TestSearchDependencyDocsHandlerSelfHealsWithRebuildOnPersistentMiss is
+// the fix's own regression test: a dependency stuck "referenced but
+// never built" (OPS-005) — a plain sync succeeds (failed: 0) but does
+// nothing, since the planner sees an existing reference and NOOPs — must
+// not be reported as a bare, permanent failure. After the plain
+// (rebuild: false) JIT sync doesn't fix the miss, the handler must
+// retry once more with rebuild: true before ever surfacing an error to
+// the agent, with no extra tool call required on its part.
+func TestSearchDependencyDocsHandlerSelfHealsWithRebuildOnPersistentMiss(t *testing.T) {
+	env := newTestEnv(t)
+	env.control.projects["proj_1"] = domain.Project{ID: "proj_1", Root: "/repo"}
+	env.control.resolutions["proj_1"] = domain.Resolution{Dependencies: []domain.DependencyVersion{
+		{Dependency: domain.Dependency{Ecosystem: domain.EcosystemGo, Name: "google.golang.org/protobuf"}, Version: "v1.36.11"},
+	}}
+	// No active generation seeded — the plain sync below succeeds
+	// (failed: 0) but is a real-world NOOP (reference already exists),
+	// so it deliberately does not seed one either; only the rebuild
+	// path does.
+	trigger := &fakeSyncTrigger{synced: 0, onRebuildSync: func() {
+		env.seedChunk(t, domain.EcosystemGo, "google.golang.org/protobuf", "v1.36.11", "gen_1", "chk_1", "protobuf marshal docs")
+	}}
+
+	handler := searchDependencyDocsHandler(env.svc, trigger, true, nil)
+	_, out, err := handler(context.Background(), nil, SearchDependencyDocsIn{ProjectID: "proj_1", Query: "marshal", Dependency: "google.golang.org/protobuf"})
+	if err != nil {
+		t.Fatalf("handler: %v", err)
+	}
+	if trigger.calls != 2 {
+		t.Fatalf("SyncTrigger.SyncProject called %d times, want exactly 2 (plain retry, then rebuild retry)", trigger.calls)
+	}
+	if trigger.calledRebuilds[0] != false || trigger.calledRebuilds[1] != true {
+		t.Errorf("calledRebuilds = %v, want [false, true] (plain sync first, rebuild only as the fallback)", trigger.calledRebuilds)
+	}
+	if len(out.Chunks) != 1 || out.Chunks[0].Content != "protobuf marshal docs" {
+		t.Errorf("out.Chunks = %+v, want the content the rebuild sync produced", out.Chunks)
+	}
+}
+
 // TestSearchDependencyDocsHandlerReportsOriginalErrorWhenJITSyncFails
 // proves a failed JIT sync surfaces the original, well-understood
 // ErrNoActiveGeneration message rather than a confusing second error
@@ -605,6 +651,22 @@ func TestSyncProjectHandlerEnabledCallsTrigger(t *testing.T) {
 	}
 }
 
+// TestSyncProjectHandlerPassesRebuildThrough confirms the sync_project
+// tool's own rebuild input (the agent-facing self-healing lever, for
+// forcing a fix directly rather than relying on search_dependency_docs's
+// automatic retry) actually reaches SyncTrigger.SyncProject.
+func TestSyncProjectHandlerPassesRebuildThrough(t *testing.T) {
+	trigger := &fakeSyncTrigger{synced: 1}
+	handler := syncProjectHandler(nil, trigger, true)
+	_, _, err := handler(context.Background(), nil, SyncProjectIn{ProjectID: "proj_1", Dependency: "google.golang.org/protobuf", Rebuild: true})
+	if err != nil {
+		t.Fatalf("handler: %v", err)
+	}
+	if !trigger.calledRebuild {
+		t.Error("SyncTrigger.SyncProject was called with rebuild=false, want the tool's Rebuild:true input to pass through")
+	}
+}
+
 // TestSyncProjectHandlerClassifiesSentinelErrors is MCP-007: a real
 // sync failure (as opposed to the still_running bounded-wait path) must
 // be routed through toolError like every other tool, not returned as a
@@ -756,7 +818,7 @@ func newBlockingSyncTrigger() *blockingSyncTrigger {
 	return &blockingSyncTrigger{release: make(chan struct{}), finished: make(chan struct{})}
 }
 
-func (f *blockingSyncTrigger) SyncProject(ctx context.Context, projectID string, dependencies []string, progress func(line string)) (int, int, int, error) {
+func (f *blockingSyncTrigger) SyncProject(ctx context.Context, projectID string, dependencies []string, rebuild bool, progress func(line string)) (int, int, int, error) {
 	for _, line := range f.progressLines {
 		if progress != nil {
 			progress(line)

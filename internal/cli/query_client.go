@@ -198,8 +198,8 @@ type daemonSyncTrigger struct {
 	c *client.Client
 }
 
-func (t *daemonSyncTrigger) SyncProject(ctx context.Context, projectID string, dependencies []string, progress func(line string)) (synced, failed, skipped int, err error) {
-	resp, err := t.c.Sync(ctx, api.SyncRequest{ProjectID: projectID, Dependencies: dependencies}, lineWriter(progress))
+func (t *daemonSyncTrigger) SyncProject(ctx context.Context, projectID string, dependencies []string, rebuild bool, progress func(line string)) (synced, failed, skipped int, err error) {
+	resp, err := t.c.Sync(ctx, api.SyncRequest{ProjectID: projectID, Dependencies: dependencies, Rebuild: rebuild}, lineWriter(progress))
 	if err != nil {
 		return 0, 0, 0, wrapQueryError(err)
 	}

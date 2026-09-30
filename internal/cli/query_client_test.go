@@ -113,7 +113,7 @@ func TestDaemonSyncTriggerRoundTripsThroughRealDaemon(t *testing.T) {
 	// would surface as err != nil here, not a per-item failed count).
 	trigger := &daemonSyncTrigger{c: c}
 	var lines []string
-	synced, failed, skipped, err := trigger.SyncProject(ctx, st.Projects[0].ID, nil, func(line string) {
+	synced, failed, skipped, err := trigger.SyncProject(ctx, st.Projects[0].ID, nil, false, func(line string) {
 		lines = append(lines, line)
 	})
 	if err != nil {
@@ -152,7 +152,7 @@ func TestDaemonSyncTriggerProjectNotFoundIsClassified(t *testing.T) {
 	}
 
 	trigger := &daemonSyncTrigger{c: c}
-	_, _, _, err = trigger.SyncProject(ctx, "proj_does_not_exist", nil, nil)
+	_, _, _, err = trigger.SyncProject(ctx, "proj_does_not_exist", nil, false, nil)
 	if !errors.Is(err, query.ErrProjectNotFound) {
 		t.Errorf("SyncProject for an unregistered project_id = %v, want an error wrapping query.ErrProjectNotFound", err)
 	}
@@ -186,7 +186,7 @@ func TestDaemonSyncTriggerDependencyFilterReachesRealSyncOptions(t *testing.T) {
 	}
 
 	trigger := &daemonSyncTrigger{c: c}
-	synced, failed, skipped, err := trigger.SyncProject(ctx, st.Projects[0].ID, []string{"does-not-exist"}, func(string) {})
+	synced, failed, skipped, err := trigger.SyncProject(ctx, st.Projects[0].ID, []string{"does-not-exist"}, false, func(string) {})
 	if err != nil {
 		t.Fatalf("SyncProject: %v", err)
 	}

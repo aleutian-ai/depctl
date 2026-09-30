@@ -197,8 +197,24 @@ func searchDependencyDocsHandler(svc QueryService, sync SyncTrigger, enableSync 
 				// original, well-understood error below rather than a
 				// confusing second one from a call the agent didn't know
 				// was happening.
-				if _, failed, _, syncErr := sync.SyncProject(ctx, in.ProjectID, []string{in.Dependency}, nil); syncErr == nil && failed == 0 {
+				if _, failed, _, syncErr := sync.SyncProject(ctx, in.ProjectID, []string{in.Dependency}, false, nil); syncErr == nil && failed == 0 {
 					result, err = svc.SearchKnowledge(ctx, q)
+				}
+				// Self-healing (OPS-005's MCP-facing fix): a plain sync
+				// NOOPs whenever a version reference already exists,
+				// regardless of whether it ever actually built — the
+				// exact "referenced but never built" state a stuck or
+				// interrupted earlier sync can leave behind. A search
+				// that still fails with ErrNoActiveGeneration after the
+				// plain retry above is exactly that signal, so this
+				// tries once more with rebuild:true (clears the stale
+				// pointer/reference before planning) before ever
+				// surfacing an error to the agent — no separate
+				// diagnostic step, no second tool call needed.
+				if err != nil && errors.Is(err, query.ErrNoActiveGeneration) {
+					if _, failed, _, syncErr := sync.SyncProject(ctx, in.ProjectID, []string{in.Dependency}, true, nil); syncErr == nil && failed == 0 {
+						result, err = svc.SearchKnowledge(ctx, q)
+					}
 				}
 			}
 		}
@@ -367,6 +383,22 @@ func knowledgeStatusHandler(svc QueryService) sdkmcp.ToolHandlerFor[KnowledgeSta
 type SyncProjectIn struct {
 	ProjectID  string `json:"project_id"`
 	Dependency string `json:"dependency,omitempty" jsonschema:"optional — limit the sync to one package instead of the whole project"`
+	// Rebuild is the self-healing fix for a specific, otherwise-stuck
+	// failure mode: search_dependency_docs (or this tool) returns "no
+	// synced knowledge for this version yet" for a dependency that
+	// list_project_dependencies/knowledge_status shows is a real,
+	// resolved dependency of the project. That combination means a
+	// version reference was already recorded (from an earlier sync
+	// attempt) but its actual build never completed — a plain sync sees
+	// the reference and does nothing, so retrying without rebuild will
+	// keep failing identically forever. Set rebuild: true with
+	// dependency set to the exact stuck package name to clear that
+	// stale reference and force a genuine rebuild. Note:
+	// search_dependency_docs already retries with this automatically on
+	// a miss, so you usually never need to set it by hand — reach for
+	// it directly only if you want to force a rebuild proactively, or a
+	// search failure persists after its own automatic retry.
+	Rebuild bool `json:"rebuild,omitempty" jsonschema:"self-healing fix for a dependency stuck as \"referenced but never built\" (see field description) — clears the stale reference and forces a real rebuild instead of the no-op a plain sync would otherwise perform"`
 }
 
 type SyncProjectOut struct {
@@ -429,7 +461,7 @@ func syncProjectHandler(query QueryService, sync SyncTrigger, enabled bool) sdkm
 		// same reasoning, one layer down.
 		bgCtx := context.WithoutCancel(ctx)
 		go func() {
-			synced, failed, skipped, err := sync.SyncProject(bgCtx, in.ProjectID, dependencySet(in.Dependency), progress)
+			synced, failed, skipped, err := sync.SyncProject(bgCtx, in.ProjectID, dependencySet(in.Dependency), in.Rebuild, progress)
 			done <- result{synced, failed, skipped, err}
 		}()
 
@@ -576,7 +608,7 @@ func toolError(err error) error {
 	case errors.Is(err, query.ErrDependencyNotFound):
 		return fmt.Errorf("dependency not found for this project: %w", err)
 	case errors.Is(err, query.ErrNoActiveGeneration):
-		return fmt.Errorf("no synced knowledge for this version yet — run `ragctl sync`: %w", err)
+		return fmt.Errorf("no synced knowledge for this version yet — if this persists after a plain sync_project call, it likely means a version reference exists but was never actually built; call sync_project again with dependency set to this exact package and rebuild: true: %w", err)
 	case errors.Is(err, symbolgraph.ErrDependencyNotResolved):
 		return fmt.Errorf("this call site's dependency isn't in the project's resolved dependencies — call scan_project/sync_project, or the resolution may be stale: %w", err)
 	default:

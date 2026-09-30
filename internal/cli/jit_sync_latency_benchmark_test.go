@@ -94,7 +94,7 @@ func TestJITSyncColdLatencyBenchmark(t *testing.T) {
 
 			trigger := &daemonSyncTrigger{c: c}
 			syncStart := time.Now()
-			synced, failed, skipped, err := trigger.SyncProject(ctx, projectID, []string{m.modulePath}, nil)
+			synced, failed, skipped, err := trigger.SyncProject(ctx, projectID, []string{m.modulePath}, false, nil)
 			syncElapsed := time.Since(syncStart)
 			if err != nil {
 				t.Fatalf("JIT SyncProject: %v", err)

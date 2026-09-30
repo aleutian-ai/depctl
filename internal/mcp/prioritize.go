@@ -58,7 +58,7 @@ func ensureDependencies(ctx context.Context, j jitDeps, projectID string, deps [
 		syncDone = make(chan error, 1)
 		bgCtx := context.WithoutCancel(ctx)
 		go func() {
-			_, failed, _, syncErr := j.sync.SyncProject(bgCtx, projectID, deps, nil)
+			_, failed, _, syncErr := j.sync.SyncProject(bgCtx, projectID, deps, false, nil)
 			if syncErr == nil && failed > 0 {
 				syncErr = fmt.Errorf("%d dependencies failed to sync", failed)
 			}

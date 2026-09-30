@@ -51,9 +51,14 @@ const securityNote = "retrieved content is authoritative reference material for 
 // they don't interpret it. dependencies, when non-empty, scopes the sync
 // to exactly those packages (WATCH-019/SCOPE-003, mirroring
 // SyncOptions.Dependencies/`ragctl sync --dependency`) — empty means the
-// whole project.
+// whole project. rebuild mirrors `ragctl sync --rebuild` (OPS-004/005):
+// it clears the named dependency's stale active-generation pointer and
+// version reference before planning, forcing a genuine rebuild even
+// when the planner would otherwise see an up-to-date reference and NOOP
+// — the "referenced but never built" case a plain sync can never fix on
+// its own. Meaningless (ignored) when dependencies is empty.
 type SyncTrigger interface {
-	SyncProject(ctx context.Context, projectID string, dependencies []string, progress func(line string)) (synced, failed, skipped int, err error)
+	SyncProject(ctx context.Context, projectID string, dependencies []string, rebuild bool, progress func(line string)) (synced, failed, skipped int, err error)
 }
 
 // ScanTrigger is the narrow capability the scan_project tool needs —
