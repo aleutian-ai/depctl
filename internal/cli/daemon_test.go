@@ -207,9 +207,19 @@ func TestDaemonStatusAndStop(t *testing.T) {
 		t.Errorf("daemon status = %q, want it to report a running daemon", status)
 	}
 
+	// OPS-006: startDaemon runs the "daemon" in this same OS process
+	// (see its own doc comment), so its reported PID *is* this test
+	// binary's own PID — always alive by construction, regardless of
+	// whether the simulated daemon's own goroutine has finished. The
+	// PID-liveness check `daemon stop` now does (see stopOutcomeMessage)
+	// can only ever see that as "still running" here, so this can't
+	// assert a plain "stopped" the way it used to — h.wait below is
+	// what actually confirms the daemon's own logic completed; a real,
+	// separate-process daemon's happy path is covered instead by
+	// TestDaemonStopReportsStoppedForARealSeparateProcess.
 	stop := runCommandOutput(t, "daemon", "stop")
-	if !strings.Contains(stop, "stopped") {
-		t.Errorf("daemon stop = %q, want 'stopped'", stop)
+	if !strings.Contains(stop, "shutdown requested") {
+		t.Errorf("daemon stop = %q, want the shutdown-requested message (see this test's own comment on why it can't be a plain 'stopped' here)", stop)
 	}
 	h.wait(t)
 

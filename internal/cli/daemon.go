@@ -1161,6 +1161,26 @@ func runDaemonStop(cmd *cobra.Command) error {
 		}
 		return err
 	}
+
+	// OPS-006: remember the daemon's real PID before shutting it down.
+	// The socket stops accepting connections as soon as the HTTP
+	// listener's own graceful shutdown completes (bounded by
+	// shutdownGrace, ~30s) — which can happen well before the process
+	// itself actually exits: Server.Serve doesn't return until
+	// Scheduler.Wait() does, and any sync/GC already in flight keeps
+	// running underneath that, bounded only by its own per-run
+	// maxActionDuration (30m), decoupled from the daemon's own shutdown
+	// signal (by design — see Scheduler's context.WithoutCancel(s.base)).
+	// Without this PID check, the loop below declares "stopped" the
+	// moment the *socket* is gone, which is exactly the false-positive
+	// STRESS-017 found live. A failed Health call degrades to the
+	// pre-existing socket-only behavior rather than erroring — never
+	// worse than before this fix.
+	pid := 0
+	if h, err := c.Health(cmd.Context()); err == nil {
+		pid = h.PID
+	}
+
 	if err := c.Shutdown(cmd.Context()); err != nil {
 		return err
 	}
@@ -1168,12 +1188,86 @@ func runDaemonStop(cmd *cobra.Command) error {
 	deadline := time.Now().Add(stopWait)
 	for time.Now().Before(deadline) {
 		if _, err := client.Dial(cmd.Context(), socket); errors.Is(err, client.ErrNotRunning) {
-			fmt.Fprintln(cmd.OutOrStdout(), "stopped")
+			// The socket necessarily closes strictly before the process
+			// finishes its own teardown (the final store Close() calls
+			// run after Server.Serve returns) — even with nothing ever
+			// in flight, there's a real, normally-brief window here.
+			// waitForProcessExit absorbs exactly that expected lag
+			// before deciding whether this is "just finishing teardown"
+			// (report "stopped") or "genuinely still running a long
+			// sync/GC" (report the honest still-finishing message).
+			stopped := waitForProcessExit(pid, processExitGrace)
+			if stopped {
+				fmt.Fprintln(cmd.OutOrStdout(), "stopped")
+			} else {
+				fmt.Fprintln(cmd.OutOrStdout(), stopOutcomeMessage(pid))
+			}
 			return nil
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
 	return fmt.Errorf("daemon did not stop within %s", stopWait)
+}
+
+// processExitGrace is how long waitForProcessExit tolerates after the
+// daemon's socket closes before concluding the process is genuinely
+// still busy (as opposed to just finishing its own ordinary teardown) —
+// short relative to the up-to-30-minute in-flight-work ceiling this
+// check exists to catch, per OPS-006.
+const processExitGrace = 2 * time.Second
+
+// waitForProcessExit polls pid (via processAlive) for up to grace,
+// returning true as soon as it's no longer alive, false if it's still
+// alive once grace elapses. A pid of 0 (Health call failed earlier)
+// always reports true — degrades to the pre-existing socket-only
+// behavior rather than blocking on a check that was never possible.
+func waitForProcessExit(pid int, grace time.Duration) bool {
+	if pid == 0 {
+		return true
+	}
+	deadline := time.Now().Add(grace)
+	for {
+		if !processAlive(pid) {
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// stopOutcomeMessage decides what `ragctl daemon stop` tells the user
+// once the socket is confirmed gone — split out from runDaemonStop so
+// the decision itself (not the socket-polling loop around it) is
+// directly unit-testable without a real daemon.
+//
+// `ragctl daemon status` would misreport "not running" in the
+// still-finishing case too (it dials the same socket), so the message
+// points at `ps` instead — the one check that's actually accurate in
+// this window.
+func stopOutcomeMessage(pid int) string {
+	if pid == 0 || !processAlive(pid) {
+		return "stopped"
+	}
+	return fmt.Sprintf(
+		"shutdown requested; daemon (pid %d) is finishing an in-flight sync/GC before it exits on its own (bounded to 30m) — check with `ps -p %d`",
+		pid, pid)
+}
+
+// processAlive reports whether pid names a live process, via a signal-0
+// liveness probe (sends no actual signal — Unix-standard way to check
+// existence/permission without affecting the process). False for pid <=
+// 0 or any error (including "no such process"), never a false positive.
+func processAlive(pid int) bool {
+	if pid <= 0 {
+		return false
+	}
+	proc, err := os.FindProcess(pid)
+	if err != nil {
+		return false
+	}
+	return proc.Signal(syscall.Signal(0)) == nil
 }
 
 // lockedWriter serializes writes from the daemon's goroutines onto one

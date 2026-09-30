@@ -27,9 +27,9 @@ type extractedSymbol struct {
 
 // extractedModule is extract.py's whole-module output.
 type extractedModule struct {
-	Doc            string             `json:"doc"`
-	Symbols        []extractedSymbol  `json:"symbols"`
-	ExportsDynamic bool               `json:"exportsDynamic"`
+	Doc            string            `json:"doc"`
+	Symbols        []extractedSymbol `json:"symbols"`
+	ExportsDynamic bool              `json:"exportsDynamic"`
 }
 
 // Normalize extracts src.LocalPath's Python package's entry module into

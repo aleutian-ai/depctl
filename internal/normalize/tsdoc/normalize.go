@@ -26,8 +26,8 @@ type extractedSymbol struct {
 
 // extractedModule is extract.js's whole-file output.
 type extractedModule struct {
-	Doc     string             `json:"doc"`
-	Symbols []extractedSymbol  `json:"symbols"`
+	Doc     string            `json:"doc"`
+	Symbols []extractedSymbol `json:"symbols"`
 }
 
 // Normalize extracts src.LocalPath's Node package's published .d.ts

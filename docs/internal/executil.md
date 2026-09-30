@@ -6,7 +6,7 @@
 
 - `RunOptions` — `Dir`, `Args` (argv; `Args[0]` is the binary, no shell involved), `Timeout`, `Env` (additional vars appended to `os.Environ()`) (internal/executil/run.go).
 - `RunResult` — `Stdout`, `Stderr`, `ExitCode` (internal/executil/run.go).
-- `Run(ctx, opts)` — executes `opts.Args[0]` with `opts.Args[1:]`, never through a shell; a non-zero exit code is not itself an error, callers decide whether it's meaningful; `Run` returns an error only when the process couldn't be started or completed (binary missing, context cancelled/timed out) (internal/executil/run.go).
+- `Run(ctx, opts)` — executes `opts.Args[0]` with `opts.Args[1:]`, never through a shell; a non-zero exit code is not itself an error, callers decide whether it's meaningful; `Run` returns an error only when the process couldn't be started or completed (binary missing, context cancelled/timed out) (internal/executil/run.go). **An unset `opts.Dir` defaults to `os.TempDir()`, never a silent inherit of the caller's own cwd** — found live (2026-09-30): a long-lived daemon process's own working directory can be deleted or moved while it keeps running (e.g. the directory it happened to be launched from), and every subprocess spawned with no explicit `Dir` afterward failed identically for a reason having nothing to do with the command itself — real evidence: every `git clone --mirror` call in an affected daemon failed with `fatal: Unable to read current working directory`. Most call sites in this codebase already pass an explicit `Dir`; this default is the safety net for ones that don't need a specific directory (or forget to set one in the future).
 
 ## Dataflow
 

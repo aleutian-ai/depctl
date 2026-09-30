@@ -33,6 +33,56 @@ func TestEnsureMirrorCreatesBareMirrorAtConventionPath(t *testing.T) {
 	}
 }
 
+// TestEnsureMirrorSurvivesADeletedCallerCWD is an integration-level
+// confirmation, not the discriminating regression test — that's
+// internal/executil's own TestRunSurvivesADeletedCallerCWD, which uses
+// `pwd` (a command that unconditionally calls getcwd()). This one uses
+// EnsureMirror's real code path with a fixture remote, which
+// newRemoteFixture makes a local filesystem path: verified by hand
+// (`git clone --mirror <local-path> <dest>` with a deleted cwd) that a
+// purely local clone — both source and dest already absolute paths —
+// never calls getcwd() at all and so can't distinguish before/after
+// this fix; only a real network remote does, via the "remote-https"
+// helper it spawns as its own nested subprocess (confirmed against a
+// real https:// URL: identical to the real bug's
+// "fatal: Unable to read current working directory" /
+// "fatal: remote helper 'https' aborted session"). This test still
+// documents and exercises the real, live-found scenario end to end
+// through Cache.EnsureMirror, even though it happens to pass either way
+// for a local fixture remote.
+func TestEnsureMirrorSurvivesADeletedCallerCWD(t *testing.T) {
+	requireGit(t)
+
+	remote := newRemoteFixture(t)
+	runGit(t, remote, "tag", "v1.0.0")
+	cacheRoot := t.TempDir()
+	c := NewCache(cacheRoot)
+
+	prev, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd: %v", err)
+	}
+	deletedDir, err := os.MkdirTemp("", "ensure-mirror-deleted-cwd-")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	if err := os.Chdir(deletedDir); err != nil {
+		t.Fatalf("Chdir(%s): %v", deletedDir, err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(prev); err != nil {
+			t.Errorf("restore cwd to %s: %v", prev, err)
+		}
+	})
+	if err := os.RemoveAll(deletedDir); err != nil {
+		t.Fatalf("remove %s out from under the process: %v", deletedDir, err)
+	}
+
+	if _, err := c.EnsureMirror(context.Background(), remote); err != nil {
+		t.Fatalf("EnsureMirror with a deleted caller cwd: %v (this is exactly the real bug)", err)
+	}
+}
+
 func TestEnsureMirrorIsNoOpWhenAlreadyPresent(t *testing.T) {
 	requireGit(t)
 

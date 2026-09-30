@@ -164,7 +164,7 @@ func (c *Cache) EnsureMirror(ctx context.Context, rawURL string) (string, error)
 	// falls straight through to the network clone below, never an error.
 	if seedPath, ok := c.findExternalMirrorSeed(rawURL); ok {
 		if res, err := executil.Run(ctx, executil.RunOptions{
-			Args: []string{"git", "clone", "--local", "--mirror", seedPath, repoPath}, Timeout: defaultCloneTimeout,
+			Dir: filepath.Dir(repoPath), Args: []string{"git", "clone", "--local", "--mirror", seedPath, repoPath}, Timeout: defaultCloneTimeout,
 		}); err == nil && res.ExitCode == 0 {
 			if err := c.enforceMirrorSizeLimit(repoPath); err != nil {
 				return "", err
@@ -180,7 +180,7 @@ func (c *Cache) EnsureMirror(ctx context.Context, rawURL string) (string, error)
 	// never-block-acquisition principle as the tier above.
 	if seedPath, ok := c.findCheckoutSeed(ctx, rawURL); ok {
 		if res, err := executil.Run(ctx, executil.RunOptions{
-			Args: []string{"git", "clone", "--local", "--mirror", seedPath, repoPath}, Timeout: defaultCloneTimeout,
+			Dir: filepath.Dir(repoPath), Args: []string{"git", "clone", "--local", "--mirror", seedPath, repoPath}, Timeout: defaultCloneTimeout,
 		}); err == nil && res.ExitCode == 0 {
 			if err := c.enforceMirrorSizeLimit(repoPath); err != nil {
 				return "", err
@@ -190,6 +190,7 @@ func (c *Cache) EnsureMirror(ctx context.Context, rawURL string) (string, error)
 	}
 
 	result, err := executil.Run(ctx, executil.RunOptions{
+		Dir:     filepath.Dir(repoPath),
 		Args:    []string{"git", "clone", "--mirror", "--filter=blob:none", rawURL, repoPath},
 		Timeout: defaultCloneTimeout,
 	})
@@ -199,6 +200,7 @@ func (c *Cache) EnsureMirror(ctx context.Context, rawURL string) (string, error)
 		// gracefully on its own — retry once without it.
 		os.RemoveAll(repoPath)
 		result, err = executil.Run(ctx, executil.RunOptions{
+			Dir:     filepath.Dir(repoPath),
 			Args:    []string{"git", "clone", "--mirror", rawURL, repoPath},
 			Timeout: defaultCloneTimeout,
 		})
@@ -366,7 +368,7 @@ func (c *Cache) findCheckoutSeed(ctx context.Context, rawURL string) (string, bo
 // with/without a trailing ".git".
 func checkoutOriginHostPath(ctx context.Context, checkoutDir string) (host, path string, err error) {
 	res, runErr := executil.Run(ctx, executil.RunOptions{
-		Args: []string{"git", "-C", checkoutDir, "remote", "get-url", "origin"}, Timeout: defaultLocalTimeout,
+		Dir: checkoutDir, Args: []string{"git", "-C", checkoutDir, "remote", "get-url", "origin"}, Timeout: defaultLocalTimeout,
 	})
 	if runErr != nil || res.ExitCode != 0 {
 		return "", "", fmt.Errorf("no origin remote at %s", checkoutDir)
