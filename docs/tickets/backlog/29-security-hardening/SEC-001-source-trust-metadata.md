@@ -1,7 +1,7 @@
 # SEC-001: Source trust metadata
 
 **Epic:** Security hardening
-**Status:** planned
+**Status:** done — 2026-09-29 (doc-drift fix; implementation and tests already existed, ticket tracking just never caught up)
 **Depends on:** NORM-001 (Knowledge object model)
 **Estimated size:** small
 

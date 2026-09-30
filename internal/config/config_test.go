@@ -267,3 +267,33 @@ storage:
 		t.Error("AutostartEnabled() = true with autostart: false")
 	}
 }
+
+// SEC-003: FetchConfig's zero value means "use the built-in default" —
+// the same convention Sync.MaxConcurrency already establishes, so an
+// existing config.yaml with no "fetch" key at all sees the real limits
+// apply, not zero/unbounded ones.
+func TestFetchConfigZeroValueUsesDefaults(t *testing.T) {
+	var f FetchConfig
+	if got := f.MaxFileSizeOrDefault(); got != DefaultMaxFetchFileSize {
+		t.Errorf("MaxFileSizeOrDefault() = %d, want %d", got, DefaultMaxFetchFileSize)
+	}
+	if got := f.MaxRedirectsOrDefault(); got != DefaultMaxFetchRedirects {
+		t.Errorf("MaxRedirectsOrDefault() = %d, want %d", got, DefaultMaxFetchRedirects)
+	}
+	if got := f.MaxSourceTotalBytesOrDefault(); got != DefaultMaxFetchSourceTotalBytes {
+		t.Errorf("MaxSourceTotalBytesOrDefault() = %d, want %d", got, DefaultMaxFetchSourceTotalBytes)
+	}
+}
+
+func TestFetchConfigExplicitValueOverridesDefault(t *testing.T) {
+	f := FetchConfig{MaxFileSize: 123, MaxRedirects: 7, MaxSourceTotalBytes: 456}
+	if got := f.MaxFileSizeOrDefault(); got != 123 {
+		t.Errorf("MaxFileSizeOrDefault() = %d, want 123", got)
+	}
+	if got := f.MaxRedirectsOrDefault(); got != 7 {
+		t.Errorf("MaxRedirectsOrDefault() = %d, want 7", got)
+	}
+	if got := f.MaxSourceTotalBytesOrDefault(); got != 456 {
+		t.Errorf("MaxSourceTotalBytesOrDefault() = %d, want 456", got)
+	}
+}

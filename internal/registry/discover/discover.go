@@ -9,12 +9,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"sort"
 	"strings"
 
+	"aleutian-ai/ragctl/internal/config"
 	"aleutian-ai/ragctl/internal/domain"
+	"aleutian-ai/ragctl/internal/httplimit"
 	"aleutian-ai/ragctl/internal/registry"
 )
 
@@ -109,12 +110,23 @@ func normalizeGitURL(raw string) string {
 	return url
 }
 
+// httpClient bounds redirects (SEC-003) — a var so a test could swap it,
+// matching internal/cli's own convention for these registry clients.
+var httpClient = &http.Client{
+	CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		if len(via) > config.DefaultMaxFetchRedirects {
+			return fmt.Errorf("%w: more than %d redirects", httplimit.ErrFetchLimitExceeded, config.DefaultMaxFetchRedirects)
+		}
+		return nil
+	},
+}
+
 func fetchJSON(ctx context.Context, url string, out any) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return err
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("discover: fetch %s: %w", url, err)
 	}
@@ -122,7 +134,7 @@ func fetchJSON(ctx context.Context, url string, out any) error {
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("discover: %s returned status %d", url, resp.StatusCode)
 	}
-	data, err := io.ReadAll(resp.Body)
+	data, err := httplimit.ReadLimited(resp.Body, config.DefaultMaxFetchFileSize)
 	if err != nil {
 		return fmt.Errorf("discover: read %s: %w", url, err)
 	}

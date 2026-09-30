@@ -8,10 +8,19 @@
 // file-level delta computation between two commits. Every operation
 // shells out to the system git binary via internal/executil — no Git
 // wire protocol or object parsing is implemented directly.
+//
+// SEC-004 invariant: this package never executes anything from inside a
+// fetched repository. Every executil.Run call in this package invokes
+// the git binary itself, against the mirror/worktree directories git
+// itself manages — never a script or binary found within the fetched
+// content. A dependency's own repository is data to git and to every
+// normalizer that reads its checked-out files, never something ragctl
+// runs.
 package git
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io/fs"
 	"net/url"
@@ -21,9 +30,9 @@ import (
 	"sync"
 	"time"
 
-	"context"
-
+	"aleutian-ai/ragctl/internal/config"
 	"aleutian-ai/ragctl/internal/executil"
+	"aleutian-ai/ragctl/internal/httplimit"
 )
 
 // defaultCloneTimeout bounds git clone/fetch, which can be slow over the
@@ -59,6 +68,13 @@ type Cache struct {
 
 	mirrorLocksMu sync.Mutex
 	mirrorLocks   map[string]*sync.Mutex
+
+	// maxMirrorBytes (SEC-003) bounds one repository's real, on-disk
+	// mirror size — checked once right after a clone completes (seeded
+	// or fresh network clone), never mid-transfer (git itself doesn't
+	// expose a byte-budget knob for `clone --mirror`). 0 means unset —
+	// config.DefaultMaxFetchSourceTotalBytes applies.
+	maxMirrorBytes int64
 }
 
 // Option configures optional Cache behavior at construction time.
@@ -74,6 +90,12 @@ func WithExternalMirrorRoots(roots []string) Option {
 // path (see Cache.checkoutSearchRoots' own doc comment).
 func WithCheckoutSearchRoots(roots []string) Option {
 	return func(c *Cache) { c.checkoutSearchRoots = roots }
+}
+
+// WithMaxMirrorBytes configures SEC-003's per-repository mirror size cap
+// (see Cache.maxMirrorBytes' own doc comment).
+func WithMaxMirrorBytes(max int64) Option {
+	return func(c *Cache) { c.maxMirrorBytes = max }
 }
 
 // NewCache returns a Cache rooted at dir, e.g. "<data-dir>/git".
@@ -144,6 +166,9 @@ func (c *Cache) EnsureMirror(ctx context.Context, rawURL string) (string, error)
 		if res, err := executil.Run(ctx, executil.RunOptions{
 			Args: []string{"git", "clone", "--local", "--mirror", seedPath, repoPath}, Timeout: defaultCloneTimeout,
 		}); err == nil && res.ExitCode == 0 {
+			if err := c.enforceMirrorSizeLimit(repoPath); err != nil {
+				return "", err
+			}
 			return repoPath, nil
 		}
 	}
@@ -157,6 +182,9 @@ func (c *Cache) EnsureMirror(ctx context.Context, rawURL string) (string, error)
 		if res, err := executil.Run(ctx, executil.RunOptions{
 			Args: []string{"git", "clone", "--local", "--mirror", seedPath, repoPath}, Timeout: defaultCloneTimeout,
 		}); err == nil && res.ExitCode == 0 {
+			if err := c.enforceMirrorSizeLimit(repoPath); err != nil {
+				return "", err
+			}
 			return repoPath, nil
 		}
 	}
@@ -186,7 +214,51 @@ func (c *Cache) EnsureMirror(ctx context.Context, rawURL string) (string, error)
 			Cause: fmt.Errorf("git clone --mirror %s: %s", rawURL, bytes.TrimSpace(result.Stderr)),
 		}
 	}
+	if err := c.enforceMirrorSizeLimit(repoPath); err != nil {
+		return "", err
+	}
 	return repoPath, nil
+}
+
+// enforceMirrorSizeLimit (SEC-003) checks repoPath's real, on-disk size
+// against maxMirrorBytes right after a clone completes, removing the
+// mirror and returning a permanent (non-retryable) error if it's too
+// large — a repository this big is a permanent, not transient,
+// condition for this cache, so a plain retry would just fail the same
+// way again.
+func (c *Cache) enforceMirrorSizeLimit(repoPath string) error {
+	max := c.maxMirrorBytes
+	if max <= 0 {
+		max = config.DefaultMaxFetchSourceTotalBytes
+	}
+	size, err := mirrorDirSize(repoPath)
+	if err != nil {
+		return nil // can't measure it — don't fail acquisition over a stat error
+	}
+	if size <= max {
+		return nil
+	}
+	os.RemoveAll(repoPath)
+	return &CacheError{
+		Op:    "EnsureMirror",
+		Kind:  ErrKindPermanent,
+		Cause: fmt.Errorf("%w: mirror is %d bytes, over the %d byte limit", httplimit.ErrFetchLimitExceeded, size, max),
+	}
+}
+
+// mirrorDirSize sums the real, on-disk size of every regular file under root.
+func mirrorDirSize(root string) (int64, error) {
+	var total int64
+	err := filepath.Walk(root, func(_ string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() {
+			total += info.Size()
+		}
+		return nil
+	})
+	return total, err
 }
 
 // FetchTags fetches new tags/refs into an existing bare mirror at

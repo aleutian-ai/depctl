@@ -77,7 +77,8 @@ func buildVectorBackend(cfg config.Config) (backend.VectorBackend, error) {
 // directory's "git" subdirectory, matching GIT-001's documented layout,
 // with cfg.Git's optional local-seed fallback tiers (GIT-006/GIT-007)
 // configured — both empty by default, zero behavior change unless a
-// user explicitly sets them.
+// user explicitly sets them — and cfg.Fetch's per-repository mirror size
+// cap (SEC-003).
 func buildGitCache(cfg config.Config) (*git.Cache, error) {
 	dataDir, err := config.DefaultDataDir()
 	if err != nil {
@@ -86,5 +87,6 @@ func buildGitCache(cfg config.Config) (*git.Cache, error) {
 	return git.NewCache(dataDir+"/git",
 		git.WithExternalMirrorRoots(cfg.Git.MirrorSearchPaths),
 		git.WithCheckoutSearchRoots(cfg.Git.CheckoutSearchPaths),
+		git.WithMaxMirrorBytes(cfg.Fetch.MaxSourceTotalBytesOrDefault()),
 	), nil
 }

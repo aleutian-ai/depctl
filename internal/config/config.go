@@ -31,6 +31,65 @@ type Config struct {
 	Server    ServerConfig    `yaml:"server"`
 	Daemon    DaemonConfig    `yaml:"daemon"`
 	Git       GitConfig       `yaml:"git,omitempty"`
+	Fetch     FetchConfig     `yaml:"fetch,omitempty"`
+}
+
+// FetchConfig bounds worst-case resource consumption from untrusted
+// external fetches (SEC-004: registry metadata, Go vanity-import
+// resolution; git mirror size) — a zero value on any field means
+// "unset, use the built-in default," the same "0 unmarshals as unset"
+// convention Sync.MaxConcurrency already establishes, so an existing
+// config.yaml with no "fetch" key at all sees no behavior change beyond
+// the defaults already applying. MaxWebsitePageSize/MaxDecompressedSize
+// from this ticket's original design are deliberately not included yet
+// — there's no website-acquisition or decompression code path in the
+// codebase for them to bound (backlog epic 24); add them when that
+// ships, not speculatively now.
+type FetchConfig struct {
+	// MaxFileSize bounds a single external HTTP response body (registry
+	// metadata, vanity-import meta tags) — default 10 MiB.
+	MaxFileSize int64 `yaml:"max_file_size,omitempty"`
+	// MaxRedirects bounds how many redirect hops a single external fetch
+	// will follow before failing — default 5.
+	MaxRedirects int `yaml:"max_redirects,omitempty"`
+	// MaxSourceTotalBytes bounds one dependency's real, on-disk git
+	// mirror size — default 500 MiB.
+	MaxSourceTotalBytes int64 `yaml:"max_source_total_bytes,omitempty"`
+}
+
+// Defaults, applied wherever a zero FetchConfig field is used — see
+// FetchConfig's own doc comment for the "0 means unset" convention.
+const (
+	DefaultMaxFetchFileSize         int64 = 10 * 1024 * 1024  // 10 MiB
+	DefaultMaxFetchRedirects        int   = 5
+	DefaultMaxFetchSourceTotalBytes int64 = 500 * 1024 * 1024 // 500 MiB
+)
+
+// MaxFileSizeOrDefault returns f.MaxFileSize, or DefaultMaxFetchFileSize
+// if unset (<= 0).
+func (f FetchConfig) MaxFileSizeOrDefault() int64 {
+	if f.MaxFileSize <= 0 {
+		return DefaultMaxFetchFileSize
+	}
+	return f.MaxFileSize
+}
+
+// MaxRedirectsOrDefault returns f.MaxRedirects, or
+// DefaultMaxFetchRedirects if unset (<= 0).
+func (f FetchConfig) MaxRedirectsOrDefault() int {
+	if f.MaxRedirects <= 0 {
+		return DefaultMaxFetchRedirects
+	}
+	return f.MaxRedirects
+}
+
+// MaxSourceTotalBytesOrDefault returns f.MaxSourceTotalBytes, or
+// DefaultMaxFetchSourceTotalBytes if unset (<= 0).
+func (f FetchConfig) MaxSourceTotalBytesOrDefault() int64 {
+	if f.MaxSourceTotalBytes <= 0 {
+		return DefaultMaxFetchSourceTotalBytes
+	}
+	return f.MaxSourceTotalBytes
 }
 
 // GitConfig configures internal/source/git.Cache's optional local-seed

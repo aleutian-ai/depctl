@@ -1,7 +1,7 @@
 # SEC-005: No-telemetry invariant, enforced not just claimed
 
 **Epic:** Security hardening
-**Status:** planned
+**Status:** done — 2026-09-29
 **Depends on:** none
 **Estimated size:** small
 
@@ -30,6 +30,16 @@ ragctl's own one-pager states no customer code, embeddings, or traces are sent t
 - The static and runtime checks described above are themselves the tests.
 
 ## Acceptance criteria
-- [ ] CI fails if a known analytics SDK enters the dependency graph.
-- [ ] A runtime test proves a normal sync/serve session makes no outbound network call beyond its own explicitly configured endpoints.
-- [ ] `docs/architecture.md` states this as a verified invariant, not an aspirational claim.
+- [x] CI fails if a known analytics SDK enters the dependency graph.
+- [x] A runtime test proves a normal sync/serve session makes no outbound network call beyond its own explicitly configured endpoints.
+- [x] `docs/architecture.md` states this as a verified invariant, not an aspirational claim.
+
+## Post-implementation note (2026-09-29)
+
+Implemented as three `go test`-native checks in `internal/cli/no_telemetry_test.go` (runs under `go test ./...`/CI automatically, rather than a separate `hack/` script needing its own wiring):
+
+1. **`TestNoTelemetrySDKInDependencyGraph`** — uses `runtime/debug.ReadBuildInfo()` to inspect the *real, actually-linked* module graph of the test binary (not just anything sitting unused in `go.sum`) against a denylist of known analytics/telemetry SDK import-path substrings (PostHog, Segment, Mixpanel, Amplitude, Sentry, Bugsnag, Rollbar, Datadog, New Relic, Honeycomb).
+2. **`TestNoTelemetryHostLiteralsInSource`** — walks every `.go` file in the repo (skipping `.git`/`node_modules`/`vendor` and its own source, which must contain the denylist strings to check for them) for known telemetry-collector hostname literals, catching a hardcoded endpoint that wouldn't need a named SDK import.
+3. **`TestRealSyncMakesNoUnexpectedNetworkCalls`** — the real runtime check: a genuine `syncVersion` run (real local git fixture repo — zero network I/O on the git side — real bbolt/Badger stores, and **real** `internal/embedding/ollama`/`internal/backend/qdrant` HTTP clients pointed at two `httptest` servers) with a custom `http.Transport.DialContext` installed as `http.DefaultTransport` for the test's duration, recording every single outbound TCP dial. Asserts every recorded dial landed on one of the two explicitly-configured fixture endpoints — nothing else. Verified this test actually catches a violation (not vacuous): deliberately narrowed its own allowlist to exclude one of the two legitimate endpoints and confirmed it failed with the exact expected address, then restored it.
+
+`docs/architecture.md` updated with a dated note naming these three tests as the actual verification (module-graph absence, source-literal absence, and a real network-allowlist proof), not an aspirational claim.

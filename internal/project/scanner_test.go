@@ -24,6 +24,14 @@ func touch(t *testing.T, path string) {
 func buildFixtureTree(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
+	// canonicalize now resolves symlinks (PROJ-002) — t.TempDir() on
+	// macOS returns a path under the symlinked /var (-> /private/var), so
+	// resolve it here too or every comparison against Scan's now-resolved
+	// dp.Root would see a long, spurious ../../.. relative path instead
+	// of the short one this test expects.
+	if resolved, err := filepath.EvalSymlinks(root); err == nil {
+		root = resolved
+	}
 	touch(t, filepath.Join(root, "service-go", "go.mod"))
 	touch(t, filepath.Join(root, "web", "package.json"))
 	touch(t, filepath.Join(root, "tools", "rust-tool", "Cargo.toml"))

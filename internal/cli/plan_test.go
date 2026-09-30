@@ -18,6 +18,13 @@ import (
 func scanDepFixture(t *testing.T) string {
 	t.Helper()
 	base := t.TempDir()
+	// canonicalize now resolves symlinks (PROJ-002) — t.TempDir() on
+	// macOS returns a path under the symlinked /var (-> /private/var), so
+	// resolve it here too or callers comparing this returned root against
+	// a scanned project's now-resolved Root would see a spurious mismatch.
+	if resolved, err := filepath.EvalSymlinks(base); err == nil {
+		base = resolved
+	}
 	writeGoMod(t, filepath.Join(base, "foolocal"), "module example.com/foo\n\ngo 1.21\n")
 	root := filepath.Join(base, "app")
 	writeGoMod(t, root, "module example.com/app\n\ngo 1.21\n\nrequire example.com/foo v0.0.0\n\nreplace example.com/foo => ../foolocal\n")
