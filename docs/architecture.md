@@ -612,7 +612,7 @@ Sync's actual failure mode against mem0 was originally reported as "sync timed o
 
 ## Security & observability invariants
 
-Backlog epics 27 (observability) and 29 (security hardening) were picked up in full ahead of release (2026-09-29), starting with a real doc-drift finding: two security tickets were already fully implemented in code but their tracking never caught up.
+Backlog epics 27 (observability) and 29 (security hardening) were picked up in full ahead of release (2026-09-29), starting with a real doc-drift finding: two security tickets were already fully implemented in code but their tracking never caught up. See [docs/observability-guide.md](observability-guide.md) and [docs/security-hardening.md](security-hardening.md) for a runnable walkthrough of each item below, with real captured example output.
 
 - **`SEC-001` (source trust metadata) — already done.** Every `KnowledgeObject` carries a `TrustClass` (`internal/domain`), assigned in `generation.appendAttributed` (`internal/data/generation/build.go`) from the source's registry-manifest type, and `Validate()` rejects an object with an empty `SourceURI` or `TrustClass`. Confirmed via `internal/domain/domain_test.go` and `internal/data/generation/build_test.go`.
 - **`SEC-002` (prompt-injection labeling) — already done.** A shared `securityNote` constant (`internal/mcp/server.go`) is attached to every knowledge-returning MCP tool's response (`search_dependency_docs`, `get_dependency_version`, `list_project_dependencies`, `get_release_changes`, `knowledge_status`, `sync_project`, `scan_project`, `explain_call_site`) — confirmed via `internal/mcp/tools_test.go`/`explain_call_site_test.go`.
