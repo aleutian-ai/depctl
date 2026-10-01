@@ -269,6 +269,66 @@ func (s *Server) handleGC(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleExportMem0 runs MEM0-001's export. Read-only against the
+// stores, but potentially long-running (one outbound HTTP push per
+// chunk against the user's own Mem0 instance), so it streams progress
+// like handleSync/handleResolve rather than blocking for one response.
+// Bounded by maxActionDuration, the same ceiling every other
+// non-scheduler-routed long-running route uses.
+func (s *Server) handleExportMem0(w http.ResponseWriter, r *http.Request) {
+	var req api.ExportMem0Request
+	if !decodeBody(w, r, &req) {
+		return
+	}
+	if req.ProjectID == "" {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("project_id must not be empty"))
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), maxActionDuration)
+	defer cancel()
+
+	stream(w, func(out io.Writer) (any, error) {
+		return s.opts.Engine.ExportMem0(ctx, req, out)
+	})
+}
+
+// handleExportGraphiti runs GRAPHITI-001's export — same shape as
+// handleExportMem0.
+func (s *Server) handleExportGraphiti(w http.ResponseWriter, r *http.Request) {
+	var req api.ExportGraphitiRequest
+	if !decodeBody(w, r, &req) {
+		return
+	}
+	if req.ProjectID == "" {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("project_id must not be empty"))
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), maxActionDuration)
+	defer cancel()
+	stream(w, func(out io.Writer) (any, error) {
+		return s.opts.Engine.ExportGraphiti(ctx, req, out)
+	})
+}
+
+// handleExportCognee runs COGNEE-001's export — same shape as
+// handleExportMem0.
+func (s *Server) handleExportCognee(w http.ResponseWriter, r *http.Request) {
+	var req api.ExportCogneeRequest
+	if !decodeBody(w, r, &req) {
+		return
+	}
+	if req.ProjectID == "" {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("project_id must not be empty"))
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), maxActionDuration)
+	defer cancel()
+	stream(w, func(out io.Writer) (any, error) {
+		return s.opts.Engine.ExportCognee(ctx, req, out)
+	})
+}
+
 // gcBusy reports whether GC is currently running, so the client can be
 // told its request was folded into a follow-up run.
 func (s *Server) gcBusy() bool {

@@ -4,7 +4,7 @@ Source: `ragctl_implementation_plan.md` + `ragctl_design_spec.md`.
 
 Tickets are split into three directories:
 
-- **[completed/](completed/README.md)** — epics whose every ticket is fully shipped (`Status: done`, every Acceptance Criteria box checked), verified against `docs/architecture.md`. Kept for history and cross-referencing, not for picking up new work.
+- **[completed/](completed/README.md)** — epics whose every ticket has been resolved, either `Status: done` (shipped, every Acceptance Criteria box checked, verified against `docs/architecture.md`) or `Status: declined` (a deliberate decision not to build it, with the reasoning recorded — e.g. epics 62/63/64, 2026-09-30). Kept for history and cross-referencing, not for picking up new work; a declined ticket's own reasoning should be re-read, not silently overridden, before reviving it.
 - **[planned/](planned/README.md)** — post-v0.1 epics added from real usage and architecture review (the original v0.1 critical path has fully shipped). A mixed epic (some tickets done, some not) stays here, not in `completed/`, until every ticket in it is done.
 - **[backlog/](backlog/README.md)** — deferred scope: additional ecosystems, additional vector backends, evaluation/observability/security hardening, curated acquisition, and optional integrations. The source plan is explicit that these wait until the Go-only vertical slice is stable and someone has used the system themselves — don't start pulling these forward just because a ticket exists for them.
 

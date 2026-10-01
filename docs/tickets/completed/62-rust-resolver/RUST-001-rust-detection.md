@@ -1,7 +1,7 @@
 # RUST-001: Rust project detection
 
 **Epic:** Rust Resolver
-**Status:** planned
+**Status:** declined (2026-09-30)
 **Depends on:** RES-001
 **Estimated size:** small
 
@@ -41,3 +41,8 @@ func (r *Resolver) Resolve(ctx context.Context, root string) (domain.Resolution,
 
 ## Acceptance criteria
 - [ ] Detection works on real small Cargo project fixture.
+
+
+## Declined (2026-09-30)
+
+Not being built — a deliberate priority call, not a technical blocker. Reviewed against the shipped `Resolver` interface (`internal/resolver`) during a backlog-triage discussion: it is already fully ecosystem-agnostic (`Name() string`, `Detect(ctx, root) (bool, error)`, `Resolve(ctx, root) (domain.Resolution, error)`), `domain.Ecosystem` already carries unused `EcosystemRust`/`EcosystemJava` constants, and `domain.Resolution`/`DependencyVersion`/`Dependency` have zero ecosystem-specific fields — exactly the same shape Go/Python/Node's real resolvers already prove out (shell out to the ecosystem's own tool, parse its structured JSON output, map to `domain.Resolution`). This ticket's own design already matches that pattern. Nothing here needs re-scoping or new interface work if picked up later — it was never the hard part.

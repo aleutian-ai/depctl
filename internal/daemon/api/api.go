@@ -45,6 +45,17 @@ const (
 	// PathSyncProgress reports one project's sync progress (SCOPE-001):
 	// live counters while a run is in flight, the last run's afterwards.
 	PathSyncProgress = "/v1/sync/progress"
+	// PathExportMem0, PathExportGraphiti, and PathExportCognee each run
+	// one epic-65 connector's export: a project's (or one named
+	// dependency's) already-synced chunks pushed into a user's own
+	// instance of that system. Reads the stores in-process on the daemon
+	// side (ADR-011) — the CLI command is a thin client of each route,
+	// never opening Badger itself. Each connector has its own
+	// request/response types and its own route, deliberately not
+	// unified behind a shared interface.
+	PathExportMem0     = "/v1/export/mem0"
+	PathExportGraphiti = "/v1/export/graphiti"
+	PathExportCognee   = "/v1/export/cognee"
 )
 
 // Health is what GET /v1/health reports: enough to identify the running
@@ -494,6 +505,83 @@ type Error struct {
 	// only ever worked in unit tests that bypassed the HTTP boundary).
 	// Empty for anything not specifically recognized.
 	Kind string `json:"kind,omitempty"`
+}
+
+// ExportMem0Request is one `ragctl export mem0` invocation. Endpoint and
+// APIKeyEnv override the daemon's own config.ExportConfig.Mem0 when set
+// — the CLI's --endpoint/--api-key-env flags, same precedence as the
+// config-or-flag convention VectorConfig already uses.
+type ExportMem0Request struct {
+	ProjectID    string   `json:"project_id"`
+	Dependencies []string `json:"dependencies,omitempty"`
+	Endpoint     string   `json:"endpoint,omitempty"`
+	APIKeyEnv    string   `json:"api_key_env,omitempty"`
+}
+
+// ExportMem0Result is one dependency's export outcome.
+type ExportMem0Result struct {
+	Dependency string `json:"dependency"`
+	Pushed     int    `json:"pushed"`
+	Failed     int    `json:"failed"`
+}
+
+// ExportMem0Response is ExportMem0Request's result, one entry per
+// dependency actually exported.
+type ExportMem0Response struct {
+	Results []ExportMem0Result `json:"results"`
+}
+
+// ExportGraphitiRequest is one `ragctl export graphiti` invocation.
+// Endpoint and AuthTokenEnv override the daemon's own
+// config.ExportConfig.Graphiti when set.
+type ExportGraphitiRequest struct {
+	ProjectID    string   `json:"project_id"`
+	Dependencies []string `json:"dependencies,omitempty"`
+	Endpoint     string   `json:"endpoint,omitempty"`
+	AuthTokenEnv string   `json:"auth_token_env,omitempty"`
+}
+
+// ExportGraphitiResult is one dependency's export outcome — one episode
+// per dependency (its full chunk set), not one per chunk, so Pushed/
+// Failed here are 1/0 rather than a chunk count.
+type ExportGraphitiResult struct {
+	Dependency string `json:"dependency"`
+	Pushed     int    `json:"pushed"`
+	Failed     int    `json:"failed"`
+}
+
+// ExportGraphitiResponse is ExportGraphitiRequest's result.
+type ExportGraphitiResponse struct {
+	Results []ExportGraphitiResult `json:"results"`
+}
+
+// ExportCogneeRequest is one `ragctl export cognee` invocation. Endpoint
+// and AuthTokenEnv override the daemon's own config.ExportConfig.Cognee
+// when set.
+type ExportCogneeRequest struct {
+	ProjectID    string   `json:"project_id"`
+	Dependencies []string `json:"dependencies,omitempty"`
+	Endpoint     string   `json:"endpoint,omitempty"`
+	AuthTokenEnv string   `json:"auth_token_env,omitempty"`
+}
+
+// ExportCogneeResult is one dependency's `add` outcome — one file per
+// dependency, so Pushed/Failed here are 1/0, same shape as
+// ExportGraphitiResult. `cognify` runs once at the end over the whole
+// dataset, not per dependency — see ExportCogneeResponse.CognifyError.
+type ExportCogneeResult struct {
+	Dependency string `json:"dependency"`
+	Pushed     int    `json:"pushed"`
+	Failed     int    `json:"failed"`
+}
+
+// ExportCogneeResponse is ExportCogneeRequest's result. CognifyError is
+// set if the final, dataset-wide cognify call failed after the add
+// phase completed (possibly partially) — a cognify failure doesn't
+// erase the add results above it.
+type ExportCogneeResponse struct {
+	Results      []ExportCogneeResult `json:"results"`
+	CognifyError string               `json:"cognify_error,omitempty"`
 }
 
 // Recognized Error.Kind values — see Error's own doc for why these

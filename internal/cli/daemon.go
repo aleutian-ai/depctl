@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -11,6 +12,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -26,6 +28,9 @@ import (
 	"aleutian-ai/ragctl/internal/daemon/client"
 	badgerstore "aleutian-ai/ragctl/internal/data/badger"
 	"aleutian-ai/ragctl/internal/domain"
+	"aleutian-ai/ragctl/internal/export/cognee"
+	"aleutian-ai/ragctl/internal/export/graphiti"
+	"aleutian-ai/ragctl/internal/export/mem0"
 	"aleutian-ai/ragctl/internal/observability"
 	"aleutian-ai/ragctl/internal/observability/metrics"
 	"aleutian-ai/ragctl/internal/observability/trace"
@@ -717,6 +722,298 @@ func (e *engine) ProjectDependencies(ctx context.Context, projectID string) (api
 		}
 	}
 	return api.ProjectDependenciesResponse{Dependencies: out}, nil
+}
+
+// ExportMem0 pushes projectID's (or req.Dependencies' named subset's)
+// already-synced chunks into a user's own Mem0 instance (MEM0-001).
+// Read-only against ragctl's own stores — the only state this mutates
+// is the user's own external Mem0 instance, and only once a human has
+// explicitly run `ragctl export mem0`.
+func (e *engine) ExportMem0(ctx context.Context, req api.ExportMem0Request, out io.Writer) (api.ExportMem0Response, error) {
+	endpoint := req.Endpoint
+	if endpoint == "" {
+		endpoint = e.cfg.Export.Mem0.Endpoint
+	}
+	if endpoint == "" {
+		return api.ExportMem0Response{}, fmt.Errorf("mem0 endpoint not configured — set export.mem0.endpoint in config.yaml or pass --endpoint")
+	}
+	apiKeyEnv := req.APIKeyEnv
+	if apiKeyEnv == "" {
+		apiKeyEnv = e.cfg.Export.Mem0.APIKeyEnv
+	}
+	var apiKey string
+	if apiKeyEnv != "" {
+		apiKey = os.Getenv(apiKeyEnv)
+	}
+
+	mem0Client := mem0.NewClient(endpoint, apiKey)
+	if err := mem0Client.Health(ctx); err != nil {
+		return api.ExportMem0Response{}, fmt.Errorf("mem0 unreachable at %s: %w", endpoint, err)
+	}
+
+	resolution, err := e.store.GetResolution(ctx, req.ProjectID)
+	if err != nil {
+		return api.ExportMem0Response{}, fmt.Errorf("get resolution for project %s: %w", req.ProjectID, err)
+	}
+
+	only := nameSet(req.Dependencies)
+
+	resp := api.ExportMem0Response{}
+	for _, dv := range resolution.Dependencies {
+		name := dv.Dependency.Name
+		if len(only) > 0 && !only[name] {
+			continue
+		}
+
+		gen, err := e.store.GetActiveGeneration(ctx, dv.Dependency.Ecosystem, name, e.cfg.Vector.Backend)
+		if err != nil {
+			fmt.Fprintf(out, "%s: no active generation, skipping\n", name)
+			continue
+		}
+
+		chunks, err := e.badgerStore.ListGenerationChunks(ctx, gen.ID)
+		if err != nil {
+			return resp, fmt.Errorf("list chunks for %s: %w", name, err)
+		}
+
+		result := api.ExportMem0Result{Dependency: name}
+		for _, chunk := range chunks {
+			obj, err := e.badgerStore.GetKnowledgeObject(ctx, chunk.ObjectID)
+			if err != nil {
+				result.Failed++
+				fmt.Fprintf(out, "%s: get object for chunk %s: %v\n", name, chunk.ID, err)
+				continue
+			}
+			metadata := map[string]string{
+				"ecosystem":   string(obj.Dependency.Dependency.Ecosystem),
+				"dependency":  obj.Dependency.Dependency.Name,
+				"version":     obj.Dependency.Version,
+				"generation":  gen.ID,
+				"source_type": obj.SourceType,
+				"authority":   strconv.Itoa(obj.Authority),
+				"trust_class": string(obj.TrustClass),
+			}
+			if err := mem0Client.AddMemory(ctx, req.ProjectID, string(chunk.Content), metadata); err != nil {
+				result.Failed++
+				fmt.Fprintf(out, "%s: push chunk %s failed: %v\n", name, chunk.ID, err)
+				continue
+			}
+			result.Pushed++
+		}
+		fmt.Fprintf(out, "%s: pushed %d, failed %d\n", name, result.Pushed, result.Failed)
+		resp.Results = append(resp.Results, result)
+	}
+
+	return resp, nil
+}
+
+// ExportGraphiti pushes projectID's (or req.Dependencies' named
+// subset's) already-synced chunks into a user's own Graphiti instance
+// (GRAPHITI-001), one episode per dependency (its full chunk set, not
+// one episode per chunk — Graphiti's own extraction pipeline works over
+// a coherent document). Read-only against ragctl's own stores.
+func (e *engine) ExportGraphiti(ctx context.Context, req api.ExportGraphitiRequest, out io.Writer) (api.ExportGraphitiResponse, error) {
+	endpoint := req.Endpoint
+	if endpoint == "" {
+		endpoint = e.cfg.Export.Graphiti.Endpoint
+	}
+	if endpoint == "" {
+		return api.ExportGraphitiResponse{}, fmt.Errorf("graphiti endpoint not configured — set export.graphiti.endpoint in config.yaml or pass --endpoint")
+	}
+	authTokenEnv := req.AuthTokenEnv
+	if authTokenEnv == "" {
+		authTokenEnv = e.cfg.Export.Graphiti.AuthTokenEnv
+	}
+	var authToken string
+	if authTokenEnv != "" {
+		authToken = os.Getenv(authTokenEnv)
+	}
+
+	graphitiClient := graphiti.NewClient(endpoint, authToken)
+	if err := graphitiClient.Health(ctx); err != nil {
+		return api.ExportGraphitiResponse{}, fmt.Errorf("graphiti unreachable at %s: %w", endpoint, err)
+	}
+
+	resolution, err := e.store.GetResolution(ctx, req.ProjectID)
+	if err != nil {
+		return api.ExportGraphitiResponse{}, fmt.Errorf("get resolution for project %s: %w", req.ProjectID, err)
+	}
+	only := nameSet(req.Dependencies)
+
+	resp := api.ExportGraphitiResponse{}
+	for _, dv := range resolution.Dependencies {
+		name := dv.Dependency.Name
+		if len(only) > 0 && !only[name] {
+			continue
+		}
+
+		gen, err := e.store.GetActiveGeneration(ctx, dv.Dependency.Ecosystem, name, e.cfg.Vector.Backend)
+		if err != nil {
+			fmt.Fprintf(out, "%s: no active generation, skipping\n", name)
+			continue
+		}
+
+		episode, err := e.buildGraphitiEpisode(ctx, gen, dv)
+		result := api.ExportGraphitiResult{Dependency: name}
+		if err != nil {
+			result.Failed = 1
+			fmt.Fprintf(out, "%s: build episode: %v\n", name, err)
+			resp.Results = append(resp.Results, result)
+			continue
+		}
+
+		if err := graphitiClient.AddEpisode(ctx, req.ProjectID, name, episode); err != nil {
+			result.Failed = 1
+			fmt.Fprintf(out, "%s: push episode failed: %v\n", name, err)
+		} else {
+			result.Pushed = 1
+			fmt.Fprintf(out, "%s: episode pushed\n", name)
+		}
+		resp.Results = append(resp.Results, result)
+	}
+	return resp, nil
+}
+
+// graphitiEpisode is one dependency's chunks, shaped per GRAPHITI-001's
+// design — serialized as one episode's content.
+type graphitiEpisode struct {
+	Dependency string                 `json:"dependency"`
+	Version    string                 `json:"version"`
+	Ecosystem  string                 `json:"ecosystem"`
+	Chunks     []graphitiEpisodeChunk `json:"chunks"`
+}
+
+type graphitiEpisodeChunk struct {
+	Content    string `json:"content"`
+	SourceType string `json:"source_type"`
+	TrustClass string `json:"trust_class"`
+	Breadcrumb string `json:"breadcrumb,omitempty"`
+}
+
+// buildGraphitiEpisode reads gen's chunks and their parent objects,
+// shared by ExportGraphiti and (via the same badger reads) nothing
+// else — kept here rather than in the graphiti package itself, since
+// only the daemon-side engine touches Badger (ADR-011).
+func (e *engine) buildGraphitiEpisode(ctx context.Context, gen domain.Generation, dv domain.DependencyVersion) (graphitiEpisode, error) {
+	chunks, err := e.badgerStore.ListGenerationChunks(ctx, gen.ID)
+	if err != nil {
+		return graphitiEpisode{}, fmt.Errorf("list chunks: %w", err)
+	}
+	episode := graphitiEpisode{
+		Dependency: dv.Dependency.Name,
+		Version:    dv.Version,
+		Ecosystem:  string(dv.Dependency.Ecosystem),
+	}
+	for _, chunk := range chunks {
+		obj, err := e.badgerStore.GetKnowledgeObject(ctx, chunk.ObjectID)
+		if err != nil {
+			return graphitiEpisode{}, fmt.Errorf("get object for chunk %s: %w", chunk.ID, err)
+		}
+		episode.Chunks = append(episode.Chunks, graphitiEpisodeChunk{
+			Content:    string(chunk.Content),
+			SourceType: obj.SourceType,
+			TrustClass: string(obj.TrustClass),
+			Breadcrumb: strings.Join(obj.Heading, " > "),
+		})
+	}
+	return episode, nil
+}
+
+// ExportCognee pushes projectID's (or req.Dependencies' named subset's)
+// already-synced chunks into a user's own Cognee instance (COGNEE-001):
+// one file per dependency added to a dataset named for the project ID,
+// then a single cognify call over the whole dataset once every add has
+// completed.
+func (e *engine) ExportCognee(ctx context.Context, req api.ExportCogneeRequest, out io.Writer) (api.ExportCogneeResponse, error) {
+	endpoint := req.Endpoint
+	if endpoint == "" {
+		endpoint = e.cfg.Export.Cognee.Endpoint
+	}
+	if endpoint == "" {
+		return api.ExportCogneeResponse{}, fmt.Errorf("cognee endpoint not configured — set export.cognee.endpoint in config.yaml or pass --endpoint")
+	}
+	authTokenEnv := req.AuthTokenEnv
+	if authTokenEnv == "" {
+		authTokenEnv = e.cfg.Export.Cognee.AuthTokenEnv
+	}
+	var authToken string
+	if authTokenEnv != "" {
+		authToken = os.Getenv(authTokenEnv)
+	}
+
+	cogneeClient := cognee.NewClient(endpoint, authToken)
+	if err := cogneeClient.Health(ctx); err != nil {
+		return api.ExportCogneeResponse{}, fmt.Errorf("cognee unreachable at %s: %w", endpoint, err)
+	}
+
+	resolution, err := e.store.GetResolution(ctx, req.ProjectID)
+	if err != nil {
+		return api.ExportCogneeResponse{}, fmt.Errorf("get resolution for project %s: %w", req.ProjectID, err)
+	}
+	only := nameSet(req.Dependencies)
+
+	resp := api.ExportCogneeResponse{}
+	var addedAny bool
+	for _, dv := range resolution.Dependencies {
+		name := dv.Dependency.Name
+		if len(only) > 0 && !only[name] {
+			continue
+		}
+
+		gen, err := e.store.GetActiveGeneration(ctx, dv.Dependency.Ecosystem, name, e.cfg.Vector.Backend)
+		if err != nil {
+			fmt.Fprintf(out, "%s: no active generation, skipping\n", name)
+			continue
+		}
+
+		episode, err := e.buildGraphitiEpisode(ctx, gen, dv) // same aggregated-chunks shape works for Cognee's own file upload
+		result := api.ExportCogneeResult{Dependency: name}
+		if err != nil {
+			result.Failed = 1
+			fmt.Fprintf(out, "%s: build content: %v\n", name, err)
+			resp.Results = append(resp.Results, result)
+			continue
+		}
+		content, err := json.Marshal(episode)
+		if err != nil {
+			result.Failed = 1
+			fmt.Fprintf(out, "%s: encode content: %v\n", name, err)
+			resp.Results = append(resp.Results, result)
+			continue
+		}
+
+		if err := cogneeClient.Add(ctx, req.ProjectID, name+".json", content); err != nil {
+			result.Failed = 1
+			fmt.Fprintf(out, "%s: add failed: %v\n", name, err)
+		} else {
+			result.Pushed = 1
+			addedAny = true
+			fmt.Fprintf(out, "%s: added\n", name)
+		}
+		resp.Results = append(resp.Results, result)
+	}
+
+	if addedAny {
+		const defaultCogneeChunkSize = 1024
+		if err := cogneeClient.Cognify(ctx, req.ProjectID, defaultCogneeChunkSize); err != nil {
+			resp.CognifyError = err.Error()
+			fmt.Fprintf(out, "cognify failed: %v\n", err)
+		} else {
+			fmt.Fprintln(out, "cognify triggered")
+		}
+	}
+	return resp, nil
+}
+
+// nameSet builds a lookup set from a dependency-name filter list; an
+// empty list means "every dependency" (len(set) == 0 is the caller's
+// own check for that).
+func nameSet(names []string) map[string]bool {
+	set := make(map[string]bool, len(names))
+	for _, n := range names {
+		set[n] = true
+	}
+	return set
 }
 
 // DependencyVersion resolves one package's version within a project, the

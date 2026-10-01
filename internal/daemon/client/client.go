@@ -192,6 +192,39 @@ func (c *Client) GC(ctx context.Context, dryRun, orphans, supersededDuplicates b
 	return res, err
 }
 
+// ExportMem0 runs MEM0-001's export in the daemon, relaying progress to
+// out. Bounded by longRunningRequestTimeout, the same ceiling GC and
+// Resolve use — a batch export pushing many chunks to an external HTTP
+// service is comparable in duration risk, not Sync's own much larger
+// first-build scope.
+func (c *Client) ExportMem0(ctx context.Context, req api.ExportMem0Request, out io.Writer) (api.ExportMem0Response, error) {
+	ctx, cancel := context.WithTimeout(ctx, longRunningRequestTimeout)
+	defer cancel()
+	var res api.ExportMem0Response
+	err := c.stream(ctx, api.PathExportMem0, req, out, &res)
+	return res, err
+}
+
+// ExportGraphiti runs GRAPHITI-001's export in the daemon, relaying
+// progress to out — same bound and shape as ExportMem0.
+func (c *Client) ExportGraphiti(ctx context.Context, req api.ExportGraphitiRequest, out io.Writer) (api.ExportGraphitiResponse, error) {
+	ctx, cancel := context.WithTimeout(ctx, longRunningRequestTimeout)
+	defer cancel()
+	var res api.ExportGraphitiResponse
+	err := c.stream(ctx, api.PathExportGraphiti, req, out, &res)
+	return res, err
+}
+
+// ExportCognee runs COGNEE-001's export in the daemon, relaying progress
+// to out — same bound and shape as ExportMem0.
+func (c *Client) ExportCognee(ctx context.Context, req api.ExportCogneeRequest, out io.Writer) (api.ExportCogneeResponse, error) {
+	ctx, cancel := context.WithTimeout(ctx, longRunningRequestTimeout)
+	defer cancel()
+	var res api.ExportCogneeResponse
+	err := c.stream(ctx, api.PathExportCognee, req, out, &res)
+	return res, err
+}
+
 // Search runs a knowledge search in the daemon, the work behind the
 // search_dependency_docs MCP tool.
 func (c *Client) Search(ctx context.Context, req api.SearchRequest) (api.SearchResponse, error) {

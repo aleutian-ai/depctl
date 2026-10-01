@@ -10,13 +10,13 @@ Same ticket format as `planned/`: each epic has an `INDEX.md`, each ticket is se
 
 20. Python resolver — done, moved to [../completed/20-python-resolver](../completed/20-python-resolver/INDEX.md).
 21. Node resolver — done (2026-09), moved to [../completed/21-node-resolver](../completed/21-node-resolver/INDEX.md).
-22. [22-rust-resolver](22-rust-resolver/INDEX.md)
-23. [23-java-resolver](23-java-resolver/INDEX.md)
+22. Rust resolver — declined (2026-09-30), moved to [../completed/62-rust-resolver](../completed/62-rust-resolver/INDEX.md) (renumbered from 22 to avoid colliding with `completed/22-orphan-lifecycle-gc`'s existing number).
+23. Java resolver — declined (2026-09-30), moved to [../completed/63-java-resolver](../completed/63-java-resolver/INDEX.md) (renumbered from 23 for the same reason).
 
 ## Broader acquisition and backend coverage
 
 24. [24-website-acquisition](24-website-acquisition/INDEX.md) — HTTP client, sitemap reader, HTML normalizer
-25. [25-additional-vector-backends](25-additional-vector-backends/INDEX.md) — conformance suite, Weaviate, Milvus, Chroma, pgvector
+25. [25-additional-vector-backends](25-additional-vector-backends/INDEX.md) — narrowed (2026-09-30) to the conformance suite (`VEC-010`) and an embedded SQLite option (`VEC-015`); the Weaviate/Milvus/Chroma/pgvector adapters were declined and moved to [../completed/64-additional-vector-backend-adapters](../completed/64-additional-vector-backend-adapters/INDEX.md) — none of them are actually lighter than Qdrant, which remains the default.
 
 ## Quality, ops, and ecosystem integration
 
@@ -27,6 +27,7 @@ Same ticket format as `planned/`: each epic has an `INDEX.md`, each ticket is se
 30. [30-local-retrieval-mode](30-local-retrieval-mode/INDEX.md) — Bleve lexical adapter, local query fallback
 31. [31-llamaindex-adapter](31-llamaindex-adapter/INDEX.md) — external normalizer protocol, example sidecar
 32. [32-client-integration-examples](32-client-integration-examples/INDEX.md) — LibreChat, Goose, generic MCP client docs
+65. Cross-agent memory connectors — moved to [../planned/65-cross-agent-memory-connectors](../planned/65-cross-agent-memory-connectors/INDEX.md) (2026-09-30), picked up for active implementation.
 
 ## Dataset asset handling
 
@@ -62,7 +63,7 @@ Epic 42 ([42-repo-graph-symbol-join](../completed/42-repo-graph-symbol-join/INDE
 
 ## Ticket ID prefixes in this directory
 
-`PY / RUST / JAVA / HTTP / VEC (010-014) / EVAL / OBS / EXT / SEC / LOCAL / LLAMA / CLIENT / DATA` — these match the task IDs used in the implementation plan directly, except `DATA` (see above). `NODE` (epic 21) has moved to `completed/README.md` along with the epic (2026-09). `REG` (epic 38, continuing from REG-008) continues epics 07/34's prefix. `NORM` (epic 40) continues epic 09's prefix into backlog use; `EMB`/`CHUNK` (epic 41) continue epics 12/10's prefixes. `CONF` (epic 39) is a new prefix, since Confluence/wiki acquisition doesn't exist yet elsewhere. `GRAPH` (epic 42) has moved to `completed/README.md` along with the epic. `MONO` (epic 50) has likewise moved to `completed/README.md`. `BATCH` (epic 51) has likewise moved to `completed/README.md` (2026-09). `GIT` (epic 43, continuing from GIT-003) has likewise moved to `completed/README.md` (2026-09) — no epic here continues that prefix into backlog use anymore.
+`PY / HTTP / VEC (010, 015) / EVAL / OBS / EXT / SEC / LOCAL / LLAMA / CLIENT / DATA` — these match the task IDs used in the implementation plan directly, except `DATA` (see above). `MEM0`/`GRAPHITI`/`LETTA`/`COGNEE` (epic 65) have moved to `planned/README.md` along with the epic (2026-09-30, picked up for active implementation). `NODE` (epic 21) has moved to `completed/README.md` along with the epic (2026-09). `RUST`/`JAVA` (epics 22/23) have moved to `completed/README.md` (2026-09-30), declined rather than shipped — see that README for why. `VEC-011..014` have likewise moved to `completed/README.md` (2026-09-30), declined; `VEC-010`/`VEC-015` remain here, narrowed epic 25's only surviving tickets. `REG` (epic 38, continuing from REG-008) continues epics 07/34's prefix. `NORM` (epic 40) continues epic 09's prefix into backlog use; `EMB`/`CHUNK` (epic 41) continue epics 12/10's prefixes. `CONF` (epic 39) is a new prefix, since Confluence/wiki acquisition doesn't exist yet elsewhere. `GRAPH` (epic 42) has moved to `completed/README.md` along with the epic. `MONO` (epic 50) has likewise moved to `completed/README.md`. `BATCH` (epic 51) has likewise moved to `completed/README.md` (2026-09). `GIT` (epic 43, continuing from GIT-003) has likewise moved to `completed/README.md` (2026-09) — no epic here continues that prefix into backlog use anymore.
 
 ## A note on `26-evaluation-framework`
 

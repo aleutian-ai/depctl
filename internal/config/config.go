@@ -36,6 +36,42 @@ type Config struct {
 	Fetch         FetchConfig         `yaml:"fetch,omitempty"`
 	Log           LogConfig           `yaml:"log,omitempty"`
 	Observability ObservabilityConfig `yaml:"observability,omitempty"`
+	Export        ExportConfig        `yaml:"export,omitempty"`
+}
+
+// ExportConfig groups epic 65's opt-in cross-agent-memory push
+// connectors (MEM0-001, GRAPHITI-001, LETTA-001, COGNEE-001) — a zero
+// value means none are configured, so `ragctl export <target>` always
+// requires an explicit endpoint (here or via its own flags) rather than
+// silently defaulting to somewhere data could be sent.
+type ExportConfig struct {
+	Mem0     Mem0ExportConfig     `yaml:"mem0,omitempty"`
+	Graphiti GraphitiExportConfig `yaml:"graphiti,omitempty"`
+	Cognee   CogneeExportConfig   `yaml:"cognee,omitempty"`
+}
+
+// Mem0ExportConfig configures MEM0-001's connector — the same
+// endpoint/api_key_env shape VectorConfig already uses for an unmanaged
+// Qdrant, since this is the same kind of "bring your own instance"
+// external HTTP target.
+type Mem0ExportConfig struct {
+	Endpoint  string `yaml:"endpoint,omitempty"`
+	APIKeyEnv string `yaml:"api_key_env,omitempty"`
+}
+
+// GraphitiExportConfig configures GRAPHITI-001's connector. AuthTokenEnv
+// is optional: self-hosted Graphiti has no auth of its own by default,
+// so this only matters for a user who's put their own auth in front of
+// it via a reverse proxy.
+type GraphitiExportConfig struct {
+	Endpoint     string `yaml:"endpoint,omitempty"`
+	AuthTokenEnv string `yaml:"auth_token_env,omitempty"`
+}
+
+// CogneeExportConfig configures COGNEE-001's connector.
+type CogneeExportConfig struct {
+	Endpoint     string `yaml:"endpoint,omitempty"`
+	AuthTokenEnv string `yaml:"auth_token_env,omitempty"`
 }
 
 // ObservabilityConfig groups the opt-in observability integrations (OBS-002

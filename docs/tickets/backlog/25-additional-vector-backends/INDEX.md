@@ -1,10 +1,8 @@
-# Epic: Remaining Vector Backends
+# Epic: Embedded Vector Backend (was: Additional Vector Backends)
 
-Add vector backend adapters beyond the reference Qdrant implementation (VEC-002), each conforming to the same `VectorBackend` interface (VEC-001) and the shared conformance test suite. Only begin after the conformance suite exists — build one reference backend, write conformance tests, only then add more implementations (implementation plan §3.3).
+**Narrowed (2026-09-30).** Originally scoped to add several server-backed vector database vendors (Weaviate, Milvus, Chroma, pgvector) alongside the reference Qdrant implementation. Backlog triage declined all four of those — see [../../completed/64-additional-vector-backend-adapters](../../completed/64-additional-vector-backend-adapters/INDEX.md) for why — since none of them are actually lighter than Qdrant; they're the same "run a separate service" weight class, just a different vendor. **Qdrant remains the default, recommended backend** for anything beyond a single-user local install — nothing here changes that.
 
-- [VEC-010](VEC-010-backend-conformance-suite.md) — shared conformance test suite every backend must pass: health, namespace setup, upsert, metadata filter, query, generation filter, delete, idempotent upsert.
-- [VEC-011](VEC-011-weaviate-adapter.md) — Weaviate adapter via HTTP API.
-- [VEC-012](VEC-012-milvus-adapter.md) — Milvus adapter; hybrid search capability is configuration-dependent.
-- [VEC-013](VEC-013-chroma-adapter.md) — Chroma adapter via HTTP API; limited hybrid search.
-- [VEC-014](VEC-014-pgvector-adapter.md) — PostgreSQL + pgvector adapter; no built-in hybrid/lexical layer.
-- [VEC-015](VEC-015-sqlite-embedded-backend.md) — Embedded SQLite (`sqlite-vec`) backend for a zero-install single-user setup, surfaced by comparing against Grounded Docs' SQLite-only storage model.
+What's left is the one vector-backend idea that's actually differentiated: an **embedded, zero-install alternative** for a first-time or single-project user who doesn't want to run a container at all. Pairs with [epic 30](../30-local-retrieval-mode/INDEX.md) (Bleve lexical fallback) as the other half of "ragctl works immediately after install, no external services required" — see `VEC-015`'s own ticket for the cross-reference.
+
+- [VEC-010](VEC-010-backend-conformance-suite.md) — shared conformance test suite every backend must pass (health, namespace setup, upsert, metadata filter, query, generation filter, delete, idempotent upsert). Backend-agnostic infrastructure, not specific to any one vendor — validates `VEC-015` the same way it already validates the Qdrant adapter.
+- [VEC-015](VEC-015-sqlite-embedded-backend.md) — embedded SQLite (`sqlite-vec`) backend: one file at `<data-dir>/vectors.db`, zero separate process, opt-in (never the default) for a single-user local setup.

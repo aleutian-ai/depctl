@@ -79,6 +79,145 @@ func TestHandleResolveBoundedByMaxActionDuration(t *testing.T) {
 	}
 }
 
+// exportMem0Engine answers only what handleExportMem0 asks for.
+type exportMem0Engine struct {
+	Engine
+	resp api.ExportMem0Response
+	err  error
+}
+
+func (e *exportMem0Engine) ExportMem0(ctx context.Context, req api.ExportMem0Request, out io.Writer) (api.ExportMem0Response, error) {
+	io.WriteString(out, "exporting\n")
+	return e.resp, e.err
+}
+
+// TestHandleExportMem0StreamsResult confirms POST /v1/export/mem0
+// streams progress and a terminal result like every other long-running
+// route (handleSync, handleResolve, handleGC) — MEM0-001's daemon-owned
+// design depends on this matching that exact existing shape.
+func TestHandleExportMem0StreamsResult(t *testing.T) {
+	eng := &exportMem0Engine{resp: api.ExportMem0Response{Results: []api.ExportMem0Result{{Dependency: "google.golang.org/protobuf", Pushed: 3}}}}
+	s := newTestServer(eng)
+
+	body, _ := json.Marshal(api.ExportMem0Request{ProjectID: "proj-1"})
+	req := httptest.NewRequest(http.MethodPost, api.PathExportMem0, bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	s.handleExportMem0(w, req)
+
+	dec := json.NewDecoder(w.Body)
+	var sawLog bool
+	var result api.ExportMem0Response
+	var sawResult bool
+	for {
+		var line api.StreamLine
+		if err := dec.Decode(&line); err != nil {
+			break
+		}
+		if line.Log != "" {
+			sawLog = true
+		}
+		if line.Result != nil {
+			if err := json.Unmarshal(line.Result, &result); err != nil {
+				t.Fatalf("decode result line: %v", err)
+			}
+			sawResult = true
+		}
+		if line.Error != "" {
+			t.Fatalf("unexpected error line: %s", line.Error)
+		}
+	}
+	if !sawLog {
+		t.Error("expected at least one progress log line")
+	}
+	if !sawResult {
+		t.Fatal("expected a terminal result line")
+	}
+	if len(result.Results) != 1 || result.Results[0].Pushed != 3 {
+		t.Errorf("result = %+v, want one dependency with Pushed=3", result)
+	}
+}
+
+// TestHandleExportMem0RejectsEmptyProjectID confirms the handler
+// validates project_id before ever reaching the engine — matching
+// handleResolve's own empty-root check.
+func TestHandleExportMem0RejectsEmptyProjectID(t *testing.T) {
+	s := newTestServer(&exportMem0Engine{})
+
+	body, _ := json.Marshal(api.ExportMem0Request{})
+	req := httptest.NewRequest(http.MethodPost, api.PathExportMem0, bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	s.handleExportMem0(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+// exportMultiEngine answers ExportGraphiti/ExportCognee for their own
+// streaming-shape tests, mirroring exportMem0Engine.
+type exportMultiEngine struct {
+	Engine
+	graphitiResp api.ExportGraphitiResponse
+	cogneeResp   api.ExportCogneeResponse
+}
+
+func (e *exportMultiEngine) ExportGraphiti(ctx context.Context, req api.ExportGraphitiRequest, out io.Writer) (api.ExportGraphitiResponse, error) {
+	io.WriteString(out, "exporting\n")
+	return e.graphitiResp, nil
+}
+
+func (e *exportMultiEngine) ExportCognee(ctx context.Context, req api.ExportCogneeRequest, out io.Writer) (api.ExportCogneeResponse, error) {
+	io.WriteString(out, "exporting\n")
+	return e.cogneeResp, nil
+}
+
+// TestHandleExportGraphitiCogneeStreamResults confirms both remaining
+// epic-65 routes stream progress and a terminal result the same way
+// handleExportMem0 does.
+func TestHandleExportGraphitiCogneeStreamResults(t *testing.T) {
+	eng := &exportMultiEngine{
+		graphitiResp: api.ExportGraphitiResponse{Results: []api.ExportGraphitiResult{{Dependency: "dep-a", Pushed: 1}}},
+		cogneeResp:   api.ExportCogneeResponse{Results: []api.ExportCogneeResult{{Dependency: "dep-a", Pushed: 1}}},
+	}
+	s := newTestServer(eng)
+
+	cases := []struct {
+		name    string
+		path    string
+		handler func(http.ResponseWriter, *http.Request)
+		body    any
+	}{
+		{"graphiti", api.PathExportGraphiti, s.handleExportGraphiti, api.ExportGraphitiRequest{ProjectID: "proj-1"}},
+		{"cognee", api.PathExportCognee, s.handleExportCognee, api.ExportCogneeRequest{ProjectID: "proj-1"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			body, _ := json.Marshal(tc.body)
+			req := httptest.NewRequest(http.MethodPost, tc.path, bytes.NewReader(body))
+			w := httptest.NewRecorder()
+			tc.handler(w, req)
+
+			dec := json.NewDecoder(w.Body)
+			var sawResult bool
+			for {
+				var line api.StreamLine
+				if err := dec.Decode(&line); err != nil {
+					break
+				}
+				if line.Error != "" {
+					t.Fatalf("unexpected error line: %s", line.Error)
+				}
+				if line.Result != nil {
+					sawResult = true
+				}
+			}
+			if !sawResult {
+				t.Fatalf("%s: expected a terminal result line", tc.name)
+			}
+		})
+	}
+}
+
 // statusEngine answers only what handleStatus and syncActivity ask for.
 type statusEngine struct {
 	Engine

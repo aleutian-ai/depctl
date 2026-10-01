@@ -1,7 +1,7 @@
 # RUST-002: `cargo metadata` resolver
 
 **Epic:** Rust Resolver
-**Status:** planned
+**Status:** declined (2026-09-30)
 **Depends on:** RUST-001, RES-002
 **Estimated size:** medium
 
@@ -57,3 +57,8 @@ version = resolved version (or commit for git deps)
 - [ ] Same `Cargo.toml`/`Cargo.lock` yields a stable resolution fingerprint across repeated runs.
 - [ ] Git dependencies retain commit/rev identity.
 - [ ] Path dependencies marked local and excluded from external knowledge sync.
+
+
+## Declined (2026-09-30)
+
+Not being built — a deliberate priority call, not a technical blocker. Reviewed against the shipped `Resolver` interface (`internal/resolver`) during a backlog-triage discussion: it is already fully ecosystem-agnostic (`Name() string`, `Detect(ctx, root) (bool, error)`, `Resolve(ctx, root) (domain.Resolution, error)`), `domain.Ecosystem` already carries unused `EcosystemRust`/`EcosystemJava` constants, and `domain.Resolution`/`DependencyVersion`/`Dependency` have zero ecosystem-specific fields — exactly the same shape Go/Python/Node's real resolvers already prove out (shell out to the ecosystem's own tool, parse its structured JSON output, map to `domain.Resolution`). This ticket's own design already matches that pattern. Nothing here needs re-scoping or new interface work if picked up later — it was never the hard part.

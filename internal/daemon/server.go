@@ -95,6 +95,20 @@ type Engine interface {
 	// the network itself; it only reads state a separate background
 	// goroutine maintains.
 	VectorReadiness(ctx context.Context) (state, detail string)
+
+	// ExportMem0, ExportGraphiti, and ExportCognee each push a project's
+	// (or one named dependency's) already-synced chunks into a user's
+	// own instance of that system (epic 65) — explicit, one-shot, never
+	// part of this daemon's own background sync path. Reads the stores
+	// in-process (ADR-011); the only state mutated outside this process
+	// is the user's own external instance. LETTA-001 was declined
+	// (2026-10-01): its target, Letta's REST archival-memory agent
+	// server, turned out to be a retired product with no current
+	// self-hostable deployment — see docs/tickets/completed/
+	// 65-cross-agent-memory-connectors/LETTA-001-letta-export-connector.md.
+	ExportMem0(ctx context.Context, req api.ExportMem0Request, out io.Writer) (api.ExportMem0Response, error)
+	ExportGraphiti(ctx context.Context, req api.ExportGraphitiRequest, out io.Writer) (api.ExportGraphitiResponse, error)
+	ExportCognee(ctx context.Context, req api.ExportCogneeRequest, out io.Writer) (api.ExportCogneeResponse, error)
 }
 
 // Options configures a Server. Socket and Engine are required.
@@ -252,6 +266,9 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST "+api.PathProjectGet, s.handleProjectGet)
 	mux.HandleFunc("POST "+api.PathDescribe, s.handleDescribe)
 	mux.HandleFunc("POST "+api.PathDoctor, s.handleDoctor)
+	mux.HandleFunc("POST "+api.PathExportMem0, s.handleExportMem0)
+	mux.HandleFunc("POST "+api.PathExportGraphiti, s.handleExportGraphiti)
+	mux.HandleFunc("POST "+api.PathExportCognee, s.handleExportCognee)
 	return s.loggingMiddleware(mux)
 }
 

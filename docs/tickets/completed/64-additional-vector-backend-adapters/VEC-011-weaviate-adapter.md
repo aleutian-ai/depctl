@@ -1,7 +1,7 @@
 # VEC-011: Weaviate adapter
 
 **Epic:** Remaining Vector Backends
-**Status:** planned
+**Status:** declined (2026-09-30)
 **Depends on:** VEC-010
 **Estimated size:** medium
 
@@ -48,3 +48,8 @@ Same as `VectorBackend` interface (VEC-001) — no new inputs/outputs beyond wha
 ## Acceptance criteria
 - [ ] Passes the full VEC-010 conformance suite via testcontainers.
 - [ ] Metadata filters support package/ecosystem/version/generation per the namespace model.
+
+
+## Declined (2026-09-30)
+
+Not being built — a deliberate scoping decision, not a technical blocker. Backlog triage narrowed this epic to the two vector-backend tickets that actually matter for ragctl's own priorities right now: `VEC-010` (the shared conformance suite, backend-agnostic infrastructure) and `VEC-015` (embedded SQLite, a genuine zero-install alternative to Qdrant — see its own ticket). This adapter is the same weight class as Qdrant itself (a separate service to install and run) rather than a lighter alternative, so it does not address the actual friction ragctl's local-first users hit (needing Qdrant + a container runtime at all). Reusing `VEC-010`'s conformance suite, this remains a mechanical "write one more `VectorBackend` implementation" ticket if ever picked up later — no interface work needed.

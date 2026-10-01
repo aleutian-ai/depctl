@@ -35,6 +35,27 @@ func (b *BleveBackend) Health(ctx context.Context) error
 
 `Upsert` indexes chunk text plus the same metadata fields (ecosystem/dependency/version/generation/source_type/authority) used by the Qdrant adapter, as Bleve document fields for filtering via Bleve's conjunction/term queries. `Query` combines a `bleve.NewMatchQuery` on text with `bleve.NewTermQuery` filters per metadata field.
 
+**A real prerequisite gap, found while scoping this (2026-09-30), not yet fixed anywhere**: `backend.QueryRequest` (`internal/backend/backend.go`) has no field for the raw query string at all —
+
+```go
+type QueryRequest struct {
+    Namespace string
+    Vector    []float32
+    TopK      int
+    Filter    *Filter
+}
+```
+
+— and the one real caller, `query.Service.search` (`internal/query/search.go`), unconditionally embeds the query text and passes *only* `vectors[0]` through:
+
+```go
+vectors, err := s.embedder.Embed(ctx, []string{text})
+...
+result, err := s.backend.Query(ctx, backend.QueryRequest{Vector: vectors[0], ...})
+```
+
+A pure-lexical backend has no way to receive the string it's supposed to search on. This needs a small interface change *before* `Query` can be implemented at all — add `Text string` to `QueryRequest`, and make `query.Service.search` check the configured backend's own `Capabilities()` before deciding whether to call the embedder: skip `s.embedder.Embed` entirely (never call it — not just discard its result) when `Capabilities().VectorSearch` is false, and always pass `Text: text` through regardless. This is genuinely small (one struct field, one capability check in one call site) but it's real scope this ticket's original sketch missed — call it out explicitly as part of this ticket's own work, not an assumed-already-done prerequisite.
+
 ## Inputs / Outputs
 - Input: `UpsertRequest`/`QueryRequest` (same shapes as VEC-001).
 - Output: `QueryResult` with lexical relevance scores.

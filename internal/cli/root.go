@@ -48,6 +48,7 @@ func NewRootCmd() *cobra.Command {
 		newRegistryCmd(),
 		newCorpusCmd(),
 		newConfigCmd(),
+		newExportCmd(),
 	)
 
 	return root
