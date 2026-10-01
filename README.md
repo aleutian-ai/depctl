@@ -14,7 +14,7 @@ ragctl is not the only locally-hosted or privacy-first option in this space, and
 
 - Go 1.25.6+
 - [Ollama](https://ollama.com/) running locally — ragctl ships with Ollama + [`nomic-embed-text-v2-moe`](https://ollama.com/library/nomic-embed-text-v2-moe) (~957MB, Apache-2.0) as its default local embedding path, and auto-pulls that model itself, in the background, the first time it's needed — no manual `ollama pull` required as long as Ollama itself is installed and running. Only `sync`/search actually need it, and only once there's real work to embed — `scan`/`project`/`deps`/`plan`/`doctor` and MCP's other tools work without it. If Ollama isn't reachable, `ragctl daemon status` says so plainly.
-- A vector backend (Qdrant by default) — needed by `sync`, `gc`, and `status`. If none is reachable at the configured endpoint and a container runtime (Podman or Docker) is on PATH, ragctl starts and manages its own Qdrant container automatically (`vector.managed: true`, the default for a fresh `ragctl init`) — no manual setup required. See [Data persistence](#data-persistence) below for what that means for your indexed data, and [docs/offline-quickstart.md](docs/offline-quickstart.md) if you'd rather run Qdrant yourself.
+- A vector store, needed by `sync`, `gc`, and `status`. Use the one you already run, or let ragctl manage a local Qdrant for you; see [Vector store](#vector-store) below.
 - (optional) [Podman](https://podman.io/) or [Docker](https://www.docker.com/) — only needed for the automatic Qdrant management above, plus the reference container and cross-platform tests, see below.
 
 ## Building and running natively
@@ -56,6 +56,41 @@ Using [opencode](https://opencode.ai) specifically? See [docs/opencode-usage.md]
 - **`sync_project` never blocks past ~90 seconds**, no matter how long the underlying sync actually takes. A large first sync returns a `still_running` status instead of hanging past your client's own timeout, while the sync keeps going in the background — check back with `list_project_dependencies` or call the tool again rather than assuming it failed.
 - **A first sync only fetches what's actually needed.** `ragctl` clones each dependency blobless and sparse-checkout-scoped to the doc-shaped files its normalizers read (Markdown, plaintext, license, and source for godoc extraction) — not that repo's full working tree or history content.
 - **`explain_call_site` resolves a source location straight to version-correct evidence.** Give it a file/line/column instead of a dependency name and question, and it figures out what that call is actually referring to (via a real `go/packages` type-checked load, Go only for now) before searching — useful when an agent doesn't yet know *which* dependency a piece of code depends on. It resolves against whatever project the MCP server's own working directory is — no JIT-sync-on-miss like `search_dependency_docs`, and it can't resolve calls into the standard library (ragctl doesn't track that as a "dependency").
+
+## Vector store
+
+ragctl needs a vector index to give agents exact, version-correct docs.
+
+- **Already run Qdrant?** That includes a standalone server or the one under your Mem0. Point ragctl at it:
+
+  ```yaml
+  vector:
+    endpoint: http://localhost:6333
+    managed: false               # never start ragctl's own container
+    api_key_env: QDRANT_API_KEY  # only if your server requires a key
+  ```
+
+  ragctl writes to its own collection (a unique name per install) and never touches yours. This works with today's config. A full verification against a Qdrant shared with other tooling is tracked in [`VEC-016`](docs/tickets/backlog/25-additional-vector-backends/VEC-016-bring-your-own-qdrant.md).
+- **Run Weaviate or Postgres + pgvector instead?** Planned, not built yet: [`VEC-011`](docs/tickets/backlog/25-additional-vector-backends/VEC-011-weaviate-adapter.md) (Weaviate) and [`VEC-014`](docs/tickets/backlog/25-additional-vector-backends/VEC-014-pgvector-adapter.md) (pgvector, which is also what Mem0's own self-hosted server stack uses). Qdrant, Weaviate, and pgvector are the intended supported set.
+- **Don't run one?** ragctl starts and manages a local Qdrant container for you (`vector.managed: true`, the default for a fresh `ragctl init`) whenever a container runtime (Podman or Docker) is on your PATH. No manual setup. It's the one extra service ragctl needs today, and it works well. An embedded, no-service option ([`VEC-015`](docs/tickets/backlog/25-additional-vector-backends/VEC-015-sqlite-embedded-backend.md)) is on the roadmap. See [Data persistence](#data-persistence) for where that container keeps your data, and [docs/offline-quickstart.md](docs/offline-quickstart.md) to run Qdrant yourself.
+
+## Cross-agent memory
+
+If your agents already use a memory system, `ragctl export` pushes ragctl's synced, version-correct dependency knowledge into it. Agents then find the right docs through the memory they already query. This is a one-way copy you run explicitly: ragctl keeps its own index as the source of truth, so you still need a vector store (above).
+
+```bash
+ragctl export mem0     --project <id> --endpoint http://localhost:8888
+ragctl export graphiti --project <id> --endpoint http://localhost:8000
+ragctl export cognee   --project <id> --endpoint http://localhost:8000
+```
+
+Status, from testing against real self-hosted containers:
+
+- **Cognee**: verified end to end. Exported content is searchable in Cognee. Its `cognify` step runs synchronously and can take minutes, even for a small dependency.
+- **Graphiti**: a real server accepts the export. Graphiti processes episodes in a background queue that hides failures; ingestion hasn't been confirmed end to end with a small local model.
+- **Mem0**: built against Mem0's documented API, not yet tested against a real instance.
+
+Each target is unauthenticated by default when self-hosted, and Mem0 and Cognee send telemetry by default. Each command's `--help` covers the specifics. Never expose these services beyond localhost or a private network without your own auth in front.
 
 ## Data persistence
 

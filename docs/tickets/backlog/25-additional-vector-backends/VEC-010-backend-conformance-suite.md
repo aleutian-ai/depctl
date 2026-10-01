@@ -9,7 +9,7 @@
 Build a shared test suite, runnable against any `VectorBackend` implementation, that every backend adapter must pass: health, namespace setup, upsert, metadata filter, query, generation filter, delete, idempotent upsert.
 
 ## Non-goals
-- Implementing any additional backend (VEC-011..014 do that, reusing this suite).
+- Implementing any additional backend (VEC-011, VEC-014, and VEC-015 do that, reusing this suite).
 - Performance/load testing — functional correctness only.
 
 ## Simplicity constraints

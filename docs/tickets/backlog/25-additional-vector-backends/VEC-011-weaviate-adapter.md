@@ -1,7 +1,7 @@
 # VEC-011: Weaviate adapter
 
-**Epic:** Remaining Vector Backends
-**Status:** declined (2026-09-30)
+**Epic:** Vector Backends (bring-your-own + embedded)
+**Status:** planned (revived 2026-10-01; declined 2026-09-30 — see both notes at the end)
 **Depends on:** VEC-010
 **Estimated size:** medium
 
@@ -49,6 +49,14 @@ Same as `VectorBackend` interface (VEC-001) — no new inputs/outputs beyond wha
 - [ ] Passes the full VEC-010 conformance suite via testcontainers.
 - [ ] Metadata filters support package/ecosystem/version/generation per the namespace model.
 
+
+## Revived (2026-10-01)
+
+The decline below judged this adapter as "another server to run," which was true for a user starting from nothing. It missed a different user: someone who **already runs** Weaviate (directly, or as the store under Weaviate-based agent memory tooling). For that user, Weaviate support means "ragctl uses what you already have": no Qdrant, no extra container. That is ragctl's positioning as of 2026-10-01 (see the README's "Vector store" section). If you already run a supported vector DB, ragctl uses it. If you don't, ragctl manages a local Qdrant for you, and `VEC-015` (embedded SQLite) is the longer-term no-service path. The supported set is deliberately Qdrant, Weaviate, and pgvector, which covers most existing deployments. Milvus and Chroma (`VEC-012`/`VEC-013`) stay declined.
+
+Implementation notes for whoever picks this up:
+- Use its own collection or class, never anything belonging to the user's other tooling. That's the same isolation rule the Qdrant adapter follows via its per-install collection name (`SAFE-001`).
+- Verify against a real Weaviate under Podman, not only testcontainers fakes. Epic 65's real-container pass found bugs in three of its four connectors that fakes had passed.
 
 ## Declined (2026-09-30)
 

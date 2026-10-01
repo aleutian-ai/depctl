@@ -1,7 +1,7 @@
 # VEC-014: pgvector adapter
 
-**Epic:** Remaining Vector Backends
-**Status:** declined (2026-09-30)
+**Epic:** Vector Backends (bring-your-own + embedded)
+**Status:** planned (revived 2026-10-01; declined 2026-09-30 — see both notes at the end)
 **Depends on:** VEC-010
 **Estimated size:** medium
 
@@ -44,6 +44,15 @@ Per `VectorBackend` interface (VEC-001).
 - [ ] `Capabilities.HybridSearch` is false; `KeywordSearch` is false unless explicitly implemented.
 - [ ] Extension bootstrap is idempotent across repeated `EnsureNamespace` calls.
 
+
+## Revived (2026-10-01)
+
+Same reasoning as `VEC-011`'s revival. The decline below judged pgvector as "another server to run." It missed users who **already run** Postgres with pgvector. The concrete case: Mem0's own self-hosted server stack deploys pgvector by default, so a Mem0 user already has one running. For them, this adapter means ragctl adds no extra vector service at all. It also pairs with `MEM0-001` (epic 65): ragctl's index and the user's Mem0 can share the same Postgres instance in separate tables, and the export connector still provides the cross-agent memory benefit. Part of the deliberate supported set: Qdrant, Weaviate, pgvector.
+
+Implementation notes for whoever picks this up:
+- Use ragctl's own table (or own schema), never Mem0's or any other tool's. Make the table name per-install, following the same isolation rule as the Qdrant adapter's collection name (`SAFE-001`).
+- `CREATE EXTENSION IF NOT EXISTS vector` may need privileges a shared Postgres doesn't grant. If the extension is already installed, skip the create rather than failing. Fail with the typed "missing extension" error only when it's genuinely absent.
+- Verify against a real Postgres + pgvector under Podman. Ideally that's the actual Mem0 server stack's Postgres, to prove the shared-instance case rather than assert it.
 
 ## Declined (2026-09-30)
 
