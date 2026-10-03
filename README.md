@@ -79,7 +79,7 @@ ragctl needs a vector index to give agents exact, version-correct docs.
 If your agents already use a memory system, `ragctl export` pushes ragctl's synced, version-correct dependency knowledge into it. Agents then find the right docs through the memory they already query. This is a one-way copy you run explicitly: ragctl keeps its own index as the source of truth, so you still need a vector store (above).
 
 ```bash
-ragctl export mem0     --project <id> --endpoint http://localhost:8888
+ragctl export mem0     --project <id> --endpoint http://localhost:8888 --api-key-env MEM0_ADMIN_KEY
 ragctl export graphiti --project <id> --endpoint http://localhost:8000
 ragctl export cognee   --project <id> --endpoint http://localhost:8000
 ```
@@ -88,7 +88,7 @@ Status, from testing against real self-hosted containers:
 
 - **Cognee**: verified end to end. Exported content is searchable in Cognee. Its `cognify` step runs synchronously and can take minutes, even for a small dependency.
 - **Graphiti**: a real server accepts the export. Graphiti processes episodes in a background queue that hides failures; ingestion hasn't been confirmed end to end with a small local model.
-- **Mem0**: built against Mem0's documented API, not yet tested against a real instance.
+- **Mem0** (self-hosted server): verified end to end. Exported docs are searchable in Mem0, re-exporting a dependency replaces its previous copy instead of duplicating it, and an upgrade replaces the old version. Needs an admin API key for that replace step.
 
 Each target is unauthenticated by default when self-hosted, and Mem0 and Cognee send telemetry by default. Each command's `--help` covers the specifics. Never expose these services beyond localhost or a private network without your own auth in front.
 

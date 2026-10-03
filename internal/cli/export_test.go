@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"aleutian-ai/ragctl/internal/config"
@@ -78,7 +79,11 @@ func exportTestEngine(t *testing.T, cfg config.Config) (*engine, *bboltstore.Sto
 func TestExportMem0PushesEveryChunkWithCorrectMetadata(t *testing.T) {
 	var gotRequests []map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/v1/entities/" {
+		if r.Method == http.MethodDelete { // replace step
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		if r.URL.Path == "/entities" { // Health
 			w.WriteHeader(http.StatusOK)
 			return
 		}
@@ -120,7 +125,11 @@ func TestExportMem0PushesEveryChunkWithCorrectMetadata(t *testing.T) {
 func TestExportMem0PartialFailureDoesNotAbortBatch(t *testing.T) {
 	var calls int
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/v1/entities/" {
+		if r.Method == http.MethodDelete { // replace step
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		if r.URL.Path == "/entities" { // Health
 			w.WriteHeader(http.StatusOK)
 			return
 		}
@@ -297,5 +306,135 @@ func TestExportCogneeSkipsCognifyWhenNothingWasAdded(t *testing.T) {
 	}
 	if cognifyCalls != 0 {
 		t.Errorf("cognifyCalls = %d, want 0 — nothing was added, so cognify must not run", cognifyCalls)
+	}
+}
+
+// TestExportMissingKeyEnvNamesTheDaemon: the configured key env var is
+// read by the daemon, not the shell running `ragctl export`. When it's
+// empty, say so instead of letting the server answer 401.
+func TestExportMissingKeyEnvNamesTheDaemon(t *testing.T) {
+	cfg := config.Config{
+		Export: config.ExportConfig{Mem0: config.Mem0ExportConfig{Endpoint: "http://127.0.0.1:1", APIKeyEnv: "RAGCTL_TEST_UNSET_MEM0_KEY"}},
+		Vector: config.VectorConfig{Backend: "qdrant"},
+	}
+	e, _, _ := exportTestEngine(t, cfg)
+	var out testWriter
+	_, err := e.ExportMem0(context.Background(), api.ExportMem0Request{ProjectID: "proj_1"}, &out)
+	if err == nil || !strings.Contains(err.Error(), "RAGCTL_TEST_UNSET_MEM0_KEY") || !strings.Contains(err.Error(), "daemon") {
+		t.Fatalf("err = %v, want it to name the env var and the daemon's environment", err)
+	}
+}
+
+// TestExportMem0ReplacesPreviousExportPerDependency: re-exporting deletes
+// this project's previous memories for the dependency (scoped by user_id
+// and a ragctl-only run_id) before pushing, instead of stacking a copy.
+func TestExportMem0ReplacesPreviousExportPerDependency(t *testing.T) {
+	var deletes []string
+	var adds int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodDelete:
+			deletes = append(deletes, r.URL.Query().Get("user_id")+"|"+r.URL.Query().Get("run_id"))
+		case r.URL.Path == "/memories":
+			if len(deletes) == 0 {
+				t.Error("a chunk was pushed before the previous export was deleted")
+			}
+			adds++
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	cfg := config.Config{Export: config.ExportConfig{Mem0: config.Mem0ExportConfig{Endpoint: srv.URL}}, Vector: config.VectorConfig{Backend: "qdrant"}}
+	e, store, badgerStore := exportTestEngine(t, cfg)
+	seedExportFixture(t, store, badgerStore, "proj_1", domain.EcosystemGo, "google.golang.org/protobuf", "v1.36.11", 2)
+
+	var out testWriter
+	if _, err := e.ExportMem0(context.Background(), api.ExportMem0Request{ProjectID: "proj_1"}, &out); err != nil {
+		t.Fatalf("ExportMem0: %v", err)
+	}
+	if len(deletes) != 1 || deletes[0] != "proj_1|ragctl:google.golang.org/protobuf" {
+		t.Errorf("deletes = %v, want exactly one scoped to proj_1 + ragctl:google.golang.org/protobuf", deletes)
+	}
+	if adds != 2 {
+		t.Errorf("adds = %d, want 2", adds)
+	}
+}
+
+// TestExportMem0FailedDeletePushesNothing: if the previous export can't
+// be removed (e.g. a non-admin key), pushing anyway would stack a
+// duplicate set, so the dependency is reported failed instead.
+func TestExportMem0FailedDeletePushesNothing(t *testing.T) {
+	var adds int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodDelete:
+			w.WriteHeader(http.StatusForbidden)
+			return
+		case r.URL.Path == "/memories":
+			adds++
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	cfg := config.Config{Export: config.ExportConfig{Mem0: config.Mem0ExportConfig{Endpoint: srv.URL}}, Vector: config.VectorConfig{Backend: "qdrant"}}
+	e, store, badgerStore := exportTestEngine(t, cfg)
+	seedExportFixture(t, store, badgerStore, "proj_1", domain.EcosystemGo, "google.golang.org/protobuf", "v1.36.11", 2)
+
+	var out testWriter
+	resp, err := e.ExportMem0(context.Background(), api.ExportMem0Request{ProjectID: "proj_1"}, &out)
+	if err != nil {
+		t.Fatalf("ExportMem0: %v", err)
+	}
+	if adds != 0 {
+		t.Errorf("adds = %d, want 0 when the delete failed", adds)
+	}
+	if len(resp.Results) != 1 || resp.Results[0].Failed != 2 || resp.Results[0].Pushed != 0 {
+		t.Errorf("results = %+v, want the dependency reported as 2 failed, 0 pushed", resp.Results)
+	}
+	if !strings.Contains(string(out.data), "admin") {
+		t.Errorf("output %q should explain the admin-key requirement", out.data)
+	}
+}
+
+// TestExportMem0VersionComesFromGenerationNotReusedObject is the live
+// finding as a regression test: a knowledge object reused from another
+// version's build still carries that version, and must not leak into the
+// exported metadata.
+func TestExportMem0VersionComesFromGenerationNotReusedObject(t *testing.T) {
+	var versions []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && r.URL.Path == "/memories" {
+			var body struct {
+				Metadata map[string]string `json:"metadata"`
+			}
+			json.NewDecoder(r.Body).Decode(&body)
+			versions = append(versions, body.Metadata["version"])
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	cfg := config.Config{Export: config.ExportConfig{Mem0: config.Mem0ExportConfig{Endpoint: srv.URL}}, Vector: config.VectorConfig{Backend: "qdrant"}}
+	e, store, badgerStore := exportTestEngine(t, cfg)
+	genID := seedExportFixture(t, store, badgerStore, "proj_1", domain.EcosystemGo, "github.com/google/uuid", "v1.5.0", 2)
+
+	// Simulate GEN-003 reuse: the object was first built for v1.6.0.
+	obj, err := badgerStore.GetKnowledgeObject(context.Background(), "obj_"+genID)
+	if err != nil {
+		t.Fatalf("GetKnowledgeObject: %v", err)
+	}
+	obj.Dependency.Version = "v1.6.0"
+	if err := badgerStore.PutKnowledgeObject(context.Background(), obj); err != nil {
+		t.Fatalf("PutKnowledgeObject: %v", err)
+	}
+
+	var out testWriter
+	if _, err := e.ExportMem0(context.Background(), api.ExportMem0Request{ProjectID: "proj_1"}, &out); err != nil {
+		t.Fatalf("ExportMem0: %v", err)
+	}
+	if len(versions) != 2 || versions[0] != "v1.5.0" || versions[1] != "v1.5.0" {
+		t.Errorf("exported versions = %v, want [v1.5.0 v1.5.0] (the generation's version, not the reused object's)", versions)
 	}
 }

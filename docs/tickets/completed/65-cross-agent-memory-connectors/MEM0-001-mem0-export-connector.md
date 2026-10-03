@@ -24,7 +24,9 @@ Per ADR-011, the daemon is the only process that opens `internal/data/badger`; t
 - `Client.ExportMem0(ctx, req, out)` in `internal/daemon/client/client.go`, using `c.stream` (progress-bearing, same as `Client.Sync`).
 - `ragctl export mem0` (`internal/cli/export.go`) is a thin CLI command: parse flags, build `api.ExportMem0Request`, call `Client.ExportMem0`, print the streamed progress/summary — it never touches Badger or the Mem0 HTTP client itself.
 
-## Transport — confirmed (2026-09-30)
+## Transport — originally assumed (2026-09-30), superseded
+**Superseded by the real-container verification below (2026-10-03):** everything in this section describes the *hosted* Mem0 Platform's API, not the self-hosted server this connector is for.
+
 `POST /v3/memories/add/` (`docs.mem0.ai/api-reference/memory/add-memories`) — not `/v1/...`, verified directly against current docs rather than assumed. Request body: `messages` (array of `{role, content}`), one of `user_id`/`agent_id`/`app_id`/`run_id` (this connector always sends `user_id`, set to the project ID — the same scoping role Graphiti's `group_id` plays), optional `metadata`. **By default this endpoint is asynchronous** — it returns `{"event_id": ..., "status": "PENDING"}` immediately, with no success/failure signal until a separate `GET /v1/event/{event_id}/` poll. That's incompatible with this ticket's per-chunk success/failure reporting, so every request sets `"infer": false`, which makes the call synchronous and returns `results`/`message` directly — confirmed in the same docs page.
 
 ## Simplicity constraints
@@ -79,3 +81,16 @@ Shipped per the epic's daemon-owned architecture decision: `POST /v1/export/mem0
 - Mem0 has no dedicated health/ping endpoint (confirmed absent from its API reference) — `Health()` uses `GET /v1/entities/` instead, the cheapest real, documented, read-only endpoint available.
 
 All acceptance criteria boxes are now checked.
+
+## Real-container verification (2026-10-03)
+Tested against Mem0's real self-hosted server, built from `github.com/mem0ai/mem0`'s `server/` (no published image exists), with `pgvector/pgvector:pg17`, under Podman. It ran fully local: Mem0's bundled OpenAI provider was pointed at Ollama's OpenAI-compatible `/v1` (`OPENAI_BASE_URL`), with a 768-dim `nomic-embed-text` embedder set via `POST /configure`. No paid key.
+
+**The connector had been built against the wrong API.** The paths and auth in the original Transport section are the hosted Mem0 Platform's. The self-hosted server (`server/main.py`) uses `POST /memories`, `GET /entities`, and `X-API-Key` auth. Live: the old `Authorization: Token` header got 401, and the old health path (`/v1/entities/`) got 404, which the old check would have passed, since it accepted anything below 500. The request body happened to match (`messages`, `user_id`, `metadata`, `infer`). Fixed: `POST /memories`, `X-API-Key`, and a health check (`GET /entities`) that requires a real 200, with specific messages for 401 (key) and 404 ("is this a self-hosted Mem0 server?"). The hosted Platform is explicitly unsupported.
+
+**Three more real findings, fixed:**
+1. **Re-exporting duplicated everything.** With `infer: false`, Mem0 stores every add (168 rows, 84 distinct after two exports). Each memory is now tagged `run_id = "ragctl:<dependency>"`, and exporting a dependency first deletes that project+dependency's previous memories (`DELETE /memories?user_id=…&run_id=…`, filters ANDed), so only ragctl's own writes are touched. If the delete fails (e.g. a non-admin key; self-hosted Mem0 requires admin for deletes), nothing is pushed for that dependency, so a duplicate set is never left behind. Live: two exports → 84; moving the project from `uuid` v1.6.0 to v1.5.0 and exporting → exactly 81, all v1.5.0.
+2. **Exported version labels could be wrong.** Metadata `version` was read from the knowledge object, but GEN-003 content reuse means a reused object keeps the version of whichever build first created it (the same trap `generation.Replicate` documents). Live: exporting v1.5.0 labeled 72 of 81 chunks `v1.6.0`. Ecosystem, dependency, and version now come from the generation being exported. Residual, documented: `source_type`/`authority`/`trust_class` still come from the object, and could only go stale if a dependency's *sources* changed between versions.
+3. **Misleading auth errors.** A rejected key was reported as "mem0 unreachable"; it now reads "pre-flight check failed … authentication failed". And `--api-key-env` naming a variable the **daemon** doesn't have now says exactly that (the daemon reads it, not the shell), instead of letting the server answer 401. The same two wording fixes apply to the Graphiti and Cognee connectors.
+
+**Verified end to end:** `ragctl export mem0` pushed 84 chunks in 6s with 0 failures; Postgres held all 84 (Mem0's list endpoint shows 20 by default, a page size, not data loss); and Mem0's own semantic search for "How do I generate a new random UUID?" returned `uuid`'s `New`/`NewRandom` docs with ragctl's version, generation, and trust metadata intact.
+

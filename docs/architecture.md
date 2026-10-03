@@ -721,6 +721,17 @@ Verified end to end against real containers (a user-owned Qdrant, local Ollama),
 
 Still open, noted rather than fixed: readiness only notices a backend coming back. A backend that goes down after startup reads `ready` until a call fails with the underlying dial error.
 
+## MEM0-001 verified against a real self-hosted Mem0 (2026-10-03)
+
+The Mem0 connector had been built against the **hosted Mem0 Platform's** API (`/v3/memories/add/`, `Authorization: Token`), not the self-hosted server it's meant for (`POST /memories`, `GET /entities`, `X-API-Key`). Against a real self-hosted server, built from source and run fully local on Ollama via its OpenAI-compatible endpoint, every add would have 404'd. The old health check would have "passed" a 404, too, because it accepted anything below 500. Switched to the self-hosted API; the hosted Platform is explicitly unsupported.
+
+The same run found three more problems, all fixed:
+- **Re-exports stacked duplicates.** Each memory is now tagged with a ragctl-only `run_id` per dependency, and an export replaces that project+dependency's previous set. It needs an admin key, and a failed delete pushes nothing.
+- **Exported version labels could be wrong.** Metadata now comes from the generation being exported, not from GEN-003-reused objects; one run had labeled 72 of 81 v1.5.0 chunks as v1.6.0.
+- **Auth errors were misleading.** They now say what actually failed, including when the API key's env var isn't set in the daemon's environment.
+
+Verified end to end: Mem0's own semantic search returns ragctl's exported, correctly versioned `uuid` docs. See `MEM0-001`'s "Real-container verification" section.
+
 ## Testing notes
 
 Tests that spawn a real `go` subprocess under an isolated `$HOME` (`internal/cli`'s `requireGo`-gated tests, `internal/resolver/golang`) run fully offline (`GOFLAGS=-mod=mod`, `GOPROXY=off`) and point `GOCACHE`/`GOPATH`/`GOTELEMETRYDIR` at a shared directory outside any per-test temp dir. Without this, Go's build cache and telemetry uploader raced `t.TempDir()` cleanup under the Alpine/Podman container specifically (never observed natively on macOS), intermittently failing with `directory not empty`. `internal/cli/init_test.go`'s `isolateEnv` also retries its own cleanup a few times before giving up, as a second line of defense against the same class of race.

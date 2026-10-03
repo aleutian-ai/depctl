@@ -26,8 +26,10 @@ func newExportMem0Cmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "mem0",
-		Short: "Push synced dependency knowledge into a user's own Mem0 instance",
-		Long: `Push a project's (or one dependency's) already-synced dependency knowledge into a user's own Mem0 instance as tagged memories.
+		Short: "Push synced dependency knowledge into a user's own self-hosted Mem0 server",
+		Long: `Push a project's (or one dependency's) already-synced dependency knowledge into a user's own self-hosted Mem0 server (github.com/mem0ai/mem0's server/) as tagged memories. The hosted Mem0 Platform isn't supported: its API differs.
+
+Each memory is scoped to user_id = the ragctl project ID and run_id = "ragctl:<dependency>". Re-exporting a dependency replaces its previous export (deletes that project+dependency's memories, then pushes the current version), so repeated exports never stack duplicates and an upgrade drops the old version's memories. Mem0 requires an admin API key for that delete. The key is sent as X-API-Key and read by the ragctl daemon from the env var named by --api-key-env.
 
 A real, disclosed fact about Mem0: self-hosted Mem0 has telemetry on by default, and multiple open upstream issues (mem0ai/mem0 #3762, #3729, #2683) report it still spawns telemetry threads even with MEM0_TELEMETRY=false set. Running this command sends your dependency knowledge, and whatever metadata Mem0's own SDK collects, to the Mem0 instance you point it at — review that instance's own telemetry posture first.`,
 		RunE: func(cmd *cobra.Command, args []string) error {

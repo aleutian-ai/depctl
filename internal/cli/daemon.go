@@ -744,11 +744,14 @@ func (e *engine) ExportMem0(ctx context.Context, req api.ExportMem0Request, out 
 	var apiKey string
 	if apiKeyEnv != "" {
 		apiKey = os.Getenv(apiKeyEnv)
+		if apiKey == "" {
+			return api.ExportMem0Response{}, fmt.Errorf("%s is not set in the ragctl daemon's environment; the daemon reads it, not this shell. Export it, then run `ragctl daemon stop` so the next command starts a daemon that sees it", apiKeyEnv)
+		}
 	}
 
 	mem0Client := mem0.NewClient(endpoint, apiKey)
 	if err := mem0Client.Health(ctx); err != nil {
-		return api.ExportMem0Response{}, fmt.Errorf("mem0 unreachable at %s: %w", endpoint, err)
+		return api.ExportMem0Response{}, fmt.Errorf("mem0 pre-flight check failed (%s): %w", endpoint, err)
 	}
 
 	resolution, err := e.store.GetResolution(ctx, req.ProjectID)
@@ -776,7 +779,19 @@ func (e *engine) ExportMem0(ctx context.Context, req api.ExportMem0Request, out 
 			return resp, fmt.Errorf("list chunks for %s: %w", name, err)
 		}
 
+		// Re-exporting replaces this dependency's previous memories
+		// rather than stacking another copy (Mem0 doesn't dedupe raw
+		// adds). Scoped by project and a ragctl-only run_id tag, so only
+		// memories ragctl wrote for this dependency are ever deleted. If
+		// the delete fails, nothing is pushed: no duplicate set.
+		runID := "ragctl:" + name
 		result := api.ExportMem0Result{Dependency: name}
+		if err := mem0Client.DeleteMemories(ctx, req.ProjectID, runID); err != nil {
+			result.Failed = len(chunks)
+			fmt.Fprintf(out, "%s: not exported: %v\n", name, err)
+			resp.Results = append(resp.Results, result)
+			continue
+		}
 		for _, chunk := range chunks {
 			obj, err := e.badgerStore.GetKnowledgeObject(ctx, chunk.ObjectID)
 			if err != nil {
@@ -784,23 +799,28 @@ func (e *engine) ExportMem0(ctx context.Context, req api.ExportMem0Request, out 
 				fmt.Fprintf(out, "%s: get object for chunk %s: %v\n", name, chunk.ID, err)
 				continue
 			}
+			// Identity comes from the generation being exported, never
+			// the object: GEN-003 content reuse means an object's stored
+			// version is whichever build first created it (the same trap
+			// generation.Replicate documents). Live-found: exporting
+			// v1.5.0 labeled 72 of 81 reused chunks v1.6.0.
 			metadata := map[string]string{
-				"ecosystem":   string(obj.Dependency.Dependency.Ecosystem),
-				"dependency":  obj.Dependency.Dependency.Name,
-				"version":     obj.Dependency.Version,
+				"ecosystem":   string(gen.Dependency.Dependency.Ecosystem),
+				"dependency":  gen.Dependency.Dependency.Name,
+				"version":     gen.Dependency.Version,
 				"generation":  gen.ID,
 				"source_type": obj.SourceType,
 				"authority":   strconv.Itoa(obj.Authority),
 				"trust_class": string(obj.TrustClass),
 			}
-			if err := mem0Client.AddMemory(ctx, req.ProjectID, string(chunk.Content), metadata); err != nil {
+			if err := mem0Client.AddMemory(ctx, req.ProjectID, runID, string(chunk.Content), metadata); err != nil {
 				result.Failed++
 				fmt.Fprintf(out, "%s: push chunk %s failed: %v\n", name, chunk.ID, err)
 				continue
 			}
 			result.Pushed++
 		}
-		fmt.Fprintf(out, "%s: pushed %d, failed %d\n", name, result.Pushed, result.Failed)
+		fmt.Fprintf(out, "%s: replaced previous export; pushed %d, failed %d\n", name, result.Pushed, result.Failed)
 		resp.Results = append(resp.Results, result)
 	}
 
@@ -827,11 +847,14 @@ func (e *engine) ExportGraphiti(ctx context.Context, req api.ExportGraphitiReque
 	var authToken string
 	if authTokenEnv != "" {
 		authToken = os.Getenv(authTokenEnv)
+		if authToken == "" {
+			return api.ExportGraphitiResponse{}, fmt.Errorf("%s is not set in the ragctl daemon's environment; the daemon reads it, not this shell. Export it, then run `ragctl daemon stop` so the next command starts a daemon that sees it", authTokenEnv)
+		}
 	}
 
 	graphitiClient := graphiti.NewClient(endpoint, authToken)
 	if err := graphitiClient.Health(ctx); err != nil {
-		return api.ExportGraphitiResponse{}, fmt.Errorf("graphiti unreachable at %s: %w", endpoint, err)
+		return api.ExportGraphitiResponse{}, fmt.Errorf("graphiti pre-flight check failed (%s): %w", endpoint, err)
 	}
 
 	resolution, err := e.store.GetResolution(ctx, req.ProjectID)
@@ -939,11 +962,14 @@ func (e *engine) ExportCognee(ctx context.Context, req api.ExportCogneeRequest, 
 	var authToken string
 	if authTokenEnv != "" {
 		authToken = os.Getenv(authTokenEnv)
+		if authToken == "" {
+			return api.ExportCogneeResponse{}, fmt.Errorf("%s is not set in the ragctl daemon's environment; the daemon reads it, not this shell. Export it, then run `ragctl daemon stop` so the next command starts a daemon that sees it", authTokenEnv)
+		}
 	}
 
 	cogneeClient := cognee.NewClient(endpoint, authToken)
 	if err := cogneeClient.Health(ctx); err != nil {
-		return api.ExportCogneeResponse{}, fmt.Errorf("cognee unreachable at %s: %w", endpoint, err)
+		return api.ExportCogneeResponse{}, fmt.Errorf("cognee pre-flight check failed (%s): %w", endpoint, err)
 	}
 
 	resolution, err := e.store.GetResolution(ctx, req.ProjectID)
