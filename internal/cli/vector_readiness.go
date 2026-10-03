@@ -4,9 +4,14 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"aleutian-ai/ragctl/internal/config"
 )
+
+// vectorReprobeCooldown bounds how often a down backend is re-probed, so a
+// burst of requests against a dead Qdrant doesn't probe it on each one.
+const vectorReprobeCooldown = 5 * time.Second
 
 // vectorState is where checkVectorReadiness's background probe currently
 // stands. Every daemon-owned vector-backend consumer (sync, GC, search)
@@ -32,6 +37,13 @@ type vectorReadiness struct {
 	mu     sync.Mutex
 	state  vectorState
 	detail string
+
+	// reprobe, when set (by the daemon), re-checks a backend last seen
+	// unreachable or in error (OPS-008). Without it, a backend that was
+	// down at daemon startup stayed "unreachable" until a restart, even
+	// after it came back. nil in tests and in doctor's one-shot copy.
+	reprobe     func() error
+	lastReprobe time.Time
 }
 
 func newVectorReadiness() *vectorReadiness {
@@ -61,6 +73,7 @@ func (r *vectorReadiness) checkReady() error {
 	if r == nil {
 		return nil
 	}
+	r.reprobeIfDown()
 	state, detail := r.get()
 	switch state {
 	case vectorStateReady, vectorStateUnknown:
@@ -80,6 +93,25 @@ func (r *vectorReadiness) checkReady() error {
 		return fmt.Errorf("vector backend not ready: %s", detail)
 	default:
 		return nil
+	}
+}
+
+// reprobeIfDown re-probes a backend last seen unreachable or in error, at
+// most once per vectorReprobeCooldown, and marks it ready if the probe now
+// succeeds. The probe itself is bounded (backendHealthTimeout).
+func (r *vectorReadiness) reprobeIfDown() {
+	r.mu.Lock()
+	down := r.state == vectorStateUnreachable || r.state == vectorStateError
+	if !down || r.reprobe == nil || time.Since(r.lastReprobe) < vectorReprobeCooldown {
+		r.mu.Unlock()
+		return
+	}
+	r.lastReprobe = time.Now()
+	probe := r.reprobe
+	r.mu.Unlock()
+
+	if probe() == nil {
+		r.set(vectorStateReady, "")
 	}
 }
 

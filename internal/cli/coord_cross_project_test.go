@@ -212,7 +212,7 @@ func TestCrossProjectJITNotStrandedBehindBulkSync(t *testing.T) {
 		t.Fatal("project A's build never completed — it was stranded behind project B's unrelated, still-blocked build")
 	}
 
-	activeA, err := f.store.GetActiveGeneration(ctx, domain.EcosystemGo, "example.com/gadget", f.vb.Name())
+	activeA, err := f.store.GetActiveGeneration(ctx, domain.EcosystemGo, "example.com/gadget", "v1.0.0", f.vb.Name())
 	if err != nil || activeA.State != domain.GenActive {
 		t.Fatalf("project A's generation after Build = %+v, err=%v, want an ACTIVE generation", activeA, err)
 	}
@@ -221,7 +221,7 @@ func TestCrossProjectJITNotStrandedBehindBulkSync(t *testing.T) {
 	if err := <-bDone; err != nil {
 		t.Fatalf("project B's build: %v", err)
 	}
-	activeB, err := f.store.GetActiveGeneration(ctx, domain.EcosystemGo, "example.com/widget", f.vb.Name())
+	activeB, err := f.store.GetActiveGeneration(ctx, domain.EcosystemGo, "example.com/widget", "v1.0.0", f.vb.Name())
 	if err != nil || activeB.State != domain.GenActive {
 		t.Fatalf("project B's generation after Build = %+v, err=%v, want an ACTIVE generation", activeB, err)
 	}
@@ -299,7 +299,7 @@ func TestSameDependencyAcrossProjectsCoalescesIntoOneRealBuild(t *testing.T) {
 		}
 	}
 
-	active, err := f.store.GetActiveGeneration(ctx, domain.EcosystemGo, "example.com/widget", f.vb.Name())
+	active, err := f.store.GetActiveGeneration(ctx, domain.EcosystemGo, "example.com/widget", "v1.0.0", f.vb.Name())
 	if err != nil || active.State != domain.GenActive {
 		t.Fatalf("generation after both Build calls = %+v, err=%v, want exactly one ACTIVE generation", active, err)
 	}
@@ -346,7 +346,7 @@ func TestSameDependencyAcrossProjectsSequentialRaceProducesOneGeneration(t *test
 		t.Fatalf("project A's build: %v", err)
 	}
 
-	activeAfterA, err := f.store.GetActiveGeneration(ctx, domain.EcosystemGo, "example.com/widget", f.vb.Name())
+	activeAfterA, err := f.store.GetActiveGeneration(ctx, domain.EcosystemGo, "example.com/widget", "v1.0.0", f.vb.Name())
 	if err != nil || activeAfterA.State != domain.GenActive {
 		t.Fatalf("after A: GetActiveGeneration = %+v, err=%v, want an ACTIVE generation", activeAfterA, err)
 	}
@@ -359,7 +359,7 @@ func TestSameDependencyAcrossProjectsSequentialRaceProducesOneGeneration(t *test
 		t.Fatalf("project B's build: %v", err)
 	}
 
-	activeAfterB, err := f.store.GetActiveGeneration(ctx, domain.EcosystemGo, "example.com/widget", f.vb.Name())
+	activeAfterB, err := f.store.GetActiveGeneration(ctx, domain.EcosystemGo, "example.com/widget", "v1.0.0", f.vb.Name())
 	if err != nil {
 		t.Fatalf("after B: GetActiveGeneration: %v", err)
 	}

@@ -71,7 +71,7 @@ func PlanOrphanGC(ctx context.Context, store ControlStore, backendName string, o
 		}
 
 		eco, pkg := g.Dependency.Dependency.Ecosystem, g.Dependency.Dependency.Name
-		if active, err := store.GetActiveGeneration(ctx, eco, pkg, backendName); err == nil && active.ID == g.ID {
+		if active, err := store.GetActiveGeneration(ctx, eco, pkg, g.Dependency.Version, backendName); err == nil && active.ID == g.ID {
 			// Defensive: state says FAILED/non-terminal but this generation
 			// is still the active pointer — a state/pointer inconsistency,
 			// never GC-eligible regardless.

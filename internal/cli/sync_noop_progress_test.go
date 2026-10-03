@@ -78,6 +78,7 @@ func TestRunSyncNoopActionsDoNotCountAsProgress(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadRagctlConfig: %v", err)
 	}
+	promoteFixtureVersion(t, store, dep, cfg.Vector.Backend)
 
 	progress := &daemon.SyncProgress{}
 	coordinator := daemon.NewBuildCoordinator()

@@ -196,6 +196,7 @@ func TestSyncNoOpPlanMakesNoNetworkCalls(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("AddReference: %v", err)
 	}
+	promoteFixtureVersion(t, store, dep, "qdrant")
 	store.Close()
 
 	cmd := NewRootCmd()
@@ -305,7 +306,7 @@ func TestClearForRebuildScopedToNamedDependencyOnly(t *testing.T) {
 	}
 
 	// example.com/a: cleared — no active generation, no reference.
-	if _, err := store.GetActiveGeneration(ctx, domain.EcosystemGo, "example.com/a", "qdrant"); !errors.Is(err, bboltstore.ErrNotFound) {
+	if _, err := store.GetActiveGeneration(ctx, domain.EcosystemGo, "example.com/a", "v1.0.0", "qdrant"); !errors.Is(err, bboltstore.ErrNotFound) {
 		t.Errorf("GetActiveGeneration(a) after rebuild = %v, want ErrNotFound", err)
 	}
 	refs, err := store.ListProjectReferences(ctx, proj.ID)
@@ -317,7 +318,7 @@ func TestClearForRebuildScopedToNamedDependencyOnly(t *testing.T) {
 	}
 
 	// example.com/b: untouched — still active, still referenced.
-	if active, err := store.GetActiveGeneration(ctx, domain.EcosystemGo, "example.com/b", "qdrant"); err != nil {
+	if active, err := store.GetActiveGeneration(ctx, domain.EcosystemGo, "example.com/b", "v2.0.0", "qdrant"); err != nil {
 		t.Errorf("GetActiveGeneration(b) after rebuild = %v, want still active (untouched)", err)
 	} else if active.ID != "gen_example.com/b" {
 		t.Errorf("GetActiveGeneration(b) = %+v, want the original untouched generation", active)
@@ -329,7 +330,7 @@ func TestClearForRebuildScopedToNamedDependencyOnly(t *testing.T) {
 	active := map[string]bool{}
 	for _, dep := range resolution.Dependencies {
 		key := planner.GenerationKey(dep)
-		_, err := store.GetActiveGeneration(ctx, dep.Dependency.Ecosystem, dep.Dependency.Name, "qdrant")
+		_, err := store.GetActiveGeneration(ctx, dep.Dependency.Ecosystem, dep.Dependency.Name, dep.Version, "qdrant")
 		active[key] = err == nil
 	}
 	current, err := store.ListProjectReferences(ctx, proj.ID)
@@ -337,7 +338,7 @@ func TestClearForRebuildScopedToNamedDependencyOnly(t *testing.T) {
 		t.Fatalf("ListProjectReferences: %v", err)
 	}
 	reg := describeTestRegistry(t)
-	actions, err := planner.Plan(ctx, proj, resolution, current, reg, active)
+	actions, err := planner.Plan(ctx, proj, resolution, current, reg, active, nil)
 	if err != nil {
 		t.Fatalf("planner.Plan: %v", err)
 	}

@@ -20,6 +20,7 @@ type fakeControlStore struct {
 	generations      map[string]domain.Generation // by generation ID
 	deletedGenIDs    map[string]bool
 	deletedRefs      map[string]bool // key: eco|pkg|version
+	clearedActive    map[string]bool // key: eco|pkg|version|backend
 	failListGens     bool
 	failDeleteRecord bool
 }
@@ -30,6 +31,7 @@ func newFakeControlStore() *fakeControlStore {
 		generations:   map[string]domain.Generation{},
 		deletedGenIDs: map[string]bool{},
 		deletedRefs:   map[string]bool{},
+		clearedActive: map[string]bool{},
 	}
 }
 
@@ -70,6 +72,11 @@ func (s *fakeControlStore) DeleteGenerationRecord(ctx context.Context, id string
 
 func (s *fakeControlStore) DeleteAllReferences(ctx context.Context, ecosystem domain.Ecosystem, pkg, version string) error {
 	s.deletedRefs[string(ecosystem)+"|"+pkg+"|"+version] = true
+	return nil
+}
+
+func (s *fakeControlStore) ClearActiveGeneration(ctx context.Context, ecosystem domain.Ecosystem, pkg, version, backendName string) error {
+	s.clearedActive[string(ecosystem)+"|"+pkg+"|"+version+"|"+backendName] = true
 	return nil
 }
 
@@ -127,6 +134,11 @@ func TestRunDeletesInOrderAndMarksJobSucceeded(t *testing.T) {
 	}
 	if !control.deletedRefs["go|google.golang.org/grpc|v1.60.0"] {
 		t.Error("DeleteAllReferences was never called")
+	}
+	// ADR-012: GC retires the version's own active pointer, for exactly
+	// that version.
+	if !control.clearedActive["go|google.golang.org/grpc|v1.60.0|"+vb.Name()] {
+		t.Errorf("ClearActiveGeneration was never called for v1.60.0 (cleared: %v)", control.clearedActive)
 	}
 
 	jobID := JobID("gc", domain.DependencyVersion{

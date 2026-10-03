@@ -3,12 +3,12 @@ package cli
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"html/template"
 	"io"
 	"os"
 	"sort"
+	"strings"
 	"text/tabwriter"
 	"time"
 
@@ -57,11 +57,14 @@ type PackageEntry struct {
 	Sources       []SourceEntry `json:"sources,omitempty"`
 	ActiveVersion string        `json:"active_version,omitempty"`
 	GenerationID  string        `json:"generation_id,omitempty"`
-	ChunkCount    int           `json:"chunk_count,omitempty"`
-	ObjectCount   int           `json:"object_count,omitempty"`
-	ObjectsReused int           `json:"objects_reused,omitempty"`
-	ReplicaStatus string        `json:"replica_status,omitempty"`
-	ReplicaPoints int           `json:"replica_points,omitempty"`
+	// OtherActiveVersions lists any other versions of this package that
+	// are also active (ADR-012), oldest-first by version string.
+	OtherActiveVersions []string `json:"other_active_versions,omitempty"`
+	ChunkCount          int      `json:"chunk_count,omitempty"`
+	ObjectCount         int      `json:"object_count,omitempty"`
+	ObjectsReused       int      `json:"objects_reused,omitempty"`
+	ReplicaStatus       string   `json:"replica_status,omitempty"`
+	ReplicaPoints       int      `json:"replica_points,omitempty"`
 }
 
 // SourceEntry is one registry-declared source, with the TrustClass its
@@ -260,15 +263,22 @@ func buildPackageEntry(ctx context.Context, store *bboltstore.Store, badgerStore
 		}
 	}
 
-	gen, err := store.GetActiveGeneration(ctx, eco, pkg, backendName)
-	if errors.Is(err, bboltstore.ErrNotFound) {
+	// Several versions can be active at once (ADR-012). The entry's
+	// counts describe the most recently promoted one; the rest are listed.
+	gen, ok := latestActiveGenerationAnyVersion(ctx, store, eco, pkg, backendName)
+	if !ok {
 		return entry, nil
-	}
-	if err != nil {
-		return PackageEntry{}, fmt.Errorf("get active generation for %s/%s: %w", eco, pkg, err)
 	}
 	entry.ActiveVersion = gen.Dependency.Version
 	entry.GenerationID = gen.ID
+	if pointers, err := store.ListActivePointers(ctx, backendName); err == nil {
+		for _, p := range pointers {
+			if p.Ecosystem == eco && p.Dependency == pkg && p.Version != gen.Dependency.Version {
+				entry.OtherActiveVersions = append(entry.OtherActiveVersions, p.Version)
+			}
+		}
+		sort.Strings(entry.OtherActiveVersions)
+	}
 
 	if m, err := readGenerationManifest(ctx, badgerStore, gen.ID); err == nil {
 		entry.ChunkCount = m.ChunkCount
@@ -355,6 +365,9 @@ func printPackageDetail(out io.Writer, p PackageEntry) {
 		return
 	}
 	fmt.Fprintf(out, "  active version %s (generation %s)\n", p.ActiveVersion, p.GenerationID)
+	if len(p.OtherActiveVersions) > 0 {
+		fmt.Fprintf(out, "  also active: %s\n", strings.Join(p.OtherActiveVersions, ", "))
+	}
 	fmt.Fprintf(out, "  objects=%d (reused=%d) chunks=%d\n", p.ObjectCount, p.ObjectsReused, p.ChunkCount)
 	fmt.Fprintf(out, "  backend replica: status=%s points=%d\n", p.ReplicaStatus, p.ReplicaPoints)
 }

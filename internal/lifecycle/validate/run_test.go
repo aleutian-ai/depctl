@@ -48,7 +48,7 @@ func TestRunThenPromoteEndToEnd(t *testing.T) {
 		t.Fatalf("PromoteGeneration: %v", err)
 	}
 
-	active, err := store.GetActiveGeneration(ctx, domain.EcosystemGo, "example.com/widget", vb.Name())
+	active, err := store.GetActiveGeneration(ctx, domain.EcosystemGo, "example.com/widget", "v1.0.0", vb.Name())
 	if err != nil {
 		t.Fatalf("GetActiveGeneration: %v", err)
 	}

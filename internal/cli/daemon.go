@@ -765,9 +765,9 @@ func (e *engine) ExportMem0(ctx context.Context, req api.ExportMem0Request, out 
 			continue
 		}
 
-		gen, err := e.store.GetActiveGeneration(ctx, dv.Dependency.Ecosystem, name, e.cfg.Vector.Backend)
+		gen, err := e.store.GetActiveGeneration(ctx, dv.Dependency.Ecosystem, name, dv.Version, e.cfg.Vector.Backend)
 		if err != nil {
-			fmt.Fprintf(out, "%s: no active generation, skipping\n", name)
+			fmt.Fprintf(out, "%s@%s: not synced yet, skipping (run `ragctl sync`)\n", name, dv.Version)
 			continue
 		}
 
@@ -847,9 +847,9 @@ func (e *engine) ExportGraphiti(ctx context.Context, req api.ExportGraphitiReque
 			continue
 		}
 
-		gen, err := e.store.GetActiveGeneration(ctx, dv.Dependency.Ecosystem, name, e.cfg.Vector.Backend)
+		gen, err := e.store.GetActiveGeneration(ctx, dv.Dependency.Ecosystem, name, dv.Version, e.cfg.Vector.Backend)
 		if err != nil {
-			fmt.Fprintf(out, "%s: no active generation, skipping\n", name)
+			fmt.Fprintf(out, "%s@%s: not synced yet, skipping (run `ragctl sync`)\n", name, dv.Version)
 			continue
 		}
 
@@ -960,9 +960,9 @@ func (e *engine) ExportCognee(ctx context.Context, req api.ExportCogneeRequest, 
 			continue
 		}
 
-		gen, err := e.store.GetActiveGeneration(ctx, dv.Dependency.Ecosystem, name, e.cfg.Vector.Backend)
+		gen, err := e.store.GetActiveGeneration(ctx, dv.Dependency.Ecosystem, name, dv.Version, e.cfg.Vector.Backend)
 		if err != nil {
-			fmt.Fprintf(out, "%s: no active generation, skipping\n", name)
+			fmt.Fprintf(out, "%s@%s: not synced yet, skipping (run `ragctl sync`)\n", name, dv.Version)
 			continue
 		}
 
@@ -1316,6 +1316,9 @@ func runDaemonRun(cmd *cobra.Command) error {
 	// "still pulling"/"unreachable" answer from embeddingReadiness
 	// instead of triggering — and blocking on — a live pull itself.
 	readiness := newEmbeddingReadiness()
+	if cfg.Embedding.Provider == "ollama" {
+		readiness.reprobe = ollamaReprober(ctx, cfg, readiness, logf)
+	}
 	go checkEmbeddingReadiness(ctx, cfg, readiness, logf)
 
 	// Same off-request-path treatment for the vector backend (WATCH-015):
@@ -1324,6 +1327,7 @@ func runDaemonRun(cmd *cobra.Command) error {
 	// raw dial error, once per dependency, from deep inside
 	// generation.Replicate.
 	vecReadiness := newVectorReadiness()
+	vecReadiness.reprobe = func() error { return probeBackend(ctx, cfg) }
 	go checkVectorReadiness(ctx, cfg, vecReadiness, logf)
 
 	// SAFE-001 (epic 61): warn once, at startup, if this fresh instance's

@@ -74,10 +74,10 @@ func (s *fakeControlStore) GetResolution(ctx context.Context, projectID string) 
 	}
 	return r, nil
 }
-func (s *fakeControlStore) GetActiveGeneration(ctx context.Context, ecosystem domain.Ecosystem, pkg, backendName string) (domain.Generation, error) {
+func (s *fakeControlStore) GetActiveGeneration(ctx context.Context, ecosystem domain.Ecosystem, pkg, version, backendName string) (domain.Generation, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	g, ok := s.active[string(ecosystem)+"|"+pkg+"|"+backendName]
+	g, ok := s.active[string(ecosystem)+"|"+pkg+"|"+version+"|"+backendName]
 	if !ok {
 		return domain.Generation{}, errNotFound
 	}
@@ -253,7 +253,7 @@ func (e *testEnv) seedChunk(t *testing.T, ecosystem domain.Ecosystem, pkg, versi
 		State:      domain.GenActive,
 	}
 	e.control.mu.Lock()
-	e.control.active[string(ecosystem)+"|"+pkg+"|qdrant"] = gen
+	e.control.active[string(ecosystem)+"|"+pkg+"|"+version+"|qdrant"] = gen
 	e.control.generations = append(e.control.generations, gen)
 	e.control.mu.Unlock()
 }
@@ -661,7 +661,7 @@ func TestListProjectDependenciesHandler(t *testing.T) {
 	env.control.resolutions["proj_1"] = domain.Resolution{Dependencies: []domain.DependencyVersion{
 		{Dependency: domain.Dependency{Ecosystem: domain.EcosystemGo, Name: "google.golang.org/grpc"}, Version: "v1.67.0"},
 	}}
-	env.control.active["go|google.golang.org/grpc|qdrant"] = domain.Generation{ID: "gen_1"}
+	env.control.active["go|google.golang.org/grpc|v1.67.0|qdrant"] = domain.Generation{ID: "gen_1"}
 
 	handler := listProjectDependenciesHandler(env.svc)
 	_, out, err := handler(context.Background(), nil, ListProjectDependenciesIn{ProjectID: "proj_1"})
@@ -679,7 +679,7 @@ func TestKnowledgeStatusHandler(t *testing.T) {
 	env.control.resolutions["proj_1"] = domain.Resolution{Dependencies: []domain.DependencyVersion{
 		{Dependency: domain.Dependency{Ecosystem: domain.EcosystemGo, Name: "google.golang.org/grpc"}, Version: "v1.67.0"},
 	}}
-	env.control.active["go|google.golang.org/grpc|qdrant"] = domain.Generation{ID: "gen_1"}
+	env.control.active["go|google.golang.org/grpc|v1.67.0|qdrant"] = domain.Generation{ID: "gen_1"}
 
 	handler := knowledgeStatusHandler(env.svc)
 	_, out, err := handler(context.Background(), nil, KnowledgeStatusIn{})

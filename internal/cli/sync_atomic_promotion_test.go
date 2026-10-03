@@ -180,7 +180,7 @@ func TestSyncVersionAtomicPromotionUnderReplicateFailure(t *testing.T) {
 		t.Fatalf("first sync (v1.0.0): %v", err)
 	}
 
-	activeBefore, err := store.GetActiveGeneration(ctx, domain.EcosystemGo, "example.com/widget", vb.Name())
+	activeBefore, err := store.GetActiveGeneration(ctx, domain.EcosystemGo, "example.com/widget", "v1.0.0", vb.Name())
 	if err != nil {
 		t.Fatalf("GetActiveGeneration after first sync: %v", err)
 	}
@@ -217,7 +217,7 @@ func TestSyncVersionAtomicPromotionUnderReplicateFailure(t *testing.T) {
 
 	// 3. The prior active generation must be untouched — promote.Promote
 	// must never have been called for the failed candidate.
-	activeAfter, err := store.GetActiveGeneration(ctx, domain.EcosystemGo, "example.com/widget", vb.Name())
+	activeAfter, err := store.GetActiveGeneration(ctx, domain.EcosystemGo, "example.com/widget", "v1.0.0", vb.Name())
 	if err != nil {
 		t.Fatalf("GetActiveGeneration after failed second sync: %v", err)
 	}
@@ -312,7 +312,7 @@ func TestSyncVersionAtomicPromotionUnderBuildFailure(t *testing.T) {
 	if err := syncVersion(ctx, store, badgerStore, gitCache, embedderOK, vb, ns, reg, action1, false); err != nil {
 		t.Fatalf("first sync (v1.0.0): %v", err)
 	}
-	activeBefore, err := store.GetActiveGeneration(ctx, domain.EcosystemGo, "example.com/widget", vb.Name())
+	activeBefore, err := store.GetActiveGeneration(ctx, domain.EcosystemGo, "example.com/widget", "v1.0.0", vb.Name())
 	if err != nil {
 		t.Fatalf("GetActiveGeneration after first sync: %v", err)
 	}
@@ -325,7 +325,7 @@ func TestSyncVersionAtomicPromotionUnderBuildFailure(t *testing.T) {
 		t.Fatal("second sync (v9.9.9, nonexistent ref) succeeded, want an error")
 	}
 
-	activeAfter, err := store.GetActiveGeneration(ctx, domain.EcosystemGo, "example.com/widget", vb.Name())
+	activeAfter, err := store.GetActiveGeneration(ctx, domain.EcosystemGo, "example.com/widget", "v1.0.0", vb.Name())
 	if err != nil {
 		t.Fatalf("GetActiveGeneration after failed second sync: %v", err)
 	}

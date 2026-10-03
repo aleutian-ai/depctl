@@ -24,6 +24,7 @@ type ControlStore interface {
 	ListGenerationsByDependencyVersion(ctx context.Context, ecosystem domain.Ecosystem, pkg, version string) ([]domain.Generation, error)
 	DeleteGenerationRecord(ctx context.Context, id string) error
 	DeleteAllReferences(ctx context.Context, ecosystem domain.Ecosystem, pkg, version string) error
+	ClearActiveGeneration(ctx context.Context, ecosystem domain.Ecosystem, pkg, version, backendName string) error
 }
 
 // DataStore is the narrow slice of *badger.Store this package needs.
@@ -107,9 +108,17 @@ func runOne(ctx context.Context, control ControlStore, data DataStore, vb backen
 	return Result{Candidate: candidate, Succeeded: true}
 }
 
-// deleteCandidate performs the three-step deletion in RET-004's fixed
-// order: vector replica, then Badger, then bbolt metadata.
+// deleteCandidate retires the version's active pointer, then performs
+// RET-004's three-step deletion in its fixed order: vector replica, then
+// Badger, then bbolt metadata.
 func deleteCandidate(ctx context.Context, control ControlStore, data DataStore, vb backend.VectorBackend, ns backend.Namespace, candidate retention.GCCandidate) error {
+	// Step 0 (ADR-012): stop serving the version before deleting it, so
+	// search never resolves a pointer to data that's mid-deletion and no
+	// dangling pointer is left behind.
+	if err := control.ClearActiveGeneration(ctx, candidate.Ecosystem, candidate.Package, candidate.Version, vb.Name()); err != nil {
+		return fmt.Errorf("clear active generation: %w", err)
+	}
+
 	// Step 1: vector replica, filtered by dependency+version.
 	err := vb.Delete(ctx, backend.DeleteRequest{
 		Namespace: ns.Name,

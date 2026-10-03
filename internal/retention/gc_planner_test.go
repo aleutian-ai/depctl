@@ -57,11 +57,14 @@ func TestPlanGCVersionWithManualPinIsNeverEligible(t *testing.T) {
 	}
 }
 
-func TestPlanGCActiveGenerationIsNeverEligible(t *testing.T) {
+// TestPlanGCOtherVersionActiveDoesNotProtect: under ADR-012 each version
+// is active (or not) on its own. An expired, unreferenced v1.0.0 is
+// GC-eligible even while v2.0.0 of the same package is active.
+func TestPlanGCOtherVersionActiveDoesNotProtect(t *testing.T) {
 	ctx := context.Background()
 	store := newFakeStore()
-	addGraceRef(t, store, domain.EcosystemGo, "active/pkg", "v2.0.0", testNow.Add(-1000*time.Hour))
-	store.active[activeKey(domain.EcosystemGo, "active/pkg", testBackend)] = domain.Generation{
+	addGraceRef(t, store, domain.EcosystemGo, "multi/pkg", "v1.0.0", testNow.Add(-1000*time.Hour))
+	store.active[activeKey(domain.EcosystemGo, "multi/pkg", "v2.0.0", testBackend)] = domain.Generation{
 		Dependency: domain.DependencyVersion{Version: "v2.0.0"},
 	}
 
@@ -69,10 +72,52 @@ func TestPlanGCActiveGenerationIsNeverEligible(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PlanGC: %v", err)
 	}
-	for _, c := range candidates {
-		if c.Package == "active/pkg" {
-			t.Errorf("active generation's version reported as GC-eligible: %+v", c)
-		}
+	if len(candidates) != 1 || candidates[0].Version != "v1.0.0" {
+		t.Errorf("candidates = %+v, want exactly v1.0.0", candidates)
+	}
+}
+
+// TestPlanGCUnreferencedActiveVersionIsEligible is ADR-012's lifetime
+// rule, found live in epic 66's real-container run: references alone
+// decide a version's lifetime. With per-version pointers an unreferenced
+// version stays active until GC retires it, so "active means never
+// eligible" made every unreferenced version immortal.
+func TestPlanGCUnreferencedActiveVersionIsEligible(t *testing.T) {
+	ctx := context.Background()
+	store := newFakeStore()
+	addGraceRef(t, store, domain.EcosystemGo, "active/pkg", "v2.0.0", testNow.Add(-1000*time.Hour))
+	store.active[activeKey(domain.EcosystemGo, "active/pkg", "v2.0.0", testBackend)] = domain.Generation{
+		Dependency: domain.DependencyVersion{Version: "v2.0.0"},
+	}
+
+	candidates, err := PlanGC(ctx, store, testBackend, 0, testNow)
+	if err != nil {
+		t.Fatalf("PlanGC: %v", err)
+	}
+	if len(candidates) != 1 || candidates[0].Package != "active/pkg" {
+		t.Errorf("candidates = %+v, want the unreferenced, grace-expired active version", candidates)
+	}
+}
+
+// TestPlanGCReferencedActiveVersionIsKept: an active version a project
+// still references is never eligible, whatever its grace state.
+func TestPlanGCReferencedActiveVersionIsKept(t *testing.T) {
+	ctx := context.Background()
+	store := newFakeStore()
+	addGraceRef(t, store, domain.EcosystemGo, "active/pkg", "v2.0.0", testNow.Add(-1000*time.Hour))
+	if err := store.AddReference(ctx, domain.VersionReference{ProjectID: "proj_1", Ecosystem: domain.EcosystemGo, Package: "active/pkg", Version: "v2.0.0", Reason: domain.ReferenceReasonProject}); err != nil {
+		t.Fatalf("AddReference: %v", err)
+	}
+	store.active[activeKey(domain.EcosystemGo, "active/pkg", "v2.0.0", testBackend)] = domain.Generation{
+		Dependency: domain.DependencyVersion{Version: "v2.0.0"},
+	}
+
+	candidates, err := PlanGC(ctx, store, testBackend, 0, testNow)
+	if err != nil {
+		t.Fatalf("PlanGC: %v", err)
+	}
+	if len(candidates) != 0 {
+		t.Errorf("candidates = %+v, want none: a project still references this version", candidates)
 	}
 }
 
@@ -135,7 +180,7 @@ func TestPlanGCDeterministicGivenSameState(t *testing.T) {
 // fixtures don't set up) without needing a real bbolt file per test.
 type fakeStore struct {
 	refs   map[string]domain.VersionReference // key: eco|pkg|version|projectID|reason
-	active map[string]domain.Generation       // key: eco|pkg|backendName
+	active map[string]domain.Generation       // key: eco|pkg|version|backendName (ADR-012)
 	gens   []domain.Generation                // GC-001's PlanOrphanGC tests populate this
 }
 
@@ -147,8 +192,8 @@ func refKey(r domain.VersionReference) string {
 	return string(r.Ecosystem) + "|" + r.Package + "|" + r.Version + "|" + r.ProjectID + "|" + string(r.Reason)
 }
 
-func activeKey(eco domain.Ecosystem, pkg, backendName string) string {
-	return string(eco) + "|" + pkg + "|" + backendName
+func activeKey(eco domain.Ecosystem, pkg, version, backendName string) string {
+	return string(eco) + "|" + pkg + "|" + version + "|" + backendName
 }
 
 func (s *fakeStore) AddReference(ctx context.Context, r domain.VersionReference) error {
@@ -183,8 +228,8 @@ func (s *fakeStore) ListAllReferences(ctx context.Context) ([]domain.VersionRefe
 	return out, nil
 }
 
-func (s *fakeStore) GetActiveGeneration(ctx context.Context, ecosystem domain.Ecosystem, pkg, backendName string) (domain.Generation, error) {
-	g, ok := s.active[activeKey(ecosystem, pkg, backendName)]
+func (s *fakeStore) GetActiveGeneration(ctx context.Context, ecosystem domain.Ecosystem, pkg, version, backendName string) (domain.Generation, error) {
+	g, ok := s.active[activeKey(ecosystem, pkg, version, backendName)]
 	if !ok {
 		return domain.Generation{}, errNotFound
 	}

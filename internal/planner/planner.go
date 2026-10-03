@@ -68,7 +68,13 @@ func referenceKey(ecosystem domain.Ecosystem, pkg string) string {
 // single project's diff structurally can't prove another project still
 // needs a version); it exists in the ActionKind enum for RET-001 to
 // produce once it has fleet-wide reference data.
-func Plan(ctx context.Context, project domain.Project, resolution domain.Resolution, current []domain.VersionReference, reg *registry.Registry, activeGenerations map[string]bool) ([]Action, error) {
+//
+// noSource holds versions sync has recorded as having no docs source
+// (PLAN-005). A version needs building whenever it has no active
+// generation, including when its reference is unchanged (a previous
+// build failed), unless it is known to have no source and the registry
+// still has no manifest for it.
+func Plan(ctx context.Context, project domain.Project, resolution domain.Resolution, current []domain.VersionReference, reg *registry.Registry, activeGenerations, noSource map[string]bool) ([]Action, error) {
 	currentByKey := make(map[string]domain.VersionReference, len(current))
 	for _, r := range current {
 		currentByKey[referenceKey(r.Ecosystem, r.Package)] = r
@@ -81,15 +87,18 @@ func Plan(ctx context.Context, project domain.Project, resolution domain.Resolut
 		seen[key] = true
 
 		reason := ""
-		if _, mapped := reg.Match(dv.Dependency.Ecosystem, dv.Dependency.Name); !mapped {
+		_, mapped := reg.Match(dv.Dependency.Ecosystem, dv.Dependency.Name)
+		if !mapped {
 			reason = "no knowledge source mapped"
 		}
+		genKey := GenerationKey(dv)
+		needsBuild := !activeGenerations[genKey] && (mapped || !noSource[genKey])
 
 		prior, hadPrior := currentByKey[key]
 		switch {
 		case !hadPrior:
 			actions = append(actions, Action{Kind: ActionAddReference, ProjectID: project.ID, Dependency: dv, Reason: reason})
-			if !activeGenerations[GenerationKey(dv)] {
+			if needsBuild {
 				actions = append(actions, Action{Kind: ActionSyncVersion, ProjectID: project.ID, Dependency: dv, Reason: reason})
 			}
 		case prior.Version != dv.Version:
@@ -104,9 +113,15 @@ func Plan(ctx context.Context, project domain.Project, resolution domain.Resolut
 				// exactly what this project depends on.
 				Action{Kind: ActionAddReference, ProjectID: project.ID, Dependency: dv, Reason: reason},
 			)
-			if !activeGenerations[GenerationKey(dv)] {
+			if needsBuild {
 				actions = append(actions, Action{Kind: ActionSyncVersion, ProjectID: project.ID, Dependency: dv, Reason: reason})
 			}
+		case needsBuild:
+			// Reference unchanged but this exact version was never
+			// successfully built (an earlier build failed). Without this,
+			// it stayed unbuilt forever (OPS-005's "referenced but never
+			// built", PLAN-005).
+			actions = append(actions, Action{Kind: ActionSyncVersion, ProjectID: project.ID, Dependency: dv, Reason: "referenced but not built — retrying"})
 		default:
 			actions = append(actions, Action{Kind: ActionNoop, ProjectID: project.ID, Dependency: dv})
 		}

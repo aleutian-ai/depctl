@@ -36,6 +36,7 @@ var buckets = []string{
 	"references",
 	"retention",
 	"migrations",
+	noSourceVersionsBucket,
 }
 
 type Store struct {

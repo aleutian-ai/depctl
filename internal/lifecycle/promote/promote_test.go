@@ -61,7 +61,7 @@ func TestPromoteRejectsFailingValidation(t *testing.T) {
 	if got.State != domain.GenReady {
 		t.Errorf("generation.State = %s, want unchanged %s", got.State, domain.GenReady)
 	}
-	if _, err := store.GetActiveGeneration(ctx, domain.EcosystemGo, "google.golang.org/grpc", "qdrant"); !errors.Is(err, bbolt.ErrNotFound) {
+	if _, err := store.GetActiveGeneration(ctx, domain.EcosystemGo, "google.golang.org/grpc", "v1.67.0", "qdrant"); !errors.Is(err, bbolt.ErrNotFound) {
 		t.Errorf("GetActiveGeneration = %v, want ErrNotFound (nothing should have been promoted)", err)
 	}
 }
@@ -84,13 +84,15 @@ func TestPromoteRejectsNonReadyCandidate(t *testing.T) {
 	}
 }
 
+// TestPromoteSucceedsAndSupersedesPrior: the prior is an earlier build of
+// the same version (a rebuild). Under ADR-012 promotion supersedes only
+// the same version's prior generation; other versions stay active.
 func TestPromoteSucceedsAndSupersedesPrior(t *testing.T) {
 	ctx := context.Background()
 	store := openTestStore(t)
 
 	prior := testGeneration(domain.GenActive)
 	prior.ID = "gen_prior"
-	prior.Dependency.Version = "v1.66.0"
 	if err := store.PutGeneration(ctx, prior); err != nil {
 		t.Fatalf("PutGeneration prior: %v", err)
 	}
@@ -123,7 +125,7 @@ func TestPromoteSucceedsAndSupersedesPrior(t *testing.T) {
 		t.Errorf("prior.State = %s, want %s", gotPrior.State, domain.GenSuperseded)
 	}
 
-	active, err := store.GetActiveGeneration(ctx, domain.EcosystemGo, "google.golang.org/grpc", "qdrant")
+	active, err := store.GetActiveGeneration(ctx, domain.EcosystemGo, "google.golang.org/grpc", "v1.67.0", "qdrant")
 	if err != nil {
 		t.Fatalf("GetActiveGeneration: %v", err)
 	}

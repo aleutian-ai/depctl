@@ -137,7 +137,7 @@ func TestStorageRestartPersistence(t *testing.T) {
 		t.Fatalf("project.Root after restart = %q, want %q", gotProj.Root, proj.Root)
 	}
 
-	activeGen, err := control2.GetActiveGeneration(ctx, dep.Dependency.Ecosystem, dep.Dependency.Name, "qdrant")
+	activeGen, err := control2.GetActiveGeneration(ctx, dep.Dependency.Ecosystem, dep.Dependency.Name, dep.Version, "qdrant")
 	if err != nil {
 		t.Fatalf("GetActiveGeneration after restart: %v", err)
 	}

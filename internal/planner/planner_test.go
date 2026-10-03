@@ -39,7 +39,7 @@ func TestPlanNewDependencyProducesAddReferenceAndSyncVersion(t *testing.T) {
 	project := domain.Project{ID: "proj_1", Root: "/repo"}
 	resolution := domain.Resolution{Ecosystem: domain.EcosystemGo, Dependencies: []domain.DependencyVersion{grpcDep("v1.67.0")}}
 
-	actions, err := Plan(ctx, project, resolution, nil, testRegistry(t), map[string]bool{})
+	actions, err := Plan(ctx, project, resolution, nil, testRegistry(t), map[string]bool{}, nil)
 	if err != nil {
 		t.Fatalf("Plan: %v", err)
 	}
@@ -61,7 +61,7 @@ func TestPlanNewDependencySkipsSyncVersionWhenGenerationAlreadyActive(t *testing
 	resolution := domain.Resolution{Dependencies: []domain.DependencyVersion{dep}}
 
 	active := map[string]bool{GenerationKey(dep): true}
-	actions, err := Plan(ctx, project, resolution, nil, testRegistry(t), active)
+	actions, err := Plan(ctx, project, resolution, nil, testRegistry(t), active, nil)
 	if err != nil {
 		t.Fatalf("Plan: %v", err)
 	}
@@ -79,7 +79,7 @@ func TestPlanVersionBumpProducesSyncAndDropWithGCCandidate(t *testing.T) {
 	current := []domain.VersionReference{{ProjectID: "proj_1", Ecosystem: domain.EcosystemGo, Package: "google.golang.org/grpc", Version: "v1.66.0"}}
 	resolution := domain.Resolution{Dependencies: []domain.DependencyVersion{grpcDep("v1.67.0")}}
 
-	actions, err := Plan(ctx, project, resolution, current, testRegistry(t), map[string]bool{})
+	actions, err := Plan(ctx, project, resolution, current, testRegistry(t), map[string]bool{}, nil)
 	if err != nil {
 		t.Fatalf("Plan: %v", err)
 	}
@@ -127,8 +127,9 @@ func TestPlanUnchangedResolutionProducesOnlyNoop(t *testing.T) {
 	project := domain.Project{ID: "proj_1", Root: "/repo"}
 	current := []domain.VersionReference{{ProjectID: "proj_1", Ecosystem: domain.EcosystemGo, Package: "google.golang.org/grpc", Version: "v1.67.0"}}
 	resolution := domain.Resolution{Dependencies: []domain.DependencyVersion{grpcDep("v1.67.0")}}
+	active := map[string]bool{GenerationKey(grpcDep("v1.67.0")): true}
 
-	actions, err := Plan(ctx, project, resolution, current, testRegistry(t), map[string]bool{})
+	actions, err := Plan(ctx, project, resolution, current, testRegistry(t), active, nil)
 	if err != nil {
 		t.Fatalf("Plan: %v", err)
 	}
@@ -153,7 +154,7 @@ func TestPlanDependencyRemovedProducesDropReferenceAndGCCandidate(t *testing.T) 
 	current := []domain.VersionReference{{ProjectID: "proj_1", Ecosystem: domain.EcosystemGo, Package: "google.golang.org/grpc", Version: "v1.67.0"}}
 	resolution := domain.Resolution{Dependencies: nil} // grpc no longer in go.mod
 
-	actions, err := Plan(ctx, project, resolution, current, testRegistry(t), map[string]bool{})
+	actions, err := Plan(ctx, project, resolution, current, testRegistry(t), map[string]bool{}, nil)
 	if err != nil {
 		t.Fatalf("Plan: %v", err)
 	}
@@ -174,7 +175,7 @@ func TestPlanUnmappedDependencyStillProducesActionWithReason(t *testing.T) {
 	}
 	resolution := domain.Resolution{Dependencies: []domain.DependencyVersion{dep}}
 
-	actions, err := Plan(ctx, project, resolution, nil, testRegistry(t), map[string]bool{})
+	actions, err := Plan(ctx, project, resolution, nil, testRegistry(t), map[string]bool{}, nil)
 	if err != nil {
 		t.Fatalf("Plan: %v", err)
 	}
@@ -185,5 +186,111 @@ func TestPlanUnmappedDependencyStillProducesActionWithReason(t *testing.T) {
 		if a.Reason != "no knowledge source mapped" {
 			t.Errorf("action %+v: Reason = %q, want %q", a, a.Reason, "no knowledge source mapped")
 		}
+	}
+}
+
+func unknownDep(version string) domain.DependencyVersion {
+	return domain.DependencyVersion{
+		Dependency: domain.Dependency{Ecosystem: domain.EcosystemGo, Name: "example.com/totally-unknown-package"},
+		Version:    version,
+	}
+}
+
+func syncVersions(actions []Action) []string {
+	var out []string
+	for _, a := range actions {
+		if a.Kind == ActionSyncVersion {
+			out = append(out, a.Dependency.Version)
+		}
+	}
+	return out
+}
+
+// TestPlanReferencedButUnbuiltRetries is PLAN-005's core case: the
+// reference is unchanged, but this exact version was never built (an
+// earlier build failed). It used to plan only a NOOP, forever.
+func TestPlanReferencedButUnbuiltRetries(t *testing.T) {
+	project := domain.Project{ID: "proj_1"}
+	current := []domain.VersionReference{{ProjectID: "proj_1", Ecosystem: domain.EcosystemGo, Package: "google.golang.org/grpc", Version: "v1.67.0"}}
+	resolution := domain.Resolution{Dependencies: []domain.DependencyVersion{grpcDep("v1.67.0")}}
+
+	actions, err := Plan(context.Background(), project, resolution, current, testRegistry(t), map[string]bool{}, nil)
+	if err != nil {
+		t.Fatalf("Plan: %v", err)
+	}
+	if got := syncVersions(actions); len(got) != 1 || got[0] != "v1.67.0" {
+		t.Fatalf("SYNC_VERSION actions = %v, want exactly v1.67.0; all actions: %+v", got, actions)
+	}
+}
+
+// TestPlanVersionChangeBuildsNewVersionWhileOldStaysActive is PLAN-004's
+// planner-level case: another version being active must not suppress
+// building the version the project now resolves.
+func TestPlanVersionChangeBuildsNewVersionWhileOldStaysActive(t *testing.T) {
+	project := domain.Project{ID: "proj_1"}
+	current := []domain.VersionReference{{ProjectID: "proj_1", Ecosystem: domain.EcosystemGo, Package: "google.golang.org/grpc", Version: "v1.66.0"}}
+	resolution := domain.Resolution{Dependencies: []domain.DependencyVersion{grpcDep("v1.67.0")}}
+	active := map[string]bool{GenerationKey(grpcDep("v1.66.0")): true}
+
+	actions, err := Plan(context.Background(), project, resolution, current, testRegistry(t), active, nil)
+	if err != nil {
+		t.Fatalf("Plan: %v", err)
+	}
+	if got := syncVersions(actions); len(got) != 1 || got[0] != "v1.67.0" {
+		t.Fatalf("SYNC_VERSION actions = %v, want exactly v1.67.0", got)
+	}
+}
+
+// TestPlanKnownNoSourceUnmappedIsNotRetried: a version sync recorded as
+// having no docs source, still unmapped in the registry, plans nothing.
+func TestPlanKnownNoSourceUnmappedIsNotRetried(t *testing.T) {
+	project := domain.Project{ID: "proj_1"}
+	dep := unknownDep("v0.1.0")
+	current := []domain.VersionReference{{ProjectID: "proj_1", Ecosystem: domain.EcosystemGo, Package: dep.Dependency.Name, Version: "v0.1.0"}}
+	resolution := domain.Resolution{Dependencies: []domain.DependencyVersion{dep}}
+	noSource := map[string]bool{GenerationKey(dep): true}
+
+	actions, err := Plan(context.Background(), project, resolution, current, testRegistry(t), map[string]bool{}, noSource)
+	if err != nil {
+		t.Fatalf("Plan: %v", err)
+	}
+	if len(actions) != 1 || actions[0].Kind != ActionNoop {
+		t.Fatalf("actions = %+v, want exactly one NOOP", actions)
+	}
+}
+
+// TestPlanKnownNoSourceButNowMappedIsRetried: if the registry has gained
+// a manifest since the no-source record was made, the record is stale
+// and the version is built.
+func TestPlanKnownNoSourceButNowMappedIsRetried(t *testing.T) {
+	project := domain.Project{ID: "proj_1"}
+	current := []domain.VersionReference{{ProjectID: "proj_1", Ecosystem: domain.EcosystemGo, Package: "google.golang.org/grpc", Version: "v1.67.0"}}
+	resolution := domain.Resolution{Dependencies: []domain.DependencyVersion{grpcDep("v1.67.0")}}
+	noSource := map[string]bool{GenerationKey(grpcDep("v1.67.0")): true}
+
+	actions, err := Plan(context.Background(), project, resolution, current, testRegistry(t), map[string]bool{}, noSource)
+	if err != nil {
+		t.Fatalf("Plan: %v", err)
+	}
+	if got := syncVersions(actions); len(got) != 1 {
+		t.Fatalf("SYNC_VERSION actions = %v, want one (grpc is mapped in the built-in registry)", got)
+	}
+}
+
+// TestPlanNewKnownNoSourceDependencyOnlyAddsReference: a first reference
+// to a version already known to have no source records the reference
+// but doesn't plan a build that's known to fail.
+func TestPlanNewKnownNoSourceDependencyOnlyAddsReference(t *testing.T) {
+	project := domain.Project{ID: "proj_1"}
+	dep := unknownDep("v0.1.0")
+	resolution := domain.Resolution{Dependencies: []domain.DependencyVersion{dep}}
+	noSource := map[string]bool{GenerationKey(dep): true}
+
+	actions, err := Plan(context.Background(), project, resolution, nil, testRegistry(t), map[string]bool{}, noSource)
+	if err != nil {
+		t.Fatalf("Plan: %v", err)
+	}
+	if countByKind(actions, ActionAddReference) != 1 || countByKind(actions, ActionSyncVersion) != 0 {
+		t.Fatalf("actions = %+v, want one ADD_REFERENCE and no SYNC_VERSION", actions)
 	}
 }

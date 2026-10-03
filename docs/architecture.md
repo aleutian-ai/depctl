@@ -692,6 +692,35 @@ Real-container verification of `MEM0-001`, `GRAPHITI-001`, and `COGNEE-001` agai
 
 End-to-end ingestion was **not** confirmed. `POST /messages` only queues work, and Graphiti's background worker called the local 3B model, then stored nothing and logged no error. Graphiti's worker loop catches only `CancelledError`, so a failed extraction fails silently. Confirming ingestion needs a stronger model or a real OpenAI key. Also recorded in the ticket: the published arm64 image fails to start as its own non-root user (run here with `--user root`), and one-episode-per-dependency won't fit a large dependency in any model's context window. `MEM0-001`'s real-container check has not been run.
 
+## VEC-016 (2026-10-01): bring-your-own Qdrant verified, and three real bugs found
+
+Pointing ragctl at a Qdrant server it doesn't manage (`vector.managed: false`) was verified against a real shared server. A foreign collection on the same server was seeded with points carrying ragctl's own filter keys and values, and it stayed byte-identical through sync, rebuild, reference-based GC, superseded-duplicate GC, and a server restart. With the server down, ragctl reported "vector backend unreachable" and started no container. No code change was needed.
+
+The same run found three real bugs elsewhere, none fixed yet:
+
+1. **A dependency version change never triggers a rebuild.** `internal/cli/plan.go` fills the planner's `activeGenerations` map from `GetActiveGeneration`, which is keyed by dependency only, and never compares the active generation's version to the resolved version. Moving a project from `uuid` v1.6.0 to v1.5.0 left v1.6.0 active, and `plan` said "up to date". The planner's own tests pass that map in directly, so they never exercise this caller. GC's eligibility check does the same lookup and does compare versions (`internal/retention/gc_planner.go`).
+2. **A failed sync can strand a dependency.** This is the `OPS-005` "referenced but never built" state, now reproduced on demand. A `--rebuild` attempted while the backend was down cleared the active pointer, recorded the reference, and failed the build. From then on, every plain `sync` takes the planner's "reference unchanged" branch, which never checks whether a generation exists for that version. Only another `--rebuild` (or `MCP-010`'s self-healing retry) recovers it. This is a plausible root cause for the real-user `google.golang.org/protobuf` incident that motivated `MCP-010`.
+3. **Vector readiness is checked once, at daemon startup.** If the backend is down then (realistic for a user-run Qdrant after a reboot), every sync keeps failing as "unreachable" after it recovers, until `ragctl daemon stop`. Embedding readiness already rechecks lazily; vector readiness doesn't. Documented as a known issue in `docs/offline-quickstart.md`.
+
+## Epic 66 (2026-10-02): active generations are per dependency version
+
+`VEC-016`'s three bugs traced back to one data-model flaw. The control store's active-generation pointer was keyed by dependency, not version, so only one version of a dependency could be active at a time. [ADR-012](adr/ADR-012-active-generation-per-dependency-version.md) makes the pointer per version and removes every version-less lookup. The change is a control-store schema-2 migration, verified by syncing a project with the previous binary and then opening the same store with the new one: same generation, same search results, no rebuild.
+
+On top of that:
+- `plan.go` asks for the exact resolved version, so a version change triggers a build (`PLAN-004`).
+- The planner retries any referenced version without an active generation on the next plain sync (`PLAN-005`). The one exception is a version sync has recorded as having no docs source; that's its own bucket, not a failed generation, so nothing that retries failures can retry it by accident.
+- Vector and embedding readiness re-probe a backend last seen down, instead of trusting the daemon's startup check (`OPS-008`). Embedding readiness had the same bug, despite its error message promising a recheck.
+- Project search filters by the active generation's ID, so a rebuild's leftover predecessor never mixes stale chunks into results.
+
+The real-container acceptance run found one more gap the unit tests hadn't: **GC could no longer retire an unreferenced version.** `PlanGC` treated an active version as never eligible. That only worked because promoting a newer version used to make the old one inactive; under per-version pointers it made every unreferenced version immortal. References alone now decide a version's lifetime, and `gc.Run` clears the version's pointer as its first step.
+
+Verified end to end against real containers (a user-owned Qdrant, local Ollama), using the real binary:
+- Project A on `google/uuid` v1.5.0 and project B on v1.6.0 were each served exactly their own version; resyncs rebuilt nothing; GC kept both.
+- Dropping A's dependency let GC remove v1.5.0 only.
+- With the daemon started while Qdrant was down, a failed `--rebuild` of project C (v1.4.0) recovered on a plain `sync` once Qdrant returned, on the same daemon process, with no restart and no `--rebuild`.
+
+Still open, noted rather than fixed: readiness only notices a backend coming back. A backend that goes down after startup reads `ready` until a call fails with the underlying dial error.
+
 ## Testing notes
 
 Tests that spawn a real `go` subprocess under an isolated `$HOME` (`internal/cli`'s `requireGo`-gated tests, `internal/resolver/golang`) run fully offline (`GOFLAGS=-mod=mod`, `GOPROXY=off`) and point `GOCACHE`/`GOPATH`/`GOTELEMETRYDIR` at a shared directory outside any per-test temp dir. Without this, Go's build cache and telemetry uploader raced `t.TempDir()` cleanup under the Alpine/Podman container specifically (never observed natively on macOS), intermittently failing with `directory not empty`. `internal/cli/init_test.go`'s `isolateEnv` also retries its own cleanup a few times before giving up, as a second line of defense against the same class of race.

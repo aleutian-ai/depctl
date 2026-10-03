@@ -90,12 +90,13 @@ func PlanGC(ctx context.Context, store ControlStore, backendName string, gracePe
 			continue
 		}
 
-		// An active generation for this exact version means it's
-		// currently promoted and serving retrieval — never GC-eligible
-		// regardless of reference/grace state.
-		if active, err := store.GetActiveGeneration(ctx, v.ecosystem, v.pkg, backendName); err == nil && active.Dependency.Version == v.version {
-			continue
-		}
+		// No "active means keep" exclusion (ADR-012): references and the
+		// grace period alone decide a version's lifetime. Under the old
+		// one-pointer model an unreferenced old version stopped being
+		// active once a newer one was promoted; now each version stays
+		// active until GC retires it, so excluding active versions here
+		// would make every unreferenced version immortal. gc.Run clears
+		// the version's active pointer as its first step.
 
 		candidates = append(candidates, GCCandidate{
 			Ecosystem: v.ecosystem,

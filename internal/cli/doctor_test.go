@@ -388,9 +388,36 @@ func TestDoctorFlagsReferencedButNeverBuilt(t *testing.T) {
 		t.Fatalf("AddReference: %v", err)
 	}
 
+	// PLAN-005: a plain sync now retries these, so one that's still
+	// listed is a build that keeps failing; the advice points at the
+	// daemon log rather than at --rebuild.
 	r := resultNamed(t, runChecks(ctx, env), "referenced but never built")
-	if r.Severity != SeverityUnhealthy || !strings.Contains(r.Detail, "example.com/stuck") || !strings.Contains(r.Detail, "--rebuild") {
-		t.Errorf("referenced but never built = %s (%s), want UNHEALTHY naming example.com/stuck and the --rebuild remedy", r.Severity, r.Detail)
+	if r.Severity != SeverityUnhealthy || !strings.Contains(r.Detail, "example.com/stuck") || !strings.Contains(r.Detail, "daemon log") {
+		t.Errorf("referenced but never built = %s (%s), want UNHEALTHY naming example.com/stuck and pointing at the daemon log", r.Severity, r.Detail)
+	}
+}
+
+// TestDoctorReportsNoSourceVersionsAsWarningNotStuck: a version sync has
+// recorded as having no docs source is intentionally unbuilt (PLAN-005),
+// so it's a WARN, never UNHEALTHY "stuck".
+func TestDoctorReportsNoSourceVersionsAsWarningNotStuck(t *testing.T) {
+	ctx := context.Background()
+	env := healthyDoctorEnv(t)
+
+	ref := domain.VersionReference{
+		ProjectID: "proj_go", Ecosystem: domain.EcosystemGo, Package: "example.com/nosource", Version: "v1.0.0",
+		Reason: domain.ReferenceReasonProject, FirstSeenAt: env.now.Add(-time.Hour),
+	}
+	if err := env.store.AddReference(ctx, ref); err != nil {
+		t.Fatalf("AddReference: %v", err)
+	}
+	if err := env.store.PutNoSourceVersion(ctx, bboltstore.NoSourceVersion{Ecosystem: domain.EcosystemGo, Package: "example.com/nosource", Version: "v1.0.0"}); err != nil {
+		t.Fatalf("PutNoSourceVersion: %v", err)
+	}
+
+	r := resultNamed(t, runChecks(ctx, env), "referenced but never built")
+	if r.Severity != SeverityWarning || !strings.Contains(r.Detail, "example.com/nosource") || !strings.Contains(r.Detail, "no known docs source") {
+		t.Errorf("referenced but never built = %s (%s), want WARN naming example.com/nosource as having no docs source", r.Severity, r.Detail)
 	}
 }
 

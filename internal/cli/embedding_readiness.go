@@ -15,6 +15,13 @@ import (
 // connection can legitimately take a while, but still finite.
 const embeddingPullTimeout = 15 * time.Minute
 
+// embeddingReprobeCooldown bounds how often a down provider is re-probed;
+// embeddingReprobeTimeout bounds each probe.
+const (
+	embeddingReprobeCooldown = 5 * time.Second
+	embeddingReprobeTimeout  = 3 * time.Second
+)
+
 // embeddingState is where checkEmbeddingReadiness's background probe
 // currently stands. Every daemon-owned embedder consumer (sync, search)
 // checks this before touching the network itself, so a slow/missing
@@ -39,6 +46,14 @@ type embeddingReadiness struct {
 	mu     sync.Mutex
 	state  embeddingState
 	detail string
+
+	// reprobe, when set (by the daemon), re-checks a provider last seen
+	// unreachable or in error (OPS-008). Without it, an Ollama that was
+	// down at daemon startup stayed "unreachable" until a restart, despite
+	// the error message promising a recheck. nil in tests and in doctor's
+	// one-shot copy.
+	reprobe     func() error
+	lastReprobe time.Time
 }
 
 func newEmbeddingReadiness() *embeddingReadiness {
@@ -70,6 +85,7 @@ func (r *embeddingReadiness) checkReady() error {
 	if r == nil {
 		return nil
 	}
+	r.reprobeIfDown()
 	state, detail := r.get()
 	switch state {
 	case embeddingStateReady, embeddingStateUnknown:
@@ -87,6 +103,50 @@ func (r *embeddingReadiness) checkReady() error {
 	case embeddingStateError:
 		return fmt.Errorf("embedding backend not ready: %s", detail)
 	default:
+		return nil
+	}
+}
+
+// reprobeIfDown re-probes a provider last seen unreachable or in error, at
+// most once per embeddingReprobeCooldown, and marks it ready if the probe
+// now succeeds.
+func (r *embeddingReadiness) reprobeIfDown() {
+	r.mu.Lock()
+	down := r.state == embeddingStateUnreachable || r.state == embeddingStateError
+	if !down || r.reprobe == nil || time.Since(r.lastReprobe) < embeddingReprobeCooldown {
+		r.mu.Unlock()
+		return
+	}
+	r.lastReprobe = time.Now()
+	probe := r.reprobe
+	r.mu.Unlock()
+
+	if probe() == nil {
+		r.set(embeddingStateReady, "")
+	}
+}
+
+// ollamaReprober returns the daemon's reprobe for embeddingReadiness: a
+// quick, bounded reachability-and-model check. If Ollama is back but the
+// model still isn't pulled, it hands off to checkEmbeddingReadiness's
+// background pull (which moves the state to "pulling") rather than
+// blocking the caller's request on a download.
+func ollamaReprober(ctx context.Context, cfg config.Config, readiness *embeddingReadiness, logf func(format string, args ...any)) func() error {
+	return func() error {
+		client := ollama.New(cfg.Embedding.Endpoint, cfg.Embedding.Model)
+		probeCtx, cancel := context.WithTimeout(ctx, embeddingReprobeTimeout)
+		defer cancel()
+		if !client.Reachable(probeCtx) {
+			return fmt.Errorf("ollama still not reachable at %s", cfg.Embedding.Endpoint)
+		}
+		pulled, err := client.ModelPulled(probeCtx)
+		if err != nil {
+			return err
+		}
+		if !pulled {
+			go checkEmbeddingReadiness(ctx, cfg, readiness, logf)
+			return fmt.Errorf("%s not pulled yet; pulling in the background", cfg.Embedding.Model)
+		}
 		return nil
 	}
 }

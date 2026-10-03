@@ -93,18 +93,27 @@ func computePlans(ctx context.Context, store *bboltstore.Store, backendName, pro
 			continue
 		}
 
+		// Both maps are per exact version (ADR-012): "is v1.5.0 built?",
+		// never "is anything built for this dependency?" — the question
+		// that let a version change go unnoticed (PLAN-004).
 		active := map[string]bool{}
+		noSource := map[string]bool{}
 		for _, dep := range resolution.Dependencies {
 			key := planner.GenerationKey(dep)
 			if _, ok := active[key]; ok {
 				continue
 			}
-			_, err := store.GetActiveGeneration(ctx, dep.Dependency.Ecosystem, dep.Dependency.Name, backendName)
+			_, err := store.GetActiveGeneration(ctx, dep.Dependency.Ecosystem, dep.Dependency.Name, dep.Version, backendName)
 			active[key] = err == nil
+			if !active[key] {
+				if has, err := store.HasNoSource(ctx, dep.Dependency.Ecosystem, dep.Dependency.Name, dep.Version); err == nil && has {
+					noSource[key] = true
+				}
+			}
 		}
 
 		spanCtx, end := trace.StartSpan(ctx, "plan")
-		actions, err := planner.Plan(spanCtx, p, resolution, current, reg, active)
+		actions, err := planner.Plan(spanCtx, p, resolution, current, reg, active, noSource)
 		if err != nil {
 			trace.RecordError(spanCtx, err)
 			end()

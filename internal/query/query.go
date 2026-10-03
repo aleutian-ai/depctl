@@ -113,7 +113,7 @@ type ControlStore interface {
 	ListProjects(ctx context.Context) ([]domain.Project, error)
 	GetProject(ctx context.Context, id string) (domain.Project, error)
 	GetResolution(ctx context.Context, projectID string) (domain.Resolution, error)
-	GetActiveGeneration(ctx context.Context, ecosystem domain.Ecosystem, pkg, backendName string) (domain.Generation, error)
+	GetActiveGeneration(ctx context.Context, ecosystem domain.Ecosystem, pkg, version, backendName string) (domain.Generation, error)
 	ListReferences(ctx context.Context, ecosystem domain.Ecosystem, pkg, version string) ([]domain.VersionReference, error)
 	ListAllReferences(ctx context.Context) ([]domain.VersionReference, error)
 	ListGenerationsByDependencyVersion(ctx context.Context, ecosystem domain.Ecosystem, pkg, version string) ([]domain.Generation, error)

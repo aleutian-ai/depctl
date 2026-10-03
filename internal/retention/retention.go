@@ -21,7 +21,7 @@ type ControlStore interface {
 	RemoveReference(ctx context.Context, ecosystem domain.Ecosystem, pkg, version, projectID string) error
 	ListReferences(ctx context.Context, ecosystem domain.Ecosystem, pkg, version string) ([]domain.VersionReference, error)
 	ListAllReferences(ctx context.Context) ([]domain.VersionReference, error)
-	GetActiveGeneration(ctx context.Context, ecosystem domain.Ecosystem, pkg, backendName string) (domain.Generation, error)
+	GetActiveGeneration(ctx context.Context, ecosystem domain.Ecosystem, pkg, version, backendName string) (domain.Generation, error)
 	ListAllGenerations(ctx context.Context) ([]domain.Generation, error)
 }
 

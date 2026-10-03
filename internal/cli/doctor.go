@@ -651,7 +651,7 @@ func checkReferencedButNeverBuilt(ctx context.Context, env *doctorEnv) (Severity
 	}
 	seen := map[key]bool{}
 	checked := 0
-	var stuck []string
+	var stuck, noSource []string
 	for _, r := range refs {
 		k := key{string(r.Ecosystem), r.Package, r.Version}
 		if seen[k] {
@@ -662,12 +662,23 @@ func checkReferencedButNeverBuilt(ctx context.Context, env *doctorEnv) (Severity
 			continue // plausibly still mid-first-sync
 		}
 		checked++
-		if _, err := env.store.GetActiveGeneration(ctx, r.Ecosystem, r.Package, env.cfg.Vector.Backend); errors.Is(err, bboltstore.ErrNotFound) {
-			stuck = append(stuck, fmt.Sprintf("%s %s@%s", r.Ecosystem, r.Package, r.Version))
+		if _, err := env.store.GetActiveGeneration(ctx, r.Ecosystem, r.Package, r.Version, env.cfg.Vector.Backend); errors.Is(err, bboltstore.ErrNotFound) {
+			label := fmt.Sprintf("%s %s@%s", r.Ecosystem, r.Package, r.Version)
+			if has, err := env.store.HasNoSource(ctx, r.Ecosystem, r.Package, r.Version); err == nil && has {
+				noSource = append(noSource, label)
+				continue
+			}
+			stuck = append(stuck, label)
 		}
 	}
+	// PLAN-005: a plain `ragctl sync` now retries every one of these, so
+	// one still listed means its build keeps failing — the daemon log has
+	// the per-dependency error.
 	if len(stuck) > 0 {
-		return SeverityUnhealthy, fmt.Sprintf("%d dependency(ies) referenced but never actively built — no plain `ragctl sync` will ever retry them; run `ragctl sync --rebuild --dependency <name>` for each: %s", len(stuck), summarize(stuck))
+		return SeverityUnhealthy, fmt.Sprintf("%d dependency(ies) referenced but not built; each `ragctl sync` retries them, so these keep failing — see the daemon log for why: %s", len(stuck), summarize(stuck))
+	}
+	if len(noSource) > 0 {
+		return SeverityWarning, fmt.Sprintf("%d checked; %d have no known docs source (no registry manifest or fallback) and aren't retried: %s", checked, len(noSource), summarize(noSource))
 	}
 	return SeverityOK, fmt.Sprintf("%d checked, none stuck", checked)
 }

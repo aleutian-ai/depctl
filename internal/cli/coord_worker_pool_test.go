@@ -186,7 +186,7 @@ func TestWorkerPoolIsolatesOneFailureFromOthers(t *testing.T) {
 		t.Errorf("example.com/gadget failed = %d, want 0 (a different dependency's failure must never affect it)", results["example.com/gadget"])
 	}
 
-	active, err := f.store.GetActiveGeneration(context.Background(), domain.EcosystemGo, "example.com/gadget", f.vb.Name())
+	active, err := f.store.GetActiveGeneration(context.Background(), domain.EcosystemGo, "example.com/gadget", "v1.0.0", f.vb.Name())
 	if err != nil || active.State != domain.GenActive {
 		t.Errorf("example.com/gadget's generation = %+v, err=%v, want ACTIVE despite widget's concurrent failure", active, err)
 	}

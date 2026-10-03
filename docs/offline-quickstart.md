@@ -92,6 +92,35 @@ The `-v` gives it a named volume so your index survives a container
 restart — without it Qdrant's storage lives only in the container's
 writable layer.
 
+### Already running Qdrant? Use that instead
+
+If you already run a Qdrant server, standalone or as the store under
+your Mem0, skip the `podman run` above and point ragctl at it:
+
+```yaml
+vector:
+  backend: qdrant
+  endpoint: http://127.0.0.1:6333     # your server
+  managed: false                      # ragctl never starts its own container
+  api_key_env: QDRANT_API_KEY         # only if your server requires a key
+```
+
+Leave `collection` at the unique name `ragctl init` generated rather
+than setting it to something generic like `ragctl`. Then ragctl's data
+can never collide with another tool's collection on the same server.
+
+Verified against a real shared server (`VEC-016`, 2026-10-01). sync,
+rebuild, and every GC path touched only ragctl's own collection. A
+second collection on the same server, seeded with points carrying the
+same dependency/version payload fields ragctl filters on, was
+byte-identical afterward. With `managed: false`, an unreachable server
+produces a clear "vector backend unreachable" error and never starts a
+container.
+
+If your Qdrant isn't up yet when ragctl's daemon starts (e.g. right
+after a reboot), syncs report it as unreachable until it comes back,
+then pick it up on their own. No daemon restart needed.
+
 ## 4. Point ragctl at your docs repo
 
 Say your real corpus is `~/offline-knowledge/geodata-notes` (any git repo

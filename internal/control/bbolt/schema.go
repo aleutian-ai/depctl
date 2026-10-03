@@ -10,10 +10,9 @@ import (
 )
 
 // CurrentSchemaVersion is the bbolt control-plane schema version this
-// binary understands. Bump it and append a Migration when a future
-// change needs one — there is nothing to migrate yet, so migrations is
-// just the v1 identity step.
-const CurrentSchemaVersion = 1
+// binary understands. Bump it and append a Migration when a change needs
+// one.
+const CurrentSchemaVersion = 2
 
 const schemaVersionKey = "schema_version"
 
@@ -30,13 +29,13 @@ type Migration struct {
 }
 
 // migrations is a flat ordered slice, not a generic pluggable migration
-// engine — there is exactly one entry until a second schema change
-// actually exists. Version 1's Apply is a no-op: every bucket it would
-// create already exists by the time ensureSchema runs (Open creates them
-// first), so this step only exists to establish schema_version = 1 on a
-// fresh database.
+// engine. Version 1's Apply is a no-op: every bucket it would create
+// already exists by the time ensureSchema runs (Open creates them first),
+// so it only establishes schema_version = 1 on a fresh database. Version
+// 2 rekeys active-generation pointers by version (ADR-012, STORE-005).
 var migrations = []Migration{
 	{Version: 1, Apply: func(tx *bolt.Tx) error { return nil }},
+	{Version: 2, Apply: migrateActivePointersPerVersion},
 }
 
 // ensureSchema reads the on-disk schema version (0 for a fresh database,

@@ -12,6 +12,6 @@ History: this epic originally covered four server-backed vendors. On 2026-09-30 
 - [VEC-011](VEC-011-weaviate-adapter.md) — Weaviate adapter, for users who already run Weaviate.
 - [VEC-014](VEC-014-pgvector-adapter.md) — PostgreSQL + pgvector adapter, for users who already run Postgres with pgvector (including Mem0's self-hosted server stack).
 - [VEC-015](VEC-015-sqlite-embedded-backend.md) — embedded SQLite (`sqlite-vec`) backend: one file at `<data-dir>/vectors.db`, no separate process. The longer-term "no vector service at all" path.
-- [VEC-016](VEC-016-bring-your-own-qdrant.md) — "use your existing Qdrant" as a documented, real-container-verified path. It already works through config but has never been proven against a Qdrant shared with other tooling.
+- [VEC-016](VEC-016-bring-your-own-qdrant.md) — **done (2026-10-01).** "Use your existing Qdrant" is verified against a real server shared with another collection: sync, rebuild, and every GC path left the neighbor byte-identical, and `managed: false` never starts a container. No code change needed. The run also surfaced three unrelated bugs (version changes don't trigger rebuilds; a failed sync can strand a dependency; vector readiness never rechecks), recorded in the ticket.
 
-Suggested order: `VEC-016` (small, docs plus verification, no new code expected) → `VEC-010` → `VEC-014` and `VEC-011` → `VEC-015`.
+Suggested order: `VEC-016` (done) → `VEC-010` → `VEC-014` and `VEC-011` → `VEC-015`.

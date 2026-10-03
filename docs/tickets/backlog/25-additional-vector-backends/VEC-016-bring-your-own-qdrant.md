@@ -1,7 +1,7 @@
 # VEC-016: Bring-your-own Qdrant, documented and verified
 
 **Epic:** Vector Backends (bring-your-own + embedded)
-**Status:** planned
+**Status:** done (2026-10-01)
 **Depends on:** none (uses the already-shipped Qdrant adapter and config)
 **Estimated size:** small
 
@@ -48,6 +48,28 @@ Verification, against real containers under Podman:
 - If verification finds a bug, a regression test for that bug at the adapter level.
 
 ## Acceptance criteria
-- [ ] Real-container run: ragctl syncs into a Qdrant server that also holds a non-ragctl collection, and that collection is untouched after sync, GC, and rebuild.
-- [ ] `managed: false` never starts ragctl's own Qdrant container.
-- [ ] README and the Qdrant how-to doc describe the setup, matching what was actually verified.
+- [x] Real-container run: ragctl syncs into a Qdrant server that also holds a non-ragctl collection, and that collection is untouched after sync, GC, and rebuild.
+- [x] `managed: false` never starts ragctl's own Qdrant container.
+- [x] README and the Qdrant how-to doc describe the setup, matching what was actually verified (README "Vector store"; `docs/offline-quickstart.md` "Already running Qdrant? Use that instead").
+
+## Post-implementation note (2026-10-01)
+
+**Setup.** A user-owned `qdrant/qdrant:v1.13.1` under Podman on port 16333, separate from the developer's own ragctl-managed Qdrant on 6333, which was never touched. A foreign `mem0` collection was seeded with 50 points whose payloads deliberately reuse ragctl's own filter keys and values (`ecosystem: go`, `dependency: github.com/google/uuid`, `version: v1.5.0/v1.6.0`, `generation: gen_foreign_*`). Any ragctl filter applied to the wrong collection would therefore have matched and deleted them. A script fingerprinted the whole collection (every ID, vector, and payload, sha256) after each step. A fresh, isolated ragctl install was pointed at the server with `managed: false` and given per-install collection `ragctl-5708e762`.
+
+**Isolation, verified.** The foreign collection stayed `50 points, sha be780e7b28420437` through every step:
+1. scan + sync of real `google/uuid` v1.6.0 (84 points into ragctl's collection).
+2. `sync --rebuild` to v1.5.0 (81 points).
+3. Reference-based GC deleting v1.6.0's 84 points.
+4. A rebuild superseding the first v1.5.0 generation, then `gc --superseded-duplicates` deleting its 81 points.
+5. Stopping and restarting the user's Qdrant.
+
+ragctl only ever created its own collection.
+
+**`managed: false`, verified.** With the user's Qdrant stopped, `sync` failed with `vector backend unreachable: qdrant not reachable at http://127.0.0.1:16333…`, and `daemon status` and `doctor` both reported UNHEALTHY. The container list was identical before and after: no container was started.
+
+**No code change was needed for this ticket's own scope.** The verification did surface three real bugs elsewhere, all fixed in [epic 66](../../completed/66-version-correct-active-generations/INDEX.md) (2026-10-02):
+1. **A dependency version change never triggers a rebuild.** `internal/cli/plan.go` builds the planner's `activeGenerations` map with `GetActiveGeneration` (keyed by dependency only) and never compares the active generation's version to the resolved one. Changing `uuid` v1.6.0 → v1.5.0 left v1.6.0 active and `plan` reporting "up to date". GC's own planner does the same lookup and *does* compare versions (`retention/gc_planner.go`), which is why this went unnoticed.
+2. **A failed sync can leave a dependency permanently unsynced** (the `OPS-005` "referenced but never built" state, reproduced on demand). A `--rebuild` attempted while the backend was down cleared the active pointer, recorded the version reference, then failed the build. Every later plain `sync` NOOPs, because the planner's "reference unchanged" branch never checks whether a generation exists. Only another `--rebuild` recovers it.
+3. **Vector readiness never rechecks.** The daemon probes the backend once at startup. If it was down then, every sync keeps failing as "unreachable" after it comes back, until a manual `ragctl daemon stop`. Embedding readiness does recheck lazily.
+
+Test-setup notes for whoever reruns this: `retention.grace_period: 0s` means "use the default" (14 days), so use `1s`. `keep_latest: true` keeps the highest version, which blocks GC after a downgrade. When overriding `HOME` for an isolated ragctl, also set `CONTAINER_HOST` to the Podman machine socket, or Podman (and ragctl's own container management) can't find its machine.

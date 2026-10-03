@@ -179,7 +179,7 @@ func clearForRebuild(ctx context.Context, store *bboltstore.Store, backendName, 
 			if err := store.RemoveReference(ctx, dep.Dependency.Ecosystem, dep.Dependency.Name, dep.Version, p.ID); err != nil {
 				return fmt.Errorf("clear reference for %s: %w", dep.Dependency.Name, err)
 			}
-			if err := store.ClearActiveGeneration(ctx, dep.Dependency.Ecosystem, dep.Dependency.Name, backendName); err != nil {
+			if err := store.ClearActiveGeneration(ctx, dep.Dependency.Ecosystem, dep.Dependency.Name, dep.Version, backendName); err != nil {
 				return fmt.Errorf("clear active generation for %s: %w", dep.Dependency.Name, err)
 			}
 		}
@@ -1014,6 +1014,34 @@ type SyncPhaseTimings struct {
 	Promote   time.Duration
 }
 
+// latestActiveGenerationAnyVersion returns the most recently promoted
+// active generation across every version of one dependency. Deliberately
+// named for what it is: it is NOT "the active generation for this
+// dependency" (ADR-012 has no such thing) and must never be used to
+// decide whether a specific version is built. Only for comparisons
+// (VAL-002's sanity baseline) and display (`describe`).
+func latestActiveGenerationAnyVersion(ctx context.Context, store *bboltstore.Store, ecosystem domain.Ecosystem, pkg, backendName string) (domain.Generation, bool) {
+	pointers, err := store.ListActivePointers(ctx, backendName)
+	if err != nil {
+		return domain.Generation{}, false
+	}
+	var latest domain.Generation
+	var found bool
+	for _, p := range pointers {
+		if p.Ecosystem != ecosystem || p.Dependency != pkg {
+			continue
+		}
+		g, err := store.GetGeneration(ctx, p.GenerationID)
+		if err != nil {
+			continue
+		}
+		if !found || g.UpdatedAt.After(latest.UpdatedAt) {
+			latest, found = g, true
+		}
+	}
+	return latest, found
+}
+
 // onSyncPhaseTimings, if set, is called after every syncVersion call
 // completes (success or failure) with its phase breakdown. A var, not a
 // parameter, so every existing caller/test stays unaffected unless
@@ -1034,6 +1062,16 @@ func syncVersion(ctx context.Context, store *bboltstore.Store, badgerStore *badg
 	if !ok {
 		manifest, ok = fallbackManifest(ctx, dep.Dependency)
 		if !ok {
+			// Recorded as its own state, never as a failed generation, so
+			// the planner stops retrying it every sync (PLAN-005) while
+			// genuinely failed builds keep being retried.
+			rec := bboltstore.NoSourceVersion{
+				Ecosystem: dep.Dependency.Ecosystem, Package: dep.Dependency.Name, Version: dep.Version,
+				Reason: "no registry manifest and no fallback source", RecordedAt: time.Now(),
+			}
+			if err := store.PutNoSourceVersion(ctx, rec); err != nil {
+				return fmt.Errorf("no registry manifest for %s (and recording that failed: %v)", dep.Dependency.Name, err)
+			}
 			return fmt.Errorf("no registry manifest for %s", dep.Dependency.Name)
 		}
 	}
@@ -1048,12 +1086,16 @@ func syncVersion(ctx context.Context, store *bboltstore.Store, badgerStore *badg
 	// immediately before generation.Create closes that window: if the
 	// exact version we're about to build has already been promoted by
 	// someone else since we planned, there is nothing left to do.
+	if _, err := store.GetActiveGeneration(ctx, dep.Dependency.Ecosystem, dep.Dependency.Name, dep.Version, vb.Name()); err == nil {
+		return nil
+	}
+	// VAL-002's sanity check compares this build against a previous one.
+	// With several versions active at once (ADR-012), the closest thing
+	// to "the previous version" is the most recently promoted generation
+	// of any other version of this dependency.
 	var prior *domain.Generation
 	var priorManifest *generation.Manifest
-	if p, err := store.GetActiveGeneration(ctx, dep.Dependency.Ecosystem, dep.Dependency.Name, vb.Name()); err == nil {
-		if p.Dependency.Version == dep.Version {
-			return nil
-		}
+	if p, ok := latestActiveGenerationAnyVersion(ctx, store, dep.Dependency.Ecosystem, dep.Dependency.Name, vb.Name()); ok {
 		prior = &p
 		if pm, err := readGenerationManifest(ctx, badgerStore, p.ID); err == nil {
 			priorManifest = &pm
@@ -1123,7 +1165,15 @@ func syncVersion(ctx context.Context, store *bboltstore.Store, badgerStore *badg
 	promoteStart := time.Now()
 	promoteErr := promote.Promote(ctx, store, gen, vb.Name(), report.Structural, sanity, report.VersionCorrectness)
 	timings.Promote = time.Since(promoteStart)
-	return promoteErr
+	if promoteErr != nil {
+		return promoteErr
+	}
+	// A source turned up since an earlier no-source determination (e.g.
+	// the registry gained a manifest): the record no longer applies.
+	if err := store.DeleteNoSourceVersion(ctx, dep.Dependency.Ecosystem, dep.Dependency.Name, dep.Version); err != nil {
+		return fmt.Errorf("clear no-source record: %w", err)
+	}
+	return nil
 }
 
 func readGenerationManifest(ctx context.Context, badgerStore *badgerstore.Store, generationID string) (generation.Manifest, error) {

@@ -64,7 +64,7 @@ func TestPlanOrphanGCExcludesFailedButStillActive(t *testing.T) {
 	now := time.Now()
 	gen := testGen("gen_1", domain.EcosystemGo, "example.com/foo", "v1.0.0", domain.GenFailed, now)
 	store.gens = []domain.Generation{gen}
-	store.active[activeKey(domain.EcosystemGo, "example.com/foo", "qdrant")] = gen // inconsistent-but-real state
+	store.active[activeKey(domain.EcosystemGo, "example.com/foo", "v1.0.0", "qdrant")] = gen // inconsistent-but-real state
 
 	candidates, err := PlanOrphanGC(context.Background(), store, "qdrant", time.Hour, now)
 	if err != nil {
@@ -102,7 +102,7 @@ func TestPlanOrphanGCIsGenerationScopedNotDependencyScoped(t *testing.T) {
 	failed := testGen("gen_failed", domain.EcosystemGo, "example.com/foo", "v1.0.0", domain.GenFailed, now)
 	active := testGen("gen_active", domain.EcosystemGo, "example.com/foo", "v1.0.0", domain.GenActive, now)
 	store.gens = []domain.Generation{failed, active}
-	store.active[activeKey(domain.EcosystemGo, "example.com/foo", "qdrant")] = active
+	store.active[activeKey(domain.EcosystemGo, "example.com/foo", "v1.0.0", "qdrant")] = active
 
 	candidates, err := PlanOrphanGC(context.Background(), store, "qdrant", time.Hour, now)
 	if err != nil {
