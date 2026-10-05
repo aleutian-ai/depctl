@@ -885,16 +885,50 @@ func (e *engine) ExportGraphiti(ctx context.Context, req api.ExportGraphitiReque
 			continue
 		}
 
-		if err := graphitiClient.AddEpisode(ctx, req.ProjectID, name, episode); err != nil {
-			result.Failed = 1
-			fmt.Fprintf(out, "%s: push episode failed: %v\n", name, err)
-		} else {
-			result.Pushed = 1
-			fmt.Fprintf(out, "%s: episode pushed\n", name)
+		parts := splitGraphitiEpisode(episode, graphitiEpisodeMaxChars)
+		for i, part := range parts {
+			partName := fmt.Sprintf("%s@%s (%d/%d)", name, dv.Version, i+1, len(parts))
+			if err := graphitiClient.AddEpisode(ctx, req.ProjectID, partName, part); err != nil {
+				result.Failed++
+				fmt.Fprintf(out, "%s: push episode failed: %v\n", partName, err)
+				continue
+			}
+			result.Pushed++
 		}
+		fmt.Fprintf(out, "%s: %d episode(s) queued, %d failed (Graphiti extracts them in the background)\n", name, result.Pushed, result.Failed)
 		resp.Results = append(resp.Results, result)
 	}
 	return resp, nil
+}
+
+// graphitiEpisodeMaxChars bounds one episode's chunk text. Graphiti runs
+// LLM extraction over each episode, so a whole dependency in one episode
+// (about 3.5 MB for google.golang.org/protobuf) can't fit any model's
+// context. Sized from the real-container run: a 20 KB episode extracted
+// cleanly on a local 3B model in about 3 minutes.
+const graphitiEpisodeMaxChars = 12000
+
+// splitGraphitiEpisode splits ep into consecutive parts whose chunk
+// content totals at most maxChars each (a single oversized chunk gets a
+// part of its own). Every part keeps the dependency/version/ecosystem
+// header, so each episode stands on its own.
+func splitGraphitiEpisode(ep graphitiEpisode, maxChars int) []graphitiEpisode {
+	var parts []graphitiEpisode
+	cur := graphitiEpisode{Dependency: ep.Dependency, Version: ep.Version, Ecosystem: ep.Ecosystem}
+	size := 0
+	for _, c := range ep.Chunks {
+		if size > 0 && size+len(c.Content) > maxChars {
+			parts = append(parts, cur)
+			cur = graphitiEpisode{Dependency: ep.Dependency, Version: ep.Version, Ecosystem: ep.Ecosystem}
+			size = 0
+		}
+		cur.Chunks = append(cur.Chunks, c)
+		size += len(c.Content)
+	}
+	if len(cur.Chunks) > 0 || len(parts) == 0 {
+		parts = append(parts, cur)
+	}
+	return parts
 }
 
 // graphitiEpisode is one dependency's chunks, shaped per GRAPHITI-001's

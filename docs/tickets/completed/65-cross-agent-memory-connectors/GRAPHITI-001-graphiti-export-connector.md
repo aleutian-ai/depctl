@@ -102,3 +102,22 @@ Run against a real self-hosted `zepai/graphiti:latest` plus `neo4j:5.22.0` under
 **Upstream image bug, disclosed and not worked around in ragctl:** `zepai/graphiti:latest` (arm64) runs as user `app` but launches `uv` from `/root/.local/bin`, so the container fails at start with `Permission denied`. The test ran it with `--user root`.
 
 **Design concern, worth revisiting:** one episode per dependency holds that dependency's *entire* chunk set. That was fine for `google/uuid`, but a large dependency (e.g. `google.golang.org/protobuf`, about 15k chunks) would produce an episode far beyond any model's context window. If Graphiti export sees real use, it should probably batch chunks into several episodes per dependency.
+
+## Second real-container pass (2026-10-04): end-to-end ingestion confirmed
+The first pass got a `202` but nothing stored. This pass surfaced Graphiti's swallowed errors by calling `add_episode` directly inside the container, then replaying ragctl's exact captured payload. **ragctl's connector and payload were fine** (the replay stored 1 episode and 17 entities). Every failure was in Graphiti's REST server:
+
+1. **Its REST ingestion can't work as shipped.** `POST /messages` queues a job that captures the request-scoped Graphiti client, which `get_graphiti` closes as soon as the `202` goes out, so the job runs against a closed driver.
+2. **Its worker swallows errors.** The queue worker only catches `CancelledError`, so that failure kills it silently, and every later job just sits in the queue.
+3. `EMBEDDING_MODEL_NAME` is read but never applied, so the embedder stays on `text-embedding-3-small`.
+4. `MODEL_NAME` doesn't cover the "small model", which stays on `gpt-4.1-nano`.
+5. Current Graphiti needs **Neo4j 5.26+** (it uses dynamic-label Cypher); its own README pins 5.22.
+6. The published arm64 image can't start as its `app` user (known from the first pass).
+
+`docs/demos/graphiti/Containerfile` builds `zepai/graphiti:latest` with fixes for 1–4 and 6, so Graphiti runs fully local on Ollama.
+
+**One connector change:** a dependency is now split into size-bounded episodes (`graphitiEpisodeMaxChars = 12000` of chunk text, header repeated in each part, named `<dep>@<version> (i/n)`), instead of one episode holding the whole chunk set. A large dependency (about 3.5 MB for `google.golang.org/protobuf`) could never fit a model's context in one episode. Smaller episodes also extract more: the same `uuid` export produced 46 entities as 2 episodes, against 17 as one. `ExportGraphitiResult.Pushed`/`Failed` now count episodes.
+
+**Verified end to end through the REST API:** `ragctl export graphiti` queued 2 episodes; both landed in Neo4j within 154s on a local 3B model, with zero worker errors; and Graphiti's own `POST /search` for "How do I generate a random UUID?" returned facts extracted from ragctl's docs ("NewRandom returns a Random (Version 4) UUID").
+
+**Not done, noted:** re-exporting adds new episodes rather than replacing the old ones (entities are deduplicated by Graphiti's own resolution, episodes aren't). Graphiti only offers deletes per episode UUID or per whole group, so a Mem0-style "replace this dependency" would need ragctl to track the episode UUIDs it created. Extraction cost is also real: about 1.5 minutes per episode on a local 3B model, so a large dependency takes a long time to ingest.
+

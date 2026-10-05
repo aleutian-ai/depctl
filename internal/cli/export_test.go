@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -436,5 +437,30 @@ func TestExportMem0VersionComesFromGenerationNotReusedObject(t *testing.T) {
 	}
 	if len(versions) != 2 || versions[0] != "v1.5.0" || versions[1] != "v1.5.0" {
 		t.Errorf("exported versions = %v, want [v1.5.0 v1.5.0] (the generation's version, not the reused object's)", versions)
+	}
+}
+
+func TestSplitGraphitiEpisode(t *testing.T) {
+	chunk := func(n int) graphitiEpisodeChunk { return graphitiEpisodeChunk{Content: strings.Repeat("x", n)} }
+	ep := graphitiEpisode{Dependency: "d", Version: "v1", Ecosystem: "go",
+		Chunks: []graphitiEpisodeChunk{chunk(4), chunk(4), chunk(4), chunk(30), chunk(1)}}
+
+	parts := splitGraphitiEpisode(ep, 10)
+	var sizes []int
+	for _, p := range parts {
+		if p.Dependency != "d" || p.Version != "v1" || p.Ecosystem != "go" {
+			t.Errorf("part lost its header: %+v", p)
+		}
+		sizes = append(sizes, len(p.Chunks))
+	}
+	// 4+4 fits; +4 would exceed 10 → new part; the 30-char chunk is
+	// oversized and gets its own part; the last chunk follows.
+	want := []int{2, 1, 1, 1}
+	if fmt.Sprint(sizes) != fmt.Sprint(want) {
+		t.Errorf("chunks per part = %v, want %v", sizes, want)
+	}
+
+	if got := splitGraphitiEpisode(graphitiEpisode{Dependency: "d"}, 10); len(got) != 1 {
+		t.Errorf("empty dependency → %d parts, want 1", len(got))
 	}
 }

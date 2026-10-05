@@ -14,7 +14,7 @@ ragctl is not the only locally-hosted or privacy-first option in this space, and
 
 - Go 1.25.6+
 - [Ollama](https://ollama.com/) running locally — ragctl ships with Ollama + [`nomic-embed-text-v2-moe`](https://ollama.com/library/nomic-embed-text-v2-moe) (~957MB, Apache-2.0) as its default local embedding path, and auto-pulls that model itself, in the background, the first time it's needed — no manual `ollama pull` required as long as Ollama itself is installed and running. Only `sync`/search actually need it, and only once there's real work to embed — `scan`/`project`/`deps`/`plan`/`doctor` and MCP's other tools work without it. If Ollama isn't reachable, `ragctl daemon status` says so plainly.
-- A vector store, needed by `sync`, `gc`, and `status`. Use the one you already run, or let ragctl manage a local Qdrant for you; see [Vector store](#vector-store) below.
+- A vector store, needed by `sync`, `gc`, and `status`. Use the one you already run, or let ragctl manage a local Qdrant for you; see [Integrations](#integrations) below.
 - (optional) [Podman](https://podman.io/) or [Docker](https://www.docker.com/) — only needed for the automatic Qdrant management above, plus the reference container and cross-platform tests, see below.
 
 ## Building and running natively
@@ -57,40 +57,52 @@ Using [opencode](https://opencode.ai) specifically? See [docs/opencode-usage.md]
 - **A first sync only fetches what's actually needed.** `ragctl` clones each dependency blobless and sparse-checkout-scoped to the doc-shaped files its normalizers read (Markdown, plaintext, license, and source for godoc extraction) — not that repo's full working tree or history content.
 - **`explain_call_site` resolves a source location straight to version-correct evidence.** Give it a file/line/column instead of a dependency name and question, and it figures out what that call is actually referring to (via a real `go/packages` type-checked load, Go only for now) before searching — useful when an agent doesn't yet know *which* dependency a piece of code depends on. It resolves against whatever project the MCP server's own working directory is — no JIT-sync-on-miss like `search_dependency_docs`, and it can't resolve calls into the standard library (ragctl doesn't track that as a "dependency").
 
-## Vector store
+## Integrations
 
-ragctl needs a vector index to give agents exact, version-correct docs.
+ragctl connects to two kinds of systems, and they do different jobs:
 
-- **Already run Qdrant?** That includes a standalone server or the one under your Mem0. Point ragctl at it:
+- **Vector stores** hold ragctl's own index: the exact-version docs agents search through ragctl's MCP tools. ragctl needs exactly one.
+- **Memory systems** receive a *copy*. `ragctl export <target>` pushes ragctl's synced, version-correct docs into a memory system your agents already use, so they find them there too. ragctl still keeps its own index as the source of truth.
 
-  ```yaml
-  vector:
-    endpoint: http://localhost:6333
-    managed: false               # never start ragctl's own container
-    api_key_env: QDRANT_API_KEY  # only if your server requires a key
-  ```
+Every ✅ below was verified against real self-hosted containers with local models only, and has a runnable demo in [docs/demos](docs/demos/README.md).
 
-  ragctl writes to its own collection (a unique name per install) and never touches yours. This was verified against a real shared server: sync, rebuild, and every GC path left a neighboring collection byte-identical. See [docs/offline-quickstart.md](docs/offline-quickstart.md#already-running-qdrant-use-that-instead) for the details and one known startup caveat.
-- **Run Weaviate or Postgres + pgvector instead?** Planned, not built yet: [`VEC-011`](docs/tickets/backlog/25-additional-vector-backends/VEC-011-weaviate-adapter.md) (Weaviate) and [`VEC-014`](docs/tickets/backlog/25-additional-vector-backends/VEC-014-pgvector-adapter.md) (pgvector, which is also what Mem0's own self-hosted server stack uses). Qdrant, Weaviate, and pgvector are the intended supported set.
-- **Don't run one?** ragctl starts and manages a local Qdrant container for you (`vector.managed: true`, the default for a fresh `ragctl init`) whenever a container runtime (Podman or Docker) is on your PATH. No manual setup. It's the one extra service ragctl needs today, and it works well. An embedded, no-service option ([`VEC-015`](docs/tickets/backlog/25-additional-vector-backends/VEC-015-sqlite-embedded-backend.md)) is on the roadmap. See [Data persistence](#data-persistence) for where that container keeps your data, and [docs/offline-quickstart.md](docs/offline-quickstart.md) to run Qdrant yourself.
+### Vector stores
 
-## Cross-agent memory
+| Store | Status | Demo |
+|---|---|---|
+| Qdrant, managed by ragctl | ✅ The default. If nothing is running, ragctl starts a `ragctl-qdrant` container itself (Podman or Docker). | [managed Qdrant](docs/demos/qdrant-managed.md) |
+| Qdrant you already run (standalone, or under your Mem0) | ✅ ragctl uses its own uniquely named collection and never touches yours. | [your own Qdrant](docs/demos/qdrant-byo.md) |
+| PostgreSQL + pgvector (including Mem0's own Postgres) | Planned ([`VEC-014`](docs/tickets/backlog/25-additional-vector-backends/VEC-014-pgvector-adapter.md)) | |
+| Weaviate | Planned ([`VEC-011`](docs/tickets/backlog/25-additional-vector-backends/VEC-011-weaviate-adapter.md)) | |
+| Embedded (no separate service) | Roadmap ([`VEC-015`](docs/tickets/backlog/25-additional-vector-backends/VEC-015-sqlite-embedded-backend.md)) | |
 
-If your agents already use a memory system, `ragctl export` pushes ragctl's synced, version-correct dependency knowledge into it. Agents then find the right docs through the memory they already query. This is a one-way copy you run explicitly: ragctl keeps its own index as the source of truth, so you still need a vector store (above).
+To use a Qdrant you already run:
+
+```yaml
+vector:
+  endpoint: http://localhost:6333
+  managed: false               # never start ragctl's own container
+  api_key_env: QDRANT_API_KEY  # only if your server requires a key
+```
+
+If that Qdrant is down when ragctl's daemon starts, syncs report it as unreachable until it's back, then recover on their own. See [docs/offline-quickstart.md](docs/offline-quickstart.md#already-running-qdrant-use-that-instead) to run Qdrant yourself.
+
+### Memory systems (export)
+
+| System | Status | Demo |
+|---|---|---|
+| Mem0 (self-hosted server) | ✅ Exported docs are searchable through Mem0. Re-exporting replaces the previous copy; that needs an admin key. The hosted Mem0 Platform isn't supported. | [Mem0](docs/demos/mem0.md) |
+| Cognee | ✅ Exported docs become a Cognee dataset, processed by Cognee's own `cognify`. That runs synchronously and can take minutes on a local model. | [Cognee](docs/demos/cognee.md) |
+| Graphiti | ✅ with a patched server image. Exported docs become episodes and entities, searchable through Graphiti. Its published REST server can't ingest as shipped; [`docs/demos/graphiti/Containerfile`](docs/demos/graphiti/Containerfile) fixes it. Needs Neo4j 5.26+. | [Graphiti](docs/demos/graphiti.md) |
+| Letta | Not supported. The memory server ragctl targeted was retired by Letta. | |
 
 ```bash
 ragctl export mem0     --project <id> --endpoint http://localhost:8888 --api-key-env MEM0_ADMIN_KEY
-ragctl export graphiti --project <id> --endpoint http://localhost:8000
 ragctl export cognee   --project <id> --endpoint http://localhost:8000
+ragctl export graphiti --project <id> --endpoint http://localhost:8001
 ```
 
-Status, from testing against real self-hosted containers:
-
-- **Cognee**: verified end to end. Exported content is searchable in Cognee. Its `cognify` step runs synchronously and can take minutes, even for a small dependency.
-- **Graphiti**: a real server accepts the export. Graphiti processes episodes in a background queue that hides failures; ingestion hasn't been confirmed end to end with a small local model.
-- **Mem0** (self-hosted server): verified end to end. Exported docs are searchable in Mem0, re-exporting a dependency replaces its previous copy instead of duplicating it, and an upgrade replaces the old version. Needs an admin API key for that replace step.
-
-Each target is unauthenticated by default when self-hosted, and Mem0 and Cognee send telemetry by default. Each command's `--help` covers the specifics. Never expose these services beyond localhost or a private network without your own auth in front.
+Each command's `--help` covers its target's specifics. API keys are read by ragctl's **daemon** from the env var you name, so export the variable before the daemon starts (or run `ragctl daemon stop` afterward). Self-hosted Mem0, Cognee, and Graphiti have no authentication by default, and Mem0 and Cognee send telemetry by default. Keep them on localhost or a private network.
 
 ## Data persistence
 

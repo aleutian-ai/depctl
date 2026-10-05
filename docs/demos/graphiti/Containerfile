@@ -1,0 +1,49 @@
+# zepai/graphiti:latest with upstream server bugs fixed so ingestion works,
+# including on a local OpenAI-compatible endpoint (Ollama). Found by
+# ragctl's real-container testing (GRAPHITI-001):
+#  1. POST /messages queues a job that captures the *request-scoped*
+#     Graphiti client, which get_graphiti closes as soon as the 202 is
+#     sent. The job then runs against a closed driver. Fix: the job opens
+#     its own client.
+#  2. The queue worker only catches CancelledError, so any error kills it
+#     silently and every later job just queues forever. Fix: log and
+#     continue.
+#  3. EMBEDDING_MODEL_NAME is read but never applied (embedder stays on
+#     text-embedding-3-small).
+#  4. MODEL_NAME doesn't cover the "small model" (stays on gpt-4.1-nano).
+# Also runs as root: the published arm64 image's `app` user can't exec
+# /root/.local/bin/uv. Use with Neo4j 5.26+ (dynamic-label Cypher).
+FROM docker.io/zepai/graphiti:latest
+USER root
+RUN python3 - <<'PY'
+def patch(path, old, new):
+    s = open(path).read()
+    assert s.count(old) == 1, (path, old[:60])
+    open(path, 'w').write(s.replace(old, new, 1))
+
+z = '/app/graph_service/zep_graphiti.py'
+patch(z, "        client.llm_client.model = settings.model_name\n",
+         "        client.llm_client.model = settings.model_name\n"
+         "        client.llm_client.small_model = settings.model_name\n"
+         "    if settings.embedding_model_name is not None:\n"
+         "        client.embedder.config.embedding_model = settings.embedding_model_name\n")
+
+i = '/app/graph_service/routers/ingest.py'
+patch(i, "from graph_service.zep_graphiti import ZepGraphitiDep\n",
+         "from graph_service.config import get_settings\n"
+         "from graph_service.zep_graphiti import ZepGraphitiDep, get_graphiti\n"
+         "import traceback\n")
+patch(i, "            except asyncio.CancelledError:\n                break\n",
+         "            except asyncio.CancelledError:\n                break\n"
+         "            except Exception:\n                traceback.print_exc()\n")
+patch(i, "    async def add_messages_task(m: Message):\n        await graphiti.add_episode(\n",
+         "    async def add_messages_task(m: Message):\n"
+         "        clients = get_graphiti(get_settings())\n"
+         "        graphiti = await clients.__anext__()\n"
+         "        try:\n"
+         "          await graphiti.add_episode(\n")
+patch(i, "            source_description=m.source_description,\n        )\n\n    for m in request.messages:",
+         "            source_description=m.source_description,\n          )\n"
+         "        finally:\n          await clients.aclose()\n\n    for m in request.messages:")
+import py_compile; py_compile.compile(i, doraise=True); py_compile.compile(z, doraise=True)
+PY

@@ -732,6 +732,20 @@ The same run found three more problems, all fixed:
 
 Verified end to end: Mem0's own semantic search returns ragctl's exported, correctly versioned `uuid` docs. See `MEM0-001`'s "Real-container verification" section.
 
+## GRAPHITI-001 second pass (2026-10-04): end-to-end ingestion confirmed
+
+Graphiti ingestion now works end to end through its REST API, fully local on Ollama. All the blockers were in Graphiti's server, not ragctl:
+- Its `/messages` job runs against a request-scoped client that's already closed by the time the job runs.
+- Its worker swallows every error.
+- It ignores `EMBEDDING_MODEL_NAME` and the small-model setting.
+- It needs Neo4j 5.26+, though its own README pins 5.22.
+
+`docs/demos/graphiti/Containerfile` patches the published image. On the ragctl side, a dependency is now split into size-bounded episodes (about 12 KB of chunk text each) so a large dependency fits a model's context. That also more than doubled what Graphiti extracts (46 entities against 17 for `uuid`). Verified: Graphiti's own search returns facts extracted from ragctl's exported docs. Re-exports add episodes rather than replacing them; see `GRAPHITI-001`.
+
+## VEC-010 (2026-10-05): shared vector-backend conformance suite
+
+`internal/backend/conformance.Run` is the contract every `VectorBackend` adapter must pass: 13 subtests covering health, capabilities, idempotent namespaces, upsert/query with ID and metadata round-trip, ranking and TopK, idempotent upsert, metadata and generation filters, exact `Count`, delete by IDs, delete by filter with AND semantics, the IDs-plus-filter union delete, and namespace isolation. It runs against the real Qdrant adapter in a container and against the in-memory fake other packages' tests use. Deliberately broken filter logic in both made the suite fail in exactly the expected subtests. The pgvector (`VEC-014`) and Weaviate (`VEC-011`) adapters will be held to the same suite.
+
 ## Testing notes
 
 Tests that spawn a real `go` subprocess under an isolated `$HOME` (`internal/cli`'s `requireGo`-gated tests, `internal/resolver/golang`) run fully offline (`GOFLAGS=-mod=mod`, `GOPROXY=off`) and point `GOCACHE`/`GOPATH`/`GOTELEMETRYDIR` at a shared directory outside any per-test temp dir. Without this, Go's build cache and telemetry uploader raced `t.TempDir()` cleanup under the Alpine/Podman container specifically (never observed natively on macOS), intermittently failing with `directory not empty`. `internal/cli/init_test.go`'s `isolateEnv` also retries its own cleanup a few times before giving up, as a second line of defense against the same class of race.

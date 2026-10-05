@@ -541,9 +541,9 @@ type ExportGraphitiRequest struct {
 	AuthTokenEnv string   `json:"auth_token_env,omitempty"`
 }
 
-// ExportGraphitiResult is one dependency's export outcome — one episode
-// per dependency (its full chunk set), not one per chunk, so Pushed/
-// Failed here are 1/0 rather than a chunk count.
+// ExportGraphitiResult is one dependency's export outcome. A dependency
+// is split into size-bounded episodes (GRAPHITI-001), so Pushed/Failed
+// count episodes, not chunks.
 type ExportGraphitiResult struct {
 	Dependency string `json:"dependency"`
 	Pushed     int    `json:"pushed"`
