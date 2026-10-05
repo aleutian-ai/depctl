@@ -744,7 +744,27 @@ Graphiti ingestion now works end to end through its REST API, fully local on Oll
 
 ## VEC-010 (2026-10-05): shared vector-backend conformance suite
 
-`internal/backend/conformance.Run` is the contract every `VectorBackend` adapter must pass: 13 subtests covering health, capabilities, idempotent namespaces, upsert/query with ID and metadata round-trip, ranking and TopK, idempotent upsert, metadata and generation filters, exact `Count`, delete by IDs, delete by filter with AND semantics, the IDs-plus-filter union delete, and namespace isolation. It runs against the real Qdrant adapter in a container and against the in-memory fake other packages' tests use. Deliberately broken filter logic in both made the suite fail in exactly the expected subtests. The pgvector (`VEC-014`) and Weaviate (`VEC-011`) adapters will be held to the same suite.
+`internal/backend/conformance.Run` is the contract every `VectorBackend` adapter must pass: 13 subtests (14 since VEC-014) covering health, capabilities, idempotent namespaces, upsert/query with ID and metadata round-trip, ranking and TopK, idempotent upsert, metadata and generation filters, exact `Count`, delete by IDs, delete by filter with AND semantics, the IDs-plus-filter union delete, and namespace isolation. It runs against the real Qdrant adapter in a container and against the in-memory fake other packages' tests use. Deliberately broken filter logic in both made the suite fail in exactly the expected subtests. The pgvector (`VEC-014`) and Weaviate (`VEC-011`) adapters will be held to the same suite.
+
+## VEC-014 (2026-10-05): PostgreSQL + pgvector backend
+
+`vector.backend` now selects between two adapters in `buildVectorBackend` (`internal/cli/pipeline.go`). Each operation builds a backend, so `pgvector.New` keeps one `pgxpool` per database for the process.
+
+```mermaid
+flowchart LR
+  cfg["config.yaml<br/>vector.backend / endpoint / api_key_env"] --> build[buildVectorBackend]
+  env["daemon env:<br/>$api_key_env"] --> build
+  build -->|qdrant| q["qdrant.Client<br/>api-key header"]
+  build -->|pgvector| pg["pgvector.Adapter<br/>endpoint = Postgres DSN<br/>secret = password"]
+  q --> qc[("collection ragctl-&lt;id&gt;")]
+  pg --> pt[("table ragctl-&lt;id&gt;<br/>PK (generation, id)")]
+  ready[checkVectorReadiness] -->|"managed && qdrant only"| boot[start ragctl-qdrant]
+```
+
+- **One table per namespace.** The namespace is ragctl's per-install name, so in a shared database ragctl owns exactly one table and touches nothing else. Metadata lives in plain columns with btree indexes; the embedding has an HNSW cosine index. `CREATE EXTENSION vector` is attempted only when the extension is missing.
+- **A point is identified by (generation, chunk ID)**, in every backend. Content reuse (GEN-003) gives unchanged chunks the same ID in every version that has them, so keying on the ID alone lets one version's sync relabel another's rows. pgvector first did exactly that, and the end-to-end run caught it. `backend.Point` now documents the rule, and conformance subtest 14 (`SameIDInTwoGenerationsIsTwoPoints`) checks it in every adapter. Delete by ID still removes the chunk from every generation.
+- **`vector.api_key_env` is now actually read**, for both backends: it is the Qdrant `api-key` header, or the Postgres password. It was documented before, but nothing read it. If the variable is unset in the daemon's environment, the error says so. A Qdrant with a key checks health against `/collections`, because `/healthz` is unauthenticated and would hide a wrong key. Doctor redacts any password in a DSN.
+- **The managed container is Qdrant-only.** `managed: true` with `backend: pgvector` never starts anything.
 
 ## Testing notes
 

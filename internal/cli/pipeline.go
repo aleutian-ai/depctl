@@ -8,8 +8,10 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"os"
 
 	"aleutian-ai/ragctl/internal/backend"
+	"aleutian-ai/ragctl/internal/backend/pgvector"
 	"aleutian-ai/ragctl/internal/backend/qdrant"
 	"aleutian-ai/ragctl/internal/config"
 	"aleutian-ai/ragctl/internal/data/badger"
@@ -67,10 +69,29 @@ func buildEmbedder(cfg config.Config, badgerStore *badger.Store) (embedding.Embe
 // buildVectorBackend constructs the configured VectorBackend. "qdrant"
 // is the only supported backend in v0.1, matching VEC-002's scope.
 func buildVectorBackend(cfg config.Config) (backend.VectorBackend, error) {
-	if cfg.Vector.Backend != "qdrant" {
-		return nil, fmt.Errorf("unsupported vector backend %q (only \"qdrant\" is implemented)", cfg.Vector.Backend)
+	// vector.api_key_env names the env var holding the secret: Qdrant's
+	// API key, or pgvector's database password. It's read by whichever
+	// process builds the backend (the daemon, normally), not the shell
+	// running a ragctl command.
+	var secret string
+	if env := cfg.Vector.APIKeyEnv; env != "" {
+		secret = os.Getenv(env)
+		if secret == "" {
+			return nil, fmt.Errorf("vector.api_key_env names %s, but it isn't set in the ragctl daemon's environment; export it, then run `ragctl daemon stop` so the next command starts a daemon that sees it", env)
+		}
 	}
-	return qdrant.New(cfg.Vector.Endpoint), nil
+	switch cfg.Vector.Backend {
+	case "qdrant":
+		var opts []qdrant.Option
+		if secret != "" {
+			opts = append(opts, qdrant.WithAPIKey(secret))
+		}
+		return qdrant.New(cfg.Vector.Endpoint, opts...), nil
+	case "pgvector":
+		return pgvector.New(cfg.Vector.Endpoint, secret)
+	default:
+		return nil, fmt.Errorf("unsupported vector backend %q (supported: \"qdrant\", \"pgvector\")", cfg.Vector.Backend)
+	}
 }
 
 // buildGitCache returns a git.Cache rooted under the configured data

@@ -74,9 +74,11 @@ type PointMetadata struct {
 	Authority  int
 }
 
-// Point is one vector plus its mandatory metadata, keyed by a
-// caller-assigned ID (deterministically derived from the source chunk
-// ID by adapters that need one, e.g. Qdrant's UUID requirement).
+// Point is one vector plus its mandatory metadata. ID is the ragctl
+// chunk ID, and a point's identity is (Metadata.Generation, ID): chunk
+// IDs are content-derived, so two generations (e.g. two versions of a
+// dependency) routinely share one, and each must keep its own point. A
+// DeleteRequest's IDs remove that chunk from every generation.
 type Point struct {
 	ID       string
 	Vector   []float32

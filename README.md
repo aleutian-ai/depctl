@@ -72,7 +72,7 @@ Every ✅ below was verified against real self-hosted containers with local mode
 |---|---|---|
 | Qdrant, managed by ragctl | ✅ The default. If nothing is running, ragctl starts a `ragctl-qdrant` container itself (Podman or Docker). | [managed Qdrant](docs/demos/qdrant-managed.md) |
 | Qdrant you already run (standalone, or under your Mem0) | ✅ ragctl uses its own uniquely named collection and never touches yours. | [your own Qdrant](docs/demos/qdrant-byo.md) |
-| PostgreSQL + pgvector (including Mem0's own Postgres) | Planned ([`VEC-014`](docs/tickets/backlog/25-additional-vector-backends/VEC-014-pgvector-adapter.md)) | |
+| PostgreSQL + pgvector (including the Postgres under your Mem0) | ✅ ragctl creates one uniquely named table of its own and never touches other tables. The password comes from an env var, never the config file. | [your own pgvector](docs/demos/pgvector.md) |
 | Weaviate | Planned ([`VEC-011`](docs/tickets/backlog/25-additional-vector-backends/VEC-011-weaviate-adapter.md)) | |
 | Embedded (no separate service) | Roadmap ([`VEC-015`](docs/tickets/backlog/25-additional-vector-backends/VEC-015-sqlite-embedded-backend.md)) | |
 
@@ -85,7 +85,19 @@ vector:
   api_key_env: QDRANT_API_KEY  # only if your server requires a key
 ```
 
-If that Qdrant is down when ragctl's daemon starts, syncs report it as unreachable until it's back, then recover on their own. See [docs/offline-quickstart.md](docs/offline-quickstart.md#already-running-qdrant-use-that-instead) to run Qdrant yourself.
+To use a Postgres with pgvector you already run:
+
+```yaml
+vector:
+  backend: pgvector
+  endpoint: postgres://ragctl@db.internal:5432/app?sslmode=require
+  managed: false
+  api_key_env: RAGCTL_PG_PASSWORD   # the database password
+```
+
+The role needs to create a table in that database. If the `vector` extension isn't installed yet and the role can't install it, ask an admin to run `CREATE EXTENSION vector` once.
+
+If that Qdrant or Postgres is down when ragctl's daemon starts, syncs report it as unreachable until it's back, then recover on their own. See [docs/offline-quickstart.md](docs/offline-quickstart.md#already-running-qdrant-use-that-instead) to run Qdrant yourself.
 
 ### Memory systems (export)
 

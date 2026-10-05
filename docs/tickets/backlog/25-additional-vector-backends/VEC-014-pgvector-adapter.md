@@ -1,7 +1,7 @@
 # VEC-014: pgvector adapter
 
 **Epic:** Vector Backends (bring-your-own + embedded)
-**Status:** planned (revived 2026-10-01; declined 2026-09-30 — see both notes at the end)
+**Status:** done (2026-10-05; revived 2026-10-01; declined 2026-09-30 — see the notes at the end)
 **Depends on:** VEC-010
 **Estimated size:** medium
 
@@ -40,10 +40,32 @@ Per `VectorBackend` interface (VEC-001).
 - Filtered query returns only the requested ecosystem/version.
 
 ## Acceptance criteria
-- [ ] Passes VEC-010 conformance suite.
-- [ ] `Capabilities.HybridSearch` is false; `KeywordSearch` is false unless explicitly implemented.
-- [ ] Extension bootstrap is idempotent across repeated `EnsureNamespace` calls.
+- [x] Passes VEC-010 conformance suite.
+- [x] `Capabilities.HybridSearch` is false; `KeywordSearch` is false unless explicitly implemented.
+- [x] Extension bootstrap is idempotent across repeated `EnsureNamespace` calls.
 
+
+## Done (2026-10-05)
+
+`internal/backend/pgvector`, on `pgx/v5` + `pgxpool`. Selected with `vector.backend: pgvector`; `vector.endpoint` is the Postgres connection string and `vector.api_key_env` names the env var holding the password.
+
+How it was reconciled against the sketch above:
+- **One table per namespace, not a shared table.** The namespace is already ragctl's per-install name (`ragctl-<random>`, the same isolation rule as the Qdrant collection), so a per-namespace table *is* "ragctl's own table" in a shared database. It needs no extra column and no schema migration.
+- **The primary key is `(generation, id)`, not `id`.** Chunk IDs are content-derived, so two versions of a dependency share IDs for unchanged chunks. Keying on `id` alone let the newer version's upsert relabel the older version's rows. The end-to-end run caught this: a second project on v1.5.0 left the v1.6.0 project with 12 of its 84 rows, and its search lost `New`/`NewRandom`. Qdrant and the test fake already keyed on (generation, id), but nothing stated it. Now `backend.Point` documents it, and the conformance suite checks it (`SameIDInTwoGenerationsIsTwoPoints`, now 14 subtests). The id-only key fails that check.
+- **Wrong-dimension writes fail inside Postgres**, in a transaction, so the whole batch rolls back. There's no separate pre-check, because the `vector(N)` column already enforces it. A namespace re-ensured with a different dimension returns `ErrDimensionMismatch`.
+- **Cosine only** (HNSW `vector_cosine_ops`), which is the only distance ragctl uses. Anything else is rejected.
+- **One pool per database per process**, because ragctl builds a backend per operation.
+
+Verified with the shared conformance suite plus four pgvector-specific tests against a real `pgvector/pgvector:pg17` container. End to end, a sandboxed ragctl ran against a Postgres holding another app's table (the same image Mem0's server stack uses). Results:
+- sync and search worked;
+- two projects on two versions each answered from their own version (84 + 81 rows);
+- GC deleted exactly the unreferenced version's rows;
+- the other table was untouched throughout;
+- doctor reported a wrong or missing password clearly, without printing it.
+
+This is [docs/demos/pgvector.md](../../../demos/pgvector.md), run as written. It was not run against a live Mem0 server sharing the database; the foreign table stands in for one.
+
+Found alongside it: `vector.api_key_env` was documented for Qdrant but never read, so a key-protected Qdrant could not be used. ragctl now sends it as `api-key`, and with a key set, Health checks `/collections` rather than `/healthz` (which Qdrant leaves open), so doctor no longer reports a wrong key as healthy. Verified against a real Qdrant started with `QDRANT__SERVICE__API_KEY`. The managed container is Qdrant-only; `managed: true` with `backend: pgvector` never starts one.
 
 ## Revived (2026-10-01)
 

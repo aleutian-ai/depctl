@@ -128,6 +128,31 @@ func Run(t *testing.T, newBackend func(t *testing.T) backend.VectorBackend) {
 		}
 	})
 
+	// Content reuse (GEN-003) gives an unchanged chunk the same ID in
+	// every version that has it. If one version's upsert overwrote the
+	// other's point, the older version's search silently loses those
+	// chunks: found end-to-end on pgvector, which first keyed on ID alone.
+	t.Run("SameIDInTwoGenerationsIsTwoPoints", func(t *testing.T) {
+		b, ns := setup(t, newBackend)
+		upsert(t, b, ns,
+			point("shared", [4]float32{1, 0, 0, 0}, "v1", "gen-1"),
+			point("shared", [4]float32{1, 0, 0, 0}, "v2", "gen-2"),
+		)
+		if n := count(t, b, ns, nil); n != 2 {
+			t.Fatalf("Count after upserting one ID under two generations = %d, want 2", n)
+		}
+		for _, v := range []string{"v1", "v2"} {
+			res := query(t, b, ns, [4]float32{1, 0, 0, 0}, 10, &backend.Filter{Version: v})
+			if len(res) != 1 || res[0].ID != "shared" || res[0].Metadata.Version != v {
+				t.Errorf("Query(version %s) = %+v, want the one \"shared\" point labelled %s", v, res, v)
+			}
+		}
+		del(t, b, backend.DeleteRequest{Namespace: ns.Name, IDs: []string{"shared"}})
+		if n := count(t, b, ns, nil); n != 0 {
+			t.Errorf("Count after deleting ID \"shared\" = %d, want 0: delete by ID covers every generation", n)
+		}
+	})
+
 	t.Run("CountIsExact", func(t *testing.T) {
 		b, ns := setup(t, newBackend)
 		upsert(t, b, ns,

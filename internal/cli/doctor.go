@@ -760,8 +760,8 @@ func checkVectorBackend(ctx context.Context, env *doctorEnv) (Severity, string) 
 	state, detail := readiness.get()
 	if state == vectorStateReady || state == vectorStateUnknown || state == "" {
 		detail = fmt.Sprintf("%s reachable at %s",
-			env.cfg.Vector.Backend, env.cfg.Vector.Endpoint)
-		if env.cfg.Vector.Managed {
+			env.cfg.Vector.Backend, redactDSN(env.cfg.Vector.Endpoint))
+		if env.cfg.Vector.Managed && env.cfg.Vector.Backend == "qdrant" {
 			detail = fmt.Sprintf("%s. managed: %s", detail, qdrantContainerName)
 			return SeverityOK, detail
 		}

@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"sync"
 	"time"
 
@@ -125,8 +126,10 @@ func (r *vectorReadiness) reprobeIfDown() {
 func checkVectorReadiness(ctx context.Context, cfg config.Config, readiness *vectorReadiness, logf func(format string, args ...any)) {
 	readiness.set(vectorStateChecking, "")
 	if err := probeBackend(ctx, cfg); err != nil {
-		if !cfg.Vector.Managed {
-			detail := fmt.Sprintf("%s not reachable at %s: %v", cfg.Vector.Backend, cfg.Vector.Endpoint, err)
+		// Only Qdrant has a managed container; vector.managed is ignored
+		// for any other backend.
+		if !cfg.Vector.Managed || cfg.Vector.Backend != "qdrant" {
+			detail := fmt.Sprintf("%s not reachable at %s: %v", cfg.Vector.Backend, redactDSN(cfg.Vector.Endpoint), err)
 			readiness.set(vectorStateUnreachable, detail)
 			logf("vector readiness: %s", detail)
 			return
@@ -153,4 +156,17 @@ func checkVectorReadiness(ctx context.Context, cfg config.Config, readiness *vec
 	}
 	readiness.set(vectorStateReady, "")
 	logf("vector readiness: %s ready", cfg.Vector.Backend)
+}
+
+// redactDSN hides any password embedded in a connection URL (pgvector's
+// endpoint) before it's shown in status output or logs.
+func redactDSN(endpoint string) string {
+	u, err := url.Parse(endpoint)
+	if err != nil || u.User == nil {
+		return endpoint
+	}
+	if _, has := u.User.Password(); has {
+		u.User = url.UserPassword(u.User.Username(), "xxxxx")
+	}
+	return u.String()
 }

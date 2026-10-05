@@ -39,6 +39,7 @@ type Client struct {
 	endpoint   string
 	httpClient *http.Client
 	batchSize  int
+	apiKey     string
 }
 
 // Option configures a Client.
@@ -47,6 +48,12 @@ type Option func(*Client)
 // WithBatchSize overrides how many points go into one upsert request.
 func WithBatchSize(n int) Option {
 	return func(c *Client) { c.batchSize = n }
+}
+
+// WithAPIKey authenticates every request with Qdrant's api-key header,
+// for a server started with an API key (QDRANT__SERVICE__API_KEY).
+func WithAPIKey(key string) Option {
+	return func(c *Client) { c.apiKey = key }
 }
 
 // WithHTTPClient overrides the underlying *http.Client (e.g. for tests
@@ -86,17 +93,27 @@ func (c *Client) Capabilities(ctx context.Context) (backend.Capabilities, error)
 // /healthz endpoint — the interface's Health(ctx) takes no namespace, so
 // it can't also confirm a specific collection exists. HealthCollection
 // below covers that more specific check for callers that know their
-// collection name (e.g. `ragctl doctor`).
+// collection name (e.g. `ragctl doctor`). With an API key it checks
+// /collections instead: Qdrant serves /healthz without auth, so a wrong
+// key would otherwise look healthy until the first sync failed.
 func (c *Client) Health(ctx context.Context) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.endpoint+"/healthz", nil)
+	path := "/healthz"
+	if c.apiKey != "" {
+		path = "/collections"
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.endpoint+path, nil)
 	if err != nil {
 		return &Error{Op: "Health", Kind: ErrBackendRequest, Cause: err}
 	}
+	c.authorize(req)
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return &Error{Op: "Health", Kind: ErrBackendUnavailable, Cause: err}
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		return &Error{Op: "Health", Kind: ErrBackendRequest, Cause: fmt.Errorf("HTTP %d: the server wants an API key, or rejected the one from vector.api_key_env", resp.StatusCode)}
+	}
 	if resp.StatusCode != http.StatusOK {
 		return &Error{Op: "Health", Kind: classify(resp.StatusCode), Cause: fmt.Errorf("HTTP %d", resp.StatusCode)}
 	}
@@ -111,6 +128,7 @@ func (c *Client) HealthCollection(ctx context.Context, collection string) error 
 	if err != nil {
 		return &Error{Op: "Health", Kind: ErrBackendRequest, Cause: err}
 	}
+	c.authorize(req)
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return &Error{Op: "Health", Kind: ErrBackendUnavailable, Cause: err}
@@ -129,6 +147,7 @@ func (c *Client) EnsureNamespace(ctx context.Context, ns backend.Namespace) erro
 	if err != nil {
 		return &Error{Op: "EnsureNamespace", Kind: ErrBackendRequest, Cause: err}
 	}
+	c.authorize(req)
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return &Error{Op: "EnsureNamespace", Kind: ErrBackendUnavailable, Cause: err}
@@ -275,6 +294,7 @@ func (c *Client) do(ctx context.Context, method, path string, body []byte, op st
 	if err != nil {
 		return &Error{Op: op, Kind: ErrBackendRequest, Cause: err}
 	}
+	c.authorize(req)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.httpClient.Do(req)
@@ -321,4 +341,11 @@ func capitalize(s string) string {
 		return s
 	}
 	return strings.ToUpper(s[:1]) + s[1:]
+}
+
+// authorize sets the api-key header when the client has a key.
+func (c *Client) authorize(req *http.Request) {
+	if c.apiKey != "" {
+		req.Header.Set("api-key", c.apiKey)
+	}
 }

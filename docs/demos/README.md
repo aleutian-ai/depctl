@@ -1,11 +1,12 @@
 # Integration demos
 
-One runnable demo per integration. Each was run exactly as written (2026-10-04) against real containers (Podman) with local models only: no cloud accounts, no paid API keys.
+One runnable demo per integration. Each was run exactly as written (2026-10-04; pgvector 2026-10-05) against real containers (Podman) with local models only: no cloud accounts, no paid API keys.
 
 | Demo | Shows | Time |
 |---|---|---|
 | [Managed Qdrant](qdrant-managed.md) | The default: ragctl starts its own Qdrant and serves exact-version docs | ~3 min |
 | [Your own Qdrant](qdrant-byo.md) | ragctl shares a Qdrant you already run, without touching your data | ~5 min |
+| [Your own pgvector](pgvector.md) | ragctl keeps its index in a Postgres you already run, in its own table, with version-correct search and GC | ~5 min |
 | [Mem0](mem0.md) | ragctl's docs become searchable memories in a self-hosted Mem0 | ~10 min |
 | [Cognee](cognee.md) | ragctl's docs become a Cognee dataset and knowledge graph | ~10 min |
 | [Graphiti](graphiti.md) | ragctl's docs become episodes and entities in a Graphiti graph | ~10 min |
@@ -44,6 +45,7 @@ Every demo ends with its own container cleanup, then `demo_reset`.
 |---|---|
 | ragctl-managed Qdrant | 6333 (your real install may already use it; the managed demo reuses it safely in its own collection) |
 | "Your own" Qdrant | 16333 |
+| "Your own" Postgres + pgvector | 15432 |
 | Mem0 | 8888 |
 | Cognee | 8000 |
 | Graphiti | 8001 |
