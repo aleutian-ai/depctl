@@ -744,7 +744,7 @@ Graphiti ingestion now works end to end through its REST API, fully local on Oll
 
 ## VEC-010 (2026-10-05): shared vector-backend conformance suite
 
-`internal/backend/conformance.Run` is the contract every `VectorBackend` adapter must pass: 13 subtests (14 since VEC-014) covering health, capabilities, idempotent namespaces, upsert/query with ID and metadata round-trip, ranking and TopK, idempotent upsert, metadata and generation filters, exact `Count`, delete by IDs, delete by filter with AND semantics, the IDs-plus-filter union delete, and namespace isolation. It runs against the real Qdrant adapter in a container and against the in-memory fake other packages' tests use. Deliberately broken filter logic in both made the suite fail in exactly the expected subtests. The pgvector (`VEC-014`) and Weaviate (`VEC-011`) adapters will be held to the same suite.
+`internal/backend/conformance.Run` is the contract every `VectorBackend` adapter must pass: 13 subtests (14 since VEC-014, 15 since VEC-011) covering health, capabilities, idempotent namespaces, upsert/query with ID and metadata round-trip, ranking and TopK, idempotent upsert, metadata and generation filters, exact `Count`, delete by IDs, delete by filter with AND semantics, the IDs-plus-filter union delete, and namespace isolation. It runs against the real Qdrant adapter in a container and against the in-memory fake other packages' tests use. Deliberately broken filter logic in both made the suite fail in exactly the expected subtests. The pgvector (`VEC-014`) and Weaviate (`VEC-011`) adapters will be held to the same suite.
 
 ## VEC-014 (2026-10-05): PostgreSQL + pgvector backend
 
@@ -756,6 +756,8 @@ flowchart LR
   env["daemon env:<br/>$api_key_env"] --> build
   build -->|qdrant| q["qdrant.Client<br/>api-key header"]
   build -->|pgvector| pg["pgvector.Adapter<br/>endpoint = Postgres DSN<br/>secret = password"]
+  build -->|weaviate| wv["weaviate.Client<br/>bearer API key"]
+  wv --> wc[("collection Ragctl_&lt;id&gt;")]
   q --> qc[("collection ragctl-&lt;id&gt;")]
   pg --> pt[("table ragctl-&lt;id&gt;<br/>PK (generation, id)")]
   ready[checkVectorReadiness] -->|"managed && qdrant only"| boot[start ragctl-qdrant]
@@ -765,6 +767,14 @@ flowchart LR
 - **A point is identified by (generation, chunk ID)**, in every backend. Content reuse (GEN-003) gives unchanged chunks the same ID in every version that has them, so keying on the ID alone lets one version's sync relabel another's rows. pgvector first did exactly that, and the end-to-end run caught it. `backend.Point` now documents the rule, and conformance subtest 14 (`SameIDInTwoGenerationsIsTwoPoints`) checks it in every adapter. Delete by ID still removes the chunk from every generation.
 - **`vector.api_key_env` is now actually read**, for both backends: it is the Qdrant `api-key` header, or the Postgres password. It was documented before, but nothing read it. If the variable is unset in the daemon's environment, the error says so. A Qdrant with a key checks health against `/collections`, because `/healthz` is unauthenticated and would hide a wrong key. Doctor redacts any password in a DSN.
 - **The managed container is Qdrant-only.** `managed: true` with `backend: pgvector` never starts anything.
+
+## VEC-011 (2026-10-05): Weaviate backend
+
+`vector.backend: weaviate` selects `internal/backend/weaviate` (see the diagram above). It uses REST for schema, batch upsert and batch delete, and GraphQL for `nearVector` search and `Aggregate` counts. The namespace becomes one collection (`ragctl-<id>` → `Ragctl_<id>`), and object IDs are UUIDs of (generation, chunk ID), as in Qdrant.
+- Metadata text properties use `field` tokenization, so filters match whole values. Conformance subtest 15 (`FilterMatchesWholeValuesNotTokens`) now checks that in every backend.
+- Batch deletes repeat until a pass falls under the server's result cap.
+- Per-object batch errors and GraphQL errors, which both come back as HTTP 200, are failures.
+- With an API key, Health reads `/v1/meta`, because readiness is unauthenticated.
 
 ## Testing notes
 

@@ -13,6 +13,7 @@ import (
 	"aleutian-ai/ragctl/internal/backend"
 	"aleutian-ai/ragctl/internal/backend/pgvector"
 	"aleutian-ai/ragctl/internal/backend/qdrant"
+	"aleutian-ai/ragctl/internal/backend/weaviate"
 	"aleutian-ai/ragctl/internal/config"
 	"aleutian-ai/ragctl/internal/data/badger"
 	"aleutian-ai/ragctl/internal/embedding"
@@ -66,11 +67,11 @@ func buildEmbedder(cfg config.Config, badgerStore *badger.Store) (embedding.Embe
 	return cache.New(client, badgerStore), nil
 }
 
-// buildVectorBackend constructs the configured VectorBackend. "qdrant"
-// is the only supported backend in v0.1, matching VEC-002's scope.
+// buildVectorBackend constructs the configured VectorBackend: "qdrant"
+// (the default), "pgvector" (VEC-014) or "weaviate" (VEC-011).
 func buildVectorBackend(cfg config.Config) (backend.VectorBackend, error) {
 	// vector.api_key_env names the env var holding the secret: Qdrant's
-	// API key, or pgvector's database password. It's read by whichever
+	// or Weaviate's API key, or pgvector's database password. It's read by whichever
 	// process builds the backend (the daemon, normally), not the shell
 	// running a ragctl command.
 	var secret string
@@ -89,8 +90,10 @@ func buildVectorBackend(cfg config.Config) (backend.VectorBackend, error) {
 		return qdrant.New(cfg.Vector.Endpoint, opts...), nil
 	case "pgvector":
 		return pgvector.New(cfg.Vector.Endpoint, secret)
+	case "weaviate":
+		return weaviate.New(cfg.Vector.Endpoint, secret), nil
 	default:
-		return nil, fmt.Errorf("unsupported vector backend %q (supported: \"qdrant\", \"pgvector\")", cfg.Vector.Backend)
+		return nil, fmt.Errorf("unsupported vector backend %q (supported: \"qdrant\", \"pgvector\", \"weaviate\")", cfg.Vector.Backend)
 	}
 }
 

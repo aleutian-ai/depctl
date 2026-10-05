@@ -116,6 +116,22 @@ func Run(t *testing.T, newBackend func(t *testing.T) backend.VectorBackend) {
 		}
 	})
 
+	// A backend that tokenizes text for filtering (Weaviate's default) can
+	// match "v1.5.0" against "v1.0.5": same tokens, different version.
+	t.Run("FilterMatchesWholeValuesNotTokens", func(t *testing.T) {
+		b, ns := setup(t, newBackend)
+		swapped := point("swapped", [4]float32{1, 0, 0, 0}, "v1.0.5", "gen-2")
+		swapped.Metadata.Dependency = "example.com/dep/sub"
+		upsert(t, b, ns, point("exact", [4]float32{1, 0, 0, 0}, "v1.5.0", "gen-1"), swapped)
+		f := &backend.Filter{Dependency: "example.com/dep", Version: "v1.5.0"}
+		if ids := idsOf(query(t, b, ns, [4]float32{1, 0, 0, 0}, 10, f)); !sameSet(ids, "exact") {
+			t.Errorf("Query(dependency example.com/dep, version v1.5.0) = %v, want only [exact]", ids)
+		}
+		if n := count(t, b, ns, &backend.Filter{Version: "v1.0"}); n != 0 {
+			t.Errorf("Count(version v1.0) = %d, want 0: a prefix is not a match", n)
+		}
+	})
+
 	t.Run("GenerationFilterSeparatesBuildsOfTheSameVersion", func(t *testing.T) {
 		b, ns := setup(t, newBackend)
 		upsert(t, b, ns,

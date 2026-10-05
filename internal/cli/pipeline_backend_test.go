@@ -58,9 +58,19 @@ func TestBuildVectorBackendSelectsPgvector(t *testing.T) {
 	}
 }
 
+func TestBuildVectorBackendSelectsWeaviate(t *testing.T) {
+	vb, err := buildVectorBackend(config.Config{Vector: config.VectorConfig{Backend: "weaviate", Endpoint: "http://127.0.0.1:1"}})
+	if err != nil {
+		t.Fatalf("buildVectorBackend: %v", err)
+	}
+	if vb.Name() != "weaviate" {
+		t.Errorf("Name = %q, want weaviate", vb.Name())
+	}
+}
+
 func TestBuildVectorBackendRejectsUnknownBackend(t *testing.T) {
 	_, err := buildVectorBackend(config.Config{Vector: config.VectorConfig{Backend: "milvus"}})
-	if err == nil || !strings.Contains(err.Error(), "pgvector") {
+	if err == nil || !strings.Contains(err.Error(), "weaviate") {
 		t.Fatalf("err = %v, want an unsupported-backend error listing the supported ones", err)
 	}
 }

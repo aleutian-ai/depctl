@@ -73,7 +73,7 @@ Every ✅ below was verified against real self-hosted containers with local mode
 | Qdrant, managed by ragctl | ✅ The default. If nothing is running, ragctl starts a `ragctl-qdrant` container itself (Podman or Docker). | [managed Qdrant](docs/demos/qdrant-managed.md) |
 | Qdrant you already run (standalone, or under your Mem0) | ✅ ragctl uses its own uniquely named collection and never touches yours. | [your own Qdrant](docs/demos/qdrant-byo.md) |
 | PostgreSQL + pgvector (including the Postgres under your Mem0) | ✅ ragctl creates one uniquely named table of its own and never touches other tables. The password comes from an env var, never the config file. | [your own pgvector](docs/demos/pgvector.md) |
-| Weaviate | Planned ([`VEC-011`](docs/tickets/backlog/25-additional-vector-backends/VEC-011-weaviate-adapter.md)) | |
+| Weaviate | ✅ ragctl creates one uniquely named collection of its own and never touches other collections. An API key comes from an env var, never the config file. | [your own Weaviate](docs/demos/weaviate.md) |
 | Embedded (no separate service) | Roadmap ([`VEC-015`](docs/tickets/backlog/25-additional-vector-backends/VEC-015-sqlite-embedded-backend.md)) | |
 
 To use a Qdrant you already run:
@@ -95,9 +95,11 @@ vector:
   api_key_env: RAGCTL_PG_PASSWORD   # the database password
 ```
 
-The role needs to create a table in that database. If the `vector` extension isn't installed yet and the role can't install it, ask an admin to run `CREATE EXTENSION vector` once.
+For Weaviate, set `backend: weaviate`, `endpoint: http://localhost:8080`, and (if API-key auth is on) `api_key_env` naming the variable that holds the key.
 
-If that Qdrant or Postgres is down when ragctl's daemon starts, syncs report it as unreachable until it's back, then recover on their own. See [docs/offline-quickstart.md](docs/offline-quickstart.md#already-running-qdrant-use-that-instead) to run Qdrant yourself.
+The Postgres role needs to create a table in that database. If the `vector` extension isn't installed yet and the role can't install it, ask an admin to run `CREATE EXTENSION vector` once.
+
+If that Qdrant, Postgres or Weaviate is down when ragctl's daemon starts, syncs report it as unreachable until it's back, then recover on their own. See [docs/offline-quickstart.md](docs/offline-quickstart.md#already-running-qdrant-use-that-instead) to run Qdrant yourself.
 
 ### Memory systems (export)
 
