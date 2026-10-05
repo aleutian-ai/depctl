@@ -687,7 +687,7 @@ func checkBackendReachable(ctx context.Context, env *doctorEnv) (Severity, strin
 	if env.cfgErr != nil {
 		return notChecked("config")
 	}
-	target := fmt.Sprintf("%s at %s", env.cfg.Vector.Backend, env.cfg.Vector.Endpoint)
+	target := fmt.Sprintf("%s at %s", env.cfg.Vector.Backend, vectorLocation(env.cfg))
 	if err := probeBackend(ctx, env.cfg); err != nil {
 		return SeverityUnhealthy, fmt.Sprintf("%s: %v", target, err)
 	}
@@ -760,7 +760,7 @@ func checkVectorBackend(ctx context.Context, env *doctorEnv) (Severity, string) 
 	state, detail := readiness.get()
 	if state == vectorStateReady || state == vectorStateUnknown || state == "" {
 		detail = fmt.Sprintf("%s reachable at %s",
-			env.cfg.Vector.Backend, redactDSN(env.cfg.Vector.Endpoint))
+			env.cfg.Vector.Backend, vectorLocation(env.cfg))
 		if env.cfg.Vector.Managed && env.cfg.Vector.Backend == "qdrant" {
 			detail = fmt.Sprintf("%s. managed: %s", detail, qdrantContainerName)
 			return SeverityOK, detail

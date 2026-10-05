@@ -129,7 +129,7 @@ func checkVectorReadiness(ctx context.Context, cfg config.Config, readiness *vec
 		// Only Qdrant has a managed container; vector.managed is ignored
 		// for any other backend.
 		if !cfg.Vector.Managed || cfg.Vector.Backend != "qdrant" {
-			detail := fmt.Sprintf("%s not reachable at %s: %v", cfg.Vector.Backend, redactDSN(cfg.Vector.Endpoint), err)
+			detail := fmt.Sprintf("%s not reachable at %s: %v", cfg.Vector.Backend, vectorLocation(cfg), err)
 			readiness.set(vectorStateUnreachable, detail)
 			logf("vector readiness: %s", detail)
 			return
@@ -156,6 +156,18 @@ func checkVectorReadiness(ctx context.Context, cfg config.Config, readiness *vec
 	}
 	readiness.set(vectorStateReady, "")
 	logf("vector readiness: %s ready", cfg.Vector.Backend)
+}
+
+// vectorLocation is where the configured backend lives, for status
+// output and logs: the embedded backend's file, or the endpoint with any
+// password redacted.
+func vectorLocation(cfg config.Config) string {
+	if cfg.Vector.Backend == "embedded" {
+		if path, err := embeddedVectorPath(cfg); err == nil {
+			return path
+		}
+	}
+	return redactDSN(cfg.Vector.Endpoint)
 }
 
 // redactDSN hides any password embedded in a connection URL (pgvector's

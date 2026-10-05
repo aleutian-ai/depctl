@@ -14,8 +14,8 @@ ragctl is not the only locally-hosted or privacy-first option in this space, and
 
 - Go 1.25.6+
 - [Ollama](https://ollama.com/) running locally — ragctl ships with Ollama + [`nomic-embed-text-v2-moe`](https://ollama.com/library/nomic-embed-text-v2-moe) (~957MB, Apache-2.0) as its default local embedding path, and auto-pulls that model itself, in the background, the first time it's needed — no manual `ollama pull` required as long as Ollama itself is installed and running. Only `sync`/search actually need it, and only once there's real work to embed — `scan`/`project`/`deps`/`plan`/`doctor` and MCP's other tools work without it. If Ollama isn't reachable, `ragctl daemon status` says so plainly.
-- A vector store, needed by `sync`, `gc`, and `status`. Use the one you already run, or let ragctl manage a local Qdrant for you; see [Integrations](#integrations) below.
-- (optional) [Podman](https://podman.io/) or [Docker](https://www.docker.com/) — only needed for the automatic Qdrant management above, plus the reference container and cross-platform tests, see below.
+- Nothing else by default. ragctl keeps its search index in a file next to its other data, with no vector database or container to run. To use a vector database you already run (Qdrant, pgvector, Weaviate) or a ragctl-managed Qdrant instead, see [Integrations](#integrations) below.
+- (optional) [Podman](https://podman.io/) or [Docker](https://www.docker.com/) — only needed for a ragctl-managed Qdrant (`ragctl init --vector-backend qdrant`), plus the reference container and cross-platform tests, see below.
 
 ## Building and running natively
 
@@ -42,8 +42,7 @@ If you want `ragctl` to index a plain git repo of documents you own
 (not a package-manager dependency) and serve it over MCP to a local
 model (e.g. via Ollama) with zero network access — see
 [docs/offline-quickstart.md](docs/offline-quickstart.md) for the full,
-tested walkthrough: pulling models ahead of time, standing up Qdrant
-locally, wiring your docs repo in via a registry manifest, syncing, and
+tested walkthrough: pulling models ahead of time, wiring your docs repo in via a registry manifest, syncing, and
 pointing an MCP client at `ragctl serve`.
 
 Using [opencode](https://opencode.ai) specifically? See [docs/opencode-usage.md](docs/opencode-usage.md) — its MCP config shape differs from the generic example above.
@@ -70,16 +69,17 @@ Every ✅ below was verified against real self-hosted containers with local mode
 
 | Store | Status | Demo |
 |---|---|---|
-| Qdrant, managed by ragctl | ✅ The default. If nothing is running, ragctl starts a `ragctl-qdrant` container itself (Podman or Docker). | [managed Qdrant](docs/demos/qdrant-managed.md) |
+| Embedded (no service, no container) | ✅ **The default.** One file, `vectors.db`, in ragctl's data directory. Only Ollama runs. Best for one machine; use a server to share an index. | [embedded](docs/demos/embedded.md) |
+| Qdrant, managed by ragctl | ✅ `ragctl init --vector-backend qdrant`. If nothing is running, ragctl starts a `ragctl-qdrant` container itself (Podman or Docker). | [managed Qdrant](docs/demos/qdrant-managed.md) |
 | Qdrant you already run (standalone, or under your Mem0) | ✅ ragctl uses its own uniquely named collection and never touches yours. | [your own Qdrant](docs/demos/qdrant-byo.md) |
 | PostgreSQL + pgvector (including the Postgres under your Mem0) | ✅ ragctl creates one uniquely named table of its own and never touches other tables. The password comes from an env var, never the config file. | [your own pgvector](docs/demos/pgvector.md) |
 | Weaviate | ✅ ragctl creates one uniquely named collection of its own and never touches other collections. An API key comes from an env var, never the config file. | [your own Weaviate](docs/demos/weaviate.md) |
-| Embedded (no separate service) | Roadmap ([`VEC-015`](docs/tickets/backlog/25-additional-vector-backends/VEC-015-sqlite-embedded-backend.md)) | |
 
 To use a Qdrant you already run:
 
 ```yaml
 vector:
+  backend: qdrant
   endpoint: http://localhost:6333
   managed: false               # never start ragctl's own container
   api_key_env: QDRANT_API_KEY  # only if your server requires a key

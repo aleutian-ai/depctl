@@ -129,3 +129,66 @@ func TestInitTwiceIsIdempotent(t *testing.T) {
 		t.Error("second init overwrote the config file; marker was lost")
 	}
 }
+
+func TestInitVectorBackendEmbeddedWritesANoServiceConfig(t *testing.T) {
+	isolateEnv(t)
+	root := NewRootCmd()
+	root.SetArgs([]string{"init", "--vector-backend", "embedded"})
+	root.SetOut(&bytes.Buffer{})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("init --vector-backend embedded: %v", err)
+	}
+	configPath, err := config.DefaultConfigPath()
+	if err != nil {
+		t.Fatalf("DefaultConfigPath: %v", err)
+	}
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Vector.Backend != "embedded" || cfg.Vector.Endpoint != "" || cfg.Vector.Managed {
+		t.Errorf("vector config = %+v, want backend embedded, no endpoint, not managed", cfg.Vector)
+	}
+
+	// init never rewrites an existing config, so asking for another
+	// backend now must say so rather than silently keep the old one.
+	again := NewRootCmd()
+	again.SetArgs([]string{"init", "--vector-backend", "qdrant"})
+	again.SetOut(&bytes.Buffer{})
+	again.SetErr(&bytes.Buffer{})
+	if err := again.Execute(); err == nil || !strings.Contains(err.Error(), "already exists") {
+		t.Errorf("second init with a different backend = %v, want an already-exists error", err)
+	}
+}
+
+func TestInitRejectsUnknownVectorBackend(t *testing.T) {
+	isolateEnv(t)
+	root := NewRootCmd()
+	root.SetArgs([]string{"init", "--vector-backend", "milvus"})
+	root.SetOut(&bytes.Buffer{})
+	root.SetErr(&bytes.Buffer{})
+	if err := root.Execute(); err == nil || !strings.Contains(err.Error(), "embedded") {
+		t.Fatalf("init --vector-backend milvus = %v, want an error naming the choices", err)
+	}
+}
+
+func TestInitVectorBackendQdrantWritesManagedQdrant(t *testing.T) {
+	isolateEnv(t)
+	root := NewRootCmd()
+	root.SetArgs([]string{"init", "--vector-backend", "qdrant"})
+	root.SetOut(&bytes.Buffer{})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("init --vector-backend qdrant: %v", err)
+	}
+	configPath, err := config.DefaultConfigPath()
+	if err != nil {
+		t.Fatalf("DefaultConfigPath: %v", err)
+	}
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Vector.Backend != "qdrant" || cfg.Vector.Endpoint != "http://127.0.0.1:6333" || !cfg.Vector.Managed {
+		t.Errorf("vector config = %+v, want managed qdrant at 127.0.0.1:6333", cfg.Vector)
+	}
+}

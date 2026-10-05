@@ -64,6 +64,7 @@ func healthyDoctorEnv(t *testing.T) *doctorEnv {
 	}
 
 	cfg := config.Default(t.TempDir())
+	cfg.Vector.QdrantDefaults()
 	cfg.Vector.Endpoint = healthyBackendURL(t)
 	cfg.Embedding.Model = testEmbeddingModel
 	cfg.Embedding.Endpoint = healthyOllamaURL(t)
@@ -250,6 +251,7 @@ func TestDoctorFlagsEmptyActiveGeneration(t *testing.T) {
 		}
 	}))
 	t.Cleanup(srv.Close)
+	env.cfg.Vector.QdrantDefaults()
 	env.cfg.Vector.Endpoint = srv.URL
 
 	r := resultNamed(t, runChecks(context.Background(), env), "empty active generations")
@@ -315,6 +317,7 @@ func TestDoctorEmptyActiveGenerationsChecksRealScaleConcurrently(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	env := &doctorEnv{cfg: config.Default(t.TempDir()), store: store, badger: badgerStore}
+	env.cfg.Vector.QdrantDefaults()
 	env.cfg.Vector.Endpoint = srv.URL
 
 	r, detail := checkEmptyActiveGenerations(ctx, env)
@@ -361,6 +364,7 @@ func TestDoctorEmptyActiveGenerationsReportsBudgetExceeded(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	env := &doctorEnv{cfg: config.Default(t.TempDir()), store: store, badger: badgerStore}
+	env.cfg.Vector.QdrantDefaults()
 	env.cfg.Vector.Endpoint = srv.URL
 
 	r, detail := checkEmptyActiveGenerations(ctx, env)
@@ -480,6 +484,7 @@ func TestDoctorEmbeddingBackendNoDaemonProbesDirectly(t *testing.T) {
 
 func TestDoctorVectorBackendNoDaemonProbesDirectly(t *testing.T) {
 	env := healthyDoctorEnv(t)
+	env.cfg.Vector.QdrantDefaults()
 	env.cfg.Vector.Endpoint = deadBackendURL(t)
 	env.cfg.Vector.Managed = false // exercise the plain report-only path, not WATCH-016's bootstrap
 
@@ -548,7 +553,7 @@ func TestSeverityValuesAreExitCodes(t *testing.T) {
 func TestDoctorCommandReturnsExitCode(t *testing.T) {
 	isolateEnv(t)
 	endpoint := deadBackendURL(t)
-	writeTestConfig(t, func(c *config.Config) { c.Vector.Endpoint = endpoint })
+	writeTestConfig(t, func(c *config.Config) { c.Vector.QdrantDefaults(); c.Vector.Endpoint = endpoint })
 
 	root := NewRootCmd()
 	var out bytes.Buffer

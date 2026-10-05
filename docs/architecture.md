@@ -757,6 +757,8 @@ flowchart LR
   build -->|qdrant| q["qdrant.Client<br/>api-key header"]
   build -->|pgvector| pg["pgvector.Adapter<br/>endpoint = Postgres DSN<br/>secret = password"]
   build -->|weaviate| wv["weaviate.Client<br/>bearer API key"]
+  build -->|embedded| em["embedded.Store<br/>no service"]
+  em --> ef[("&lt;data-dir&gt;/vectors.db<br/>one bucket per namespace")]
   wv --> wc[("collection Ragctl_&lt;id&gt;")]
   q --> qc[("collection ragctl-&lt;id&gt;")]
   pg --> pt[("table ragctl-&lt;id&gt;<br/>PK (generation, id)")]
@@ -775,6 +777,17 @@ flowchart LR
 - Batch deletes repeat until a pass falls under the server's result cap.
 - Per-object batch errors and GraphQL errors, which both come back as HTTP 200, are failures.
 - With an API key, Health reads `/v1/meta`, because readiness is unauthenticated.
+
+## VEC-015 (2026-10-05): embedded backend, no service
+
+`vector.backend: embedded` (or `ragctl init --vector-backend embedded`) keeps the index in one bbolt file, `<data-dir>/vectors.db`, with no vector service and no container. It is plain Go: no SQLite, no CGo, no new dependency.
+- **Search is exact.** Point keys are `ecosystem\0dependency\0version\0generation\0id`, so ragctl's version-scoped searches are a prefix scan followed by brute-force cosine. That takes about 4 ms for a 2,000-chunk version; embedding the query dominates end-to-end latency.
+- **Identity.** A `(generation, id)` index keeps the conformance identity rule.
+- **Writes.** Upserts are one transaction.
+- **Single owner.** The file follows the same rule as `control.db` (ADR-011): only the daemon opens it. Every call site that builds a backend already runs there. Another process gets a clear "in use" error, not a hang.
+- **Display.** `vectorLocation` gives doctor, readiness and the foreign-collection warning one display string: the embedded file's path, or the endpoint with any password redacted.
+
+**The default since 2026-10-05.** `config.Default` writes `vector.backend: embedded` with no endpoint and `managed` off, so a fresh install (`ragctl init`, or the auto-init on first use) needs no vector service and no container. `ragctl init --vector-backend qdrant` writes the previous default via `VectorConfig.QdrantDefaults`: a local Qdrant on 6333 that ragctl starts itself (WATCH-016). Existing config files keep whatever backend they name; nothing is migrated.
 
 ## Testing notes
 

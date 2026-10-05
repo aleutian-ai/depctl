@@ -48,6 +48,7 @@ func logCapture() (func(format string, args ...any), *[]string) {
 func TestCheckForeignCollectionDataWarnsOnFreshInstanceWithExistingData(t *testing.T) {
 	store, _, _, _ := statusTestStores(t)
 	cfg := config.Default(t.TempDir())
+	cfg.Vector.QdrantDefaults()
 	cfg.Vector.Endpoint = fakeQdrantCount(t, 732078) // matches this session's own real incident scale
 	logf, lines := logCapture()
 
@@ -65,6 +66,7 @@ func TestCheckForeignCollectionDataSilentWhenAlreadyRegistered(t *testing.T) {
 	store, badgerStore, _, _ := statusTestStores(t)
 	seedActiveGeneration(t, store, badgerStore, domain.EcosystemGo, "example.com/foo", "v1.0.0", 5)
 	cfg := config.Default(t.TempDir())
+	cfg.Vector.QdrantDefaults()
 	cfg.Vector.Endpoint = fakeQdrantCount(t, 1_000_000)
 	logf, lines := logCapture()
 
@@ -81,6 +83,7 @@ func TestCheckForeignCollectionDataSilentWhenAlreadyRegistered(t *testing.T) {
 func TestCheckForeignCollectionDataSilentWhenCollectionEmpty(t *testing.T) {
 	store, _, _, _ := statusTestStores(t)
 	cfg := config.Default(t.TempDir())
+	cfg.Vector.QdrantDefaults()
 	cfg.Vector.Endpoint = fakeQdrantCount(t, 0)
 	logf, lines := logCapture()
 

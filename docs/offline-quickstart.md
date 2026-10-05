@@ -5,6 +5,9 @@ for yet: pointing it at a plain git repo of documents you own (not a
 package-manager dependency) so a local model can query it over MCP with
 zero network access. Every step below was run for real on this machine
 (real Ollama, real Qdrant, real MCP round-trip) before being written down.
+That run used Qdrant. The embedded store became the default on
+2026-10-05; it's verified on its own in
+[docs/demos/embedded.md](demos/embedded.md).
 
 ## Why this needs a trick
 
@@ -43,7 +46,7 @@ ollama pull nomic-embed-text-v2-moe
 #   qwen3.8:27b-mlx        (note the exact tag — not "qwen-3.8:27b")
 ollama list
 
-# Qdrant image, so `podman run` doesn't need to pull mid-flight:
+# Only if you'll use Qdrant instead of the default embedded store (step 3):
 podman pull docker.io/qdrant/qdrant:v1.13.1
 ```
 
@@ -61,7 +64,9 @@ go build -o build/ragctl ./cmd/ragctl
 
 This creates `~/Library/Application Support/ragctl/` (macOS) with
 `config.yaml`, `control.db` (bbolt), `badger/` (chunk store), `git/`
-(mirror cache), and `registry/` (your manifest overrides).
+(mirror cache), and `registry/` (your manifest overrides). The search
+index goes in `vectors.db` alongside them on the first sync: by
+default there's no vector database to run (`vector.backend: embedded`).
 
 If you pulled a specific tagged variant (e.g.
 `ollama pull nomic-embed-text-v2-moe:fp16`), edit `config.yaml`'s
@@ -74,12 +79,18 @@ embedding:
   model: nomic-embed-text-v2-moe    # match `ollama list` exactly
   endpoint: http://127.0.0.1:11434
 vector:
-  backend: qdrant
-  endpoint: http://127.0.0.1:6333
-  collection: ragctl
+  backend: embedded                 # the default: a file, no service
+  collection: ragctl-1a2b3c4d       # keep the unique name init generated
 ```
 
-## 3. Start Qdrant (the vector backend)
+## 3. (Optional) Use Qdrant instead
+
+Skip this step to keep the default embedded store, which needs nothing
+running. It's the simplest choice for one machine. Use Qdrant if you
+want a vector server, e.g. to share one index. Either start it from a
+fresh config with `ragctl init --vector-backend qdrant` (ragctl then
+starts a `ragctl-qdrant` container itself when needed), or run it
+yourself:
 
 ```bash
 podman run -d --name ragctl-qdrant -p 6333:6333 -p 6334:6334 \
@@ -90,7 +101,9 @@ curl -sf http://127.0.0.1:6333/healthz
 
 The `-v` gives it a named volume so your index survives a container
 restart — without it Qdrant's storage lives only in the container's
-writable layer.
+writable layer. Then set `vector.backend: qdrant` and
+`vector.endpoint: http://127.0.0.1:6333` in `config.yaml`, and run
+`ragctl daemon stop` so the next command picks up the change.
 
 ### Already running Qdrant? Use that instead
 
@@ -189,11 +202,11 @@ boilerplate the npm-lockfile parser expects to see.
 ./build/ragctl scan ~/offline-knowledge/consumer
 ./build/ragctl plan                 # shows ADD_REFERENCE + SYNC_VERSION
 ./build/ragctl sync                 # acquires from your local git repo,
-                                     # embeds via Ollama, upserts to Qdrant
+                                     # embeds via Ollama, writes the index
 ```
 
 No `--offline` flag needed — everything it touches (your local repo,
-Ollama, Qdrant) is already on `127.0.0.1`/local disk, so a normal `sync`
+Ollama, the index) is already on `127.0.0.1`/local disk, so a normal `sync`
 never leaves the machine. (`--offline` is a blanket skip of anything
 network-shaped, which would skip the sync entirely — it's for "I know I
 have no connectivity and don't even want to try," not for "everything I
@@ -253,7 +266,7 @@ MCP clients accept:
 The exact place this JSON goes depends on which client/harness you're
 using with your local model — check its docs for "MCP server" or
 "tools" configuration. `ragctl serve` itself never needs network access:
-it only talks to your already-open bbolt/Badger stores, local Qdrant, and
+it only talks to your already-open local stores (and Qdrant, if you use it), and
 (only if you enable `sync_project`, off by default) local Ollama for
 embeddings during a triggered sync.
 
@@ -332,7 +345,7 @@ dataset itself doesn't.
 - **`sync` hangs or fails on the embedder** — `embedding.model` in
   `config.yaml` doesn't match an actually-pulled `ollama list` tag,
   or Ollama isn't running (`ollama list` should succeed instantly).
-- **`sync` fails to reach Qdrant** — `podman ps` to confirm
+- **`sync` fails to reach Qdrant** (only if you chose Qdrant) — `podman ps` to confirm
   `ragctl-qdrant` is `Up`; `curl http://127.0.0.1:6333/healthz`.
 - **Sync says nothing to do (`NOOP`) after editing the repo** — you
   didn't bump the version string (step 6); ragctl re-syncs on version

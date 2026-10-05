@@ -54,6 +54,7 @@ func deadEndpointsConfig(t *testing.T, mutate func(*config.Config)) {
 	dead := deadBackendURL(t)
 	writeTestConfig(t, func(c *config.Config) {
 		c.Embedding.Endpoint = dead
+		c.Vector.QdrantDefaults()
 		c.Vector.Endpoint = dead
 		c.Vector.Managed = false
 		if mutate != nil {

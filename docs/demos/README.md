@@ -1,10 +1,11 @@
 # Integration demos
 
-One runnable demo per integration. Each was run exactly as written (2026-10-04; pgvector and Weaviate 2026-10-05) against real containers (Podman) with local models only: no cloud accounts, no paid API keys.
+One runnable demo per integration. Each was run exactly as written (2026-10-04; pgvector, Weaviate and embedded 2026-10-05) against real containers (Podman) with local models only: no cloud accounts, no paid API keys.
 
 | Demo | Shows | Time |
 |---|---|---|
-| [Managed Qdrant](qdrant-managed.md) | The default: ragctl starts its own Qdrant and serves exact-version docs | ~3 min |
+| [Embedded](embedded.md) | The default: no vector service and no container; ragctl's index is one file next to its other data | ~3 min |
+| [Managed Qdrant](qdrant-managed.md) | ragctl starts its own Qdrant and serves exact-version docs | ~3 min |
 | [Your own Qdrant](qdrant-byo.md) | ragctl shares a Qdrant you already run, without touching your data | ~5 min |
 | [Your own pgvector](pgvector.md) | ragctl keeps its index in a Postgres you already run, in its own table, with version-correct search and GC | ~5 min |
 | [Your own Weaviate](weaviate.md) | the same, in a Weaviate you already run, with API-key auth on | ~5 min |

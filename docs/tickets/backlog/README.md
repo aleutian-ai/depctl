@@ -16,7 +16,7 @@ Same ticket format as `planned/`: each epic has an `INDEX.md`, each ticket is se
 ## Broader acquisition and backend coverage
 
 24. [24-website-acquisition](24-website-acquisition/INDEX.md) — HTTP client, sitemap reader, HTML normalizer
-25. [25-additional-vector-backends](25-additional-vector-backends/INDEX.md) — re-scoped (2026-10-01) to bring-your-own vector store plus an embedded option: use the Qdrant/Weaviate/pgvector a user already runs (`VEC-016`, `VEC-011`, `VEC-014`), behind the shared conformance suite (`VEC-010`), with embedded SQLite (`VEC-015`) as the longer-term no-service path. Milvus/Chroma stay declined in [../completed/64-additional-vector-backend-adapters](../completed/64-additional-vector-backend-adapters/INDEX.md). ragctl-managed Qdrant remains the default for users who don't already run one.
+25. Vector backends — moved to [../completed/25-additional-vector-backends](../completed/25-additional-vector-backends/INDEX.md) (2026-10-05): every ticket done. Supported stores are Qdrant (managed or your own), pgvector, Weaviate, and an embedded file with no service.
 
 ## Quality, ops, and ecosystem integration
 

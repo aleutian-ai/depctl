@@ -350,7 +350,7 @@ func ensureInitialized(ctx context.Context) error {
 	if err := requireNoDaemon(ctx); err != nil {
 		return err
 	}
-	return initStores(os.Stderr)
+	return initStores(os.Stderr, "")
 }
 
 // spawnDaemon starts `ragctl daemon run` detached. Its output goes to

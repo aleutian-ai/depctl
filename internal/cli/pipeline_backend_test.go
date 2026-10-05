@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -88,5 +89,41 @@ func TestRedactDSNHidesPasswords(t *testing.T) {
 	}
 	if got := redactDSN("http://127.0.0.1:6333"); got != "http://127.0.0.1:6333" {
 		t.Errorf("redactDSN changed a URL with no password: %q", got)
+	}
+}
+
+func TestBuildVectorBackendEmbeddedDefaultsToTheDataDir(t *testing.T) {
+	isolateEnv(t)
+	path, err := embeddedVectorPath(config.Config{Vector: config.VectorConfig{Backend: "embedded"}})
+	if err != nil {
+		t.Fatalf("embeddedVectorPath: %v", err)
+	}
+	dataDir, _ := config.DefaultDataDir()
+	if path != filepath.Join(dataDir, "vectors.db") {
+		t.Errorf("path = %q, want <data-dir>/vectors.db", path)
+	}
+	vb, err := buildVectorBackend(config.Config{Vector: config.VectorConfig{Backend: "embedded"}})
+	if err != nil || vb.Name() != "embedded" {
+		t.Fatalf("buildVectorBackend(embedded) = %v, %v", vb, err)
+	}
+}
+
+// A config switched from Qdrant keeps its http:// endpoint; that must be
+// an explicit error, not a file literally named "http:".
+func TestBuildVectorBackendEmbeddedRejectsAURLEndpoint(t *testing.T) {
+	_, err := buildVectorBackend(config.Config{Vector: config.VectorConfig{Backend: "embedded", Endpoint: "http://127.0.0.1:6333"}})
+	if err == nil || !strings.Contains(err.Error(), "file path") {
+		t.Fatalf("err = %v, want a file-path error", err)
+	}
+}
+
+func TestVectorLocationNeverShowsAPasswordOrAnEmptyPath(t *testing.T) {
+	isolateEnv(t)
+	pg := config.Config{Vector: config.VectorConfig{Backend: "pgvector", Endpoint: "postgres://ragctl:hunter2@db:5432/x"}}
+	if got := vectorLocation(pg); strings.Contains(got, "hunter2") {
+		t.Errorf("vectorLocation leaked the password: %q", got)
+	}
+	if got := vectorLocation(config.Config{Vector: config.VectorConfig{Backend: "embedded"}}); !strings.HasSuffix(got, "vectors.db") {
+		t.Errorf("vectorLocation(embedded) = %q, want the vectors.db path", got)
 	}
 }

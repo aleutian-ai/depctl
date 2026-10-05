@@ -53,6 +53,7 @@ func TestVectorReadinessCheckReadyPerState(t *testing.T) {
 
 func TestCheckVectorReadinessUnreachable(t *testing.T) {
 	cfg := config.Default("/data")
+	cfg.Vector.QdrantDefaults()
 	cfg.Vector.Endpoint = "http://127.0.0.1:1" // nothing listens here
 	cfg.Vector.Managed = false                 // exercise the plain report-only path, not WATCH-016's bootstrap
 	readiness := newVectorReadiness()
@@ -82,6 +83,7 @@ func TestCheckVectorReadinessBootstrapsManagedContainerWhenRuntimeFound(t *testi
 	}
 
 	cfg := config.Default(t.TempDir())
+	cfg.Vector.QdrantDefaults()
 	cfg.Vector.Endpoint = deadBackendURL(t) // never becomes healthy — proves the bootstrap path ran, not that it fully succeeded
 	cfg.Vector.Managed = true
 
@@ -111,6 +113,7 @@ func TestCheckVectorReadinessReportsPlainUnreachableWhenNotManaged(t *testing.T)
 	}
 
 	cfg := config.Default(t.TempDir())
+	cfg.Vector.QdrantDefaults()
 	cfg.Vector.Endpoint = deadBackendURL(t)
 	cfg.Vector.Managed = false
 
@@ -133,6 +136,7 @@ func TestCheckVectorReadinessReachable(t *testing.T) {
 	defer srv.Close()
 
 	cfg := config.Default("/data")
+	cfg.Vector.QdrantDefaults()
 	cfg.Vector.Endpoint = srv.URL
 	readiness := newVectorReadiness()
 

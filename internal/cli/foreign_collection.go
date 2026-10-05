@@ -39,5 +39,5 @@ func checkForeignCollectionData(ctx context.Context, cfg config.Config, store *b
 		return
 	}
 	logf("WARNING: vector.collection %q at %s already contains %d point(s), but this instance has never registered an active generation of its own — if this collection is shared with another ragctl install, the next sync (including automatic ambient sync) will commingle data into it. Set vector.collection to something unique to this install, or sync.disable_ambient: true if you didn't mean to sync yet.",
-		cfg.Vector.Collection, cfg.Vector.Endpoint, n)
+		cfg.Vector.Collection, vectorLocation(cfg), n)
 }

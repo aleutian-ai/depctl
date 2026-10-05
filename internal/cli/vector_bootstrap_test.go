@@ -77,6 +77,7 @@ func TestEnsureManagedQdrantRunsExpectedArgsWhenAbsent(t *testing.T) {
 
 	runtime, logPath := fakeRuntimeScript(t, "") // ps reports nothing: container absent
 	cfg := config.Default(t.TempDir())
+	cfg.Vector.QdrantDefaults()
 	cfg.Vector.Endpoint = backend.URL
 
 	if err := ensureManagedQdrant(context.Background(), cfg, runtime, func(string, ...any) {}); err != nil {
@@ -113,6 +114,7 @@ func TestEnsureManagedQdrantRestartsStoppedContainerInsteadOfRun(t *testing.T) {
 
 	runtime, logPath := fakeRuntimeScript(t, "ragctl-qdrant\tExited")
 	cfg := config.Default(t.TempDir())
+	cfg.Vector.QdrantDefaults()
 	cfg.Vector.Endpoint = backend.URL
 
 	if err := ensureManagedQdrant(context.Background(), cfg, runtime, func(string, ...any) {}); err != nil {
@@ -136,6 +138,7 @@ func TestEnsureManagedQdrantSkipsBothWhenAlreadyRunning(t *testing.T) {
 
 	runtime, logPath := fakeRuntimeScript(t, "ragctl-qdrant\tRunning")
 	cfg := config.Default(t.TempDir())
+	cfg.Vector.QdrantDefaults()
 	cfg.Vector.Endpoint = backend.URL
 
 	if err := ensureManagedQdrant(context.Background(), cfg, runtime, func(string, ...any) {}); err != nil {
@@ -155,6 +158,7 @@ func TestEnsureManagedQdrantHealthTimeoutSurfacesError(t *testing.T) {
 	dead := deadBackendURL(t)
 	runtime, _ := fakeRuntimeScript(t, "")
 	cfg := config.Default(t.TempDir())
+	cfg.Vector.QdrantDefaults()
 	cfg.Vector.Endpoint = dead
 
 	err := ensureManagedQdrant(context.Background(), cfg, runtime, func(string, ...any) {})
@@ -198,6 +202,7 @@ func TestEnsureManagedQdrantPullUsesLongerTimeout(t *testing.T) {
 	}
 
 	cfg := config.Default(t.TempDir())
+	cfg.Vector.QdrantDefaults()
 	cfg.Vector.Endpoint = backend.URL
 
 	if err := ensureManagedQdrant(context.Background(), cfg, path, func(string, ...any) {}); err != nil {

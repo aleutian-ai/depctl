@@ -173,10 +173,22 @@ func TestDefaultCollectionNameIsUniquePerInstall(t *testing.T) {
 	}
 }
 
-func TestDefaultVectorManagedIsTrueForFreshInstalls(t *testing.T) {
-	c := Default("/data")
-	if !c.Vector.Managed {
-		t.Error("vector.managed should default to true for a fresh install (WATCH-016)")
+// A fresh install needs no vector service: the embedded backend is the
+// default, with no endpoint and nothing to manage.
+func TestDefaultVectorBackendIsEmbedded(t *testing.T) {
+	v := Default("/data").Vector
+	if v.Backend != "embedded" || v.Endpoint != "" || v.Managed {
+		t.Errorf("default vector config = %+v, want backend embedded, no endpoint, not managed", v)
+	}
+}
+
+// QdrantDefaults is the previous default: a local Qdrant that ragctl
+// starts itself if nothing is running (WATCH-016).
+func TestQdrantDefaultsIsManagedLocalQdrant(t *testing.T) {
+	v := Default("/data").Vector
+	v.QdrantDefaults()
+	if v.Backend != "qdrant" || v.Endpoint != "http://127.0.0.1:6333" || !v.Managed {
+		t.Errorf("QdrantDefaults = %+v, want managed qdrant at 127.0.0.1:6333", v)
 	}
 }
 

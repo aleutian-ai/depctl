@@ -21,6 +21,7 @@ ragctl init
 python3 - "$DEMO_RAGCTL_DIR/config.yaml" <<'EOF'
 import sys, yaml
 p = sys.argv[1]; c = yaml.safe_load(open(p))
+c["vector"]["backend"] = "qdrant"
 c["vector"]["endpoint"] = "http://127.0.0.1:16333"
 c["vector"]["managed"] = False      # never start a container of its own
 yaml.safe_dump(c, open(p, "w"), sort_keys=False)

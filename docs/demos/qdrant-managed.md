@@ -1,12 +1,12 @@
-# Demo: managed Qdrant (the default)
+# Demo: managed Qdrant
 
-**Shows:** with no vector database of your own, ragctl starts one for you, indexes a dependency at the exact version your project uses, and answers questions from that version only.
+**Shows:** with `--vector-backend qdrant` and no Qdrant of your own, ragctl starts one for you, indexes a dependency at the exact version your project uses, and answers questions from that version only.
 
 ## Run
 
 ```bash
 source docs/demos/demo-env.sh
-ragctl init
+ragctl init --vector-backend qdrant
 dir=$(demo_project v1.6.0)
 ragctl scan "$dir"                     # registers the project and starts syncing
 pid=$(demo_project_id "$dir")
@@ -17,7 +17,7 @@ demo_search "$pid" "How do I generate a new random UUID?"
 
 ## What to look for
 
-- `ragctl init` writes `vector.managed: true`. If nothing is listening on 6333, the first sync starts a `ragctl-qdrant` container itself.
+- `ragctl init --vector-backend qdrant` writes `vector.backend: qdrant` and `vector.managed: true`. If nothing is listening on 6333, the first sync starts a `ragctl-qdrant` container itself.
 - `describe` shows `active version v1.6.0` and a complete backend replica.
 - The search returns `v1.6.0` chunks such as `New creates a new random UUID or panics`, never another version's docs.
 

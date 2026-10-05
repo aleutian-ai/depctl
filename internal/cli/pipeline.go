@@ -9,8 +9,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"aleutian-ai/ragctl/internal/backend"
+	"aleutian-ai/ragctl/internal/backend/embedded"
 	"aleutian-ai/ragctl/internal/backend/pgvector"
 	"aleutian-ai/ragctl/internal/backend/qdrant"
 	"aleutian-ai/ragctl/internal/backend/weaviate"
@@ -68,7 +71,8 @@ func buildEmbedder(cfg config.Config, badgerStore *badger.Store) (embedding.Embe
 }
 
 // buildVectorBackend constructs the configured VectorBackend: "qdrant"
-// (the default), "pgvector" (VEC-014) or "weaviate" (VEC-011).
+// (the default), "pgvector" (VEC-014), "weaviate" (VEC-011) or
+// "embedded" (VEC-015, a file in the data dir; no service).
 func buildVectorBackend(cfg config.Config) (backend.VectorBackend, error) {
 	// vector.api_key_env names the env var holding the secret: Qdrant's
 	// or Weaviate's API key, or pgvector's database password. It's read by whichever
@@ -92,9 +96,31 @@ func buildVectorBackend(cfg config.Config) (backend.VectorBackend, error) {
 		return pgvector.New(cfg.Vector.Endpoint, secret)
 	case "weaviate":
 		return weaviate.New(cfg.Vector.Endpoint, secret), nil
+	case "embedded":
+		path, err := embeddedVectorPath(cfg)
+		if err != nil {
+			return nil, err
+		}
+		return embedded.New(path), nil
 	default:
-		return nil, fmt.Errorf("unsupported vector backend %q (supported: \"qdrant\", \"pgvector\", \"weaviate\")", cfg.Vector.Backend)
+		return nil, fmt.Errorf("unsupported vector backend %q (supported: \"qdrant\", \"pgvector\", \"weaviate\", \"embedded\")", cfg.Vector.Backend)
 	}
+}
+
+// embeddedVectorPath is where the embedded backend keeps its file:
+// vector.endpoint if set (a file path), else <data-dir>/vectors.db.
+func embeddedVectorPath(cfg config.Config) (string, error) {
+	if cfg.Vector.Endpoint == "" {
+		dataDir, err := config.DefaultDataDir()
+		if err != nil {
+			return "", fmt.Errorf("resolve data dir: %w", err)
+		}
+		return filepath.Join(dataDir, "vectors.db"), nil
+	}
+	if strings.Contains(cfg.Vector.Endpoint, "://") {
+		return "", fmt.Errorf("vector.endpoint is %q, but the embedded backend takes a file path; remove vector.endpoint to use the default <data-dir>/vectors.db", cfg.Vector.Endpoint)
+	}
+	return cfg.Vector.Endpoint, nil
 }
 
 // buildGitCache returns a git.Cache rooted under the configured data

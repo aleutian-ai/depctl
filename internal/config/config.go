@@ -383,11 +383,12 @@ func Default(dataDir string) Config {
 			Model:    "nomic-embed-text-v2-moe",
 			Endpoint: "http://127.0.0.1:11434",
 		},
+		// The embedded backend (VEC-015) is the default: one file in the
+		// data dir, no vector service or container to run. QdrantDefaults
+		// switches a config to ragctl-managed Qdrant.
 		Vector: VectorConfig{
-			Backend:    "qdrant",
-			Endpoint:   "http://127.0.0.1:6333",
+			Backend:    "embedded",
 			Collection: defaultCollectionName(),
-			Managed:    true,
 		},
 		Retention: RetentionConfig{
 			GracePeriod: 336 * time.Hour, // 14 days
@@ -407,6 +408,12 @@ func Default(dataDir string) Config {
 		},
 		Daemon: DaemonConfig{Autostart: &autostartDefault},
 	}
+}
+
+// QdrantDefaults switches v to a local Qdrant at the standard port that
+// ragctl starts itself (WATCH-016) if nothing is running there.
+func (v *VectorConfig) QdrantDefaults() {
+	v.Backend, v.Endpoint, v.Managed = "qdrant", "http://127.0.0.1:6333", true
 }
 
 // Load reads and validates the config file at path. It returns

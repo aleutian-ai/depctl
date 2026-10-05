@@ -196,7 +196,7 @@ func TestSyncNoOpPlanMakesNoNetworkCalls(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("AddReference: %v", err)
 	}
-	promoteFixtureVersion(t, store, dep, "qdrant")
+	promoteFixtureVersion(t, store, dep, config.Default("").Vector.Backend)
 	store.Close()
 
 	cmd := NewRootCmd()
@@ -418,6 +418,7 @@ func TestSyncReportsStructuredErrorForUnreachableVectorBackend(t *testing.T) {
 	deadVector := deadBackendURL(t)
 	writeTestConfig(t, func(c *config.Config) {
 		c.Embedding.Endpoint = ollama.URL
+		c.Vector.QdrantDefaults()
 		c.Vector.Endpoint = deadVector
 		c.Vector.Managed = false // exercise the plain report-only path, not WATCH-016's bootstrap
 	})

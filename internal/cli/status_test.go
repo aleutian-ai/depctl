@@ -174,10 +174,14 @@ func TestBuildStatusEmptyStoreHasNoLastSync(t *testing.T) {
 func TestProbeBackend(t *testing.T) {
 	cfg := config.Default(t.TempDir())
 
+	cfg.Vector.QdrantDefaults()
+
 	cfg.Vector.Endpoint = healthyBackendURL(t)
 	if err := probeBackend(context.Background(), cfg); err != nil {
 		t.Errorf("healthy backend: probeBackend = %v, want nil", err)
 	}
+
+	cfg.Vector.QdrantDefaults()
 
 	cfg.Vector.Endpoint = deadBackendURL(t)
 	if err := probeBackend(context.Background(), cfg); err == nil {
@@ -232,7 +236,7 @@ func TestStatusCommandReportsDownBackendWithoutFailing(t *testing.T) {
 	runInitForTest(t)
 	useRealRagctlBinary(t)
 	endpoint := deadBackendURL(t)
-	writeTestConfig(t, func(c *config.Config) { c.Vector.Endpoint = endpoint })
+	writeTestConfig(t, func(c *config.Config) { c.Vector.QdrantDefaults(); c.Vector.Endpoint = endpoint })
 
 	root := NewRootCmd()
 	var out bytes.Buffer

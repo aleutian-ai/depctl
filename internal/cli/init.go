@@ -14,25 +14,34 @@ import (
 )
 
 func newInitCmd() *cobra.Command {
-	return &cobra.Command{
+	var vectorBackend string
+	cmd := &cobra.Command{
 		Use:   "init",
 		Short: "Initialize ragctl's local config and storage directories",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runInit(cmd)
+			return runInit(cmd, vectorBackend)
 		},
 	}
+	cmd.Flags().StringVar(&vectorBackend, "vector-backend", "",
+		`vector store for a new config: "embedded" (default; a file in the data dir, no service or container) or "qdrant" (a local Qdrant, which ragctl starts in a container if none is running). To use your own Qdrant, pgvector or Weaviate, edit the vector section of the config.`)
+	return cmd
 }
 
 // runInit creates everything ragctl needs to operate, if not already
 // present. It is safe to run repeatedly: existing files/dirs are left
 // untouched, and the summary distinguishes "created" from "already present".
-func runInit(cmd *cobra.Command) error {
+func runInit(cmd *cobra.Command, vectorBackend string) error {
+	switch vectorBackend {
+	case "", "qdrant", "embedded":
+	default:
+		return fmt.Errorf("--vector-backend %q: use \"qdrant\" or \"embedded\" (for your own Qdrant, pgvector or Weaviate, edit the vector section of the config)", vectorBackend)
+	}
 	// init is one of the only commands that opens the stores itself, so
 	// it has to refuse while the daemon owns them (ADR-011).
 	if err := requireNoDaemon(cmd.Context()); err != nil {
 		return err
 	}
-	return initStores(cmd.OutOrStdout())
+	return initStores(cmd.OutOrStdout(), vectorBackend)
 }
 
 // initStores is runInit's actual work, factored out so ensureInitialized
@@ -40,8 +49,10 @@ func runInit(cmd *cobra.Command) error {
 // MCP tool call needs the stores and they don't exist yet — auto-init on
 // first use rather than a hard "run `ragctl init` first" refusal, since
 // init asks no interactive questions and is safe to run repeatedly (even
-// racing itself: every step here is idempotent).
-func initStores(out io.Writer) error {
+// racing itself: every step here is idempotent). vectorBackend, when
+// set, chooses the vector store for a newly written config; an existing
+// config is never rewritten, so asking for a different one is an error.
+func initStores(out io.Writer, vectorBackend string) error {
 	dataDir, err := config.DefaultDataDir()
 	if err != nil {
 		return fmt.Errorf("resolve data dir: %w", err)
@@ -75,13 +86,26 @@ func initStores(out io.Writer) error {
 
 	// Config file: write defaults only if absent, never overwrite.
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		if err := config.Default(dataDir).Save(configPath); err != nil {
+		cfg := config.Default(dataDir)
+		if vectorBackend == "qdrant" {
+			cfg.Vector.QdrantDefaults()
+		}
+		if err := cfg.Save(configPath); err != nil {
 			return fmt.Errorf("write config: %w", err)
 		}
 		reportStatus(out, configPath, false)
 	} else if err != nil {
 		return fmt.Errorf("stat config %s: %w", configPath, err)
 	} else {
+		if vectorBackend != "" {
+			existing, err := config.Load(configPath)
+			if err != nil {
+				return fmt.Errorf("read config %s: %w", configPath, err)
+			}
+			if existing.Vector.Backend != vectorBackend {
+				return fmt.Errorf("%s already exists with vector.backend %q; init never rewrites it, so edit vector.backend there to switch to %q", configPath, existing.Vector.Backend, vectorBackend)
+			}
+		}
 		reportStatus(out, configPath, true)
 	}
 
