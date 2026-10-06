@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -194,10 +195,10 @@ func RunSync(ctx context.Context, coordinator *daemon.BuildCoordinator, store *b
 	// below (registry matching -> npm/pypi/vanity-import resolution) —
 	// deliberately, matching this codebase's existing convention for
 	// rarely-changing, process-wide tunables (e.g. vanityImportTimeout).
-	// Benign under epic 53's concurrent syncs: every concurrent RunSync
-	// call in a real daemon loads the same on-disk config, so a race
-	// here can only ever race a value against an identical one.
-	syncFetchLimits = cfg.Fetch
+	// Atomic because epic 53 runs syncs concurrently; every concurrent
+	// RunSync in a real daemon stores the same on-disk config's value.
+	limits := cfg.Fetch
+	syncFetchLimits.Store(&limits)
 	if rebuild && len(dependencies) > 0 {
 		if err := clearForRebuild(ctx, store, cfg.Vector.Backend, projectID, dependencies); err != nil {
 			return 0, 0, 0, fmt.Errorf("rebuild: %w", err)
@@ -674,9 +675,18 @@ func npmTagCandidates(name, subdir string) []string {
 }
 
 // syncFetchLimits holds this run's SEC-003 fetch limits, applied once at
-// RunSync's entry — see its own assignment there for why this is a plain
+// RunSync's entry — see its own assignment there for why this is a
 // package var rather than a threaded parameter.
-var syncFetchLimits config.FetchConfig
+var syncFetchLimits atomic.Pointer[config.FetchConfig]
+
+// currentFetchLimits is the latest sync's fetch limits, or the defaults
+// (FetchConfig's zero value) before any sync has run.
+func currentFetchLimits() config.FetchConfig {
+	if p := syncFetchLimits.Load(); p != nil {
+		return *p
+	}
+	return config.FetchConfig{}
+}
 
 // fetchLimitRedirectPolicy is shared by all three registry/vanity-import
 // HTTP clients below — it reads syncFetchLimits at redirect time (not at
@@ -684,7 +694,7 @@ var syncFetchLimits config.FetchConfig
 // RunSync has set it), so it's always current for whichever sync run is
 // actually in flight.
 func fetchLimitRedirectPolicy(req *http.Request, via []*http.Request) error {
-	max := syncFetchLimits.MaxRedirectsOrDefault()
+	max := currentFetchLimits().MaxRedirectsOrDefault()
 	if len(via) > max {
 		return fmt.Errorf("%w: more than %d redirects", httplimit.ErrFetchLimitExceeded, max)
 	}
@@ -775,7 +785,7 @@ func npmRepository(ctx context.Context, name string) (url, subdir string, ok boo
 	if resp.StatusCode != http.StatusOK {
 		return "", "", false
 	}
-	data, err := httplimit.ReadLimited(resp.Body, syncFetchLimits.MaxFileSizeOrDefault())
+	data, err := httplimit.ReadLimited(resp.Body, currentFetchLimits().MaxFileSizeOrDefault())
 	if err != nil {
 		return "", "", false
 	}
@@ -888,7 +898,7 @@ func pypiRepository(ctx context.Context, name string) (url string, ok bool) {
 	if resp.StatusCode != http.StatusOK {
 		return "", false
 	}
-	data, err := httplimit.ReadLimited(resp.Body, syncFetchLimits.MaxFileSizeOrDefault())
+	data, err := httplimit.ReadLimited(resp.Body, currentFetchLimits().MaxFileSizeOrDefault())
 	if err != nil {
 		return "", false
 	}
@@ -981,7 +991,7 @@ func resolveVanityImport(ctx context.Context, modulePath string) (root, repoURL 
 	if resp.StatusCode != http.StatusOK {
 		return "", "", false
 	}
-	body, err := httplimit.ReadLimited(resp.Body, syncFetchLimits.MaxFileSizeOrDefault())
+	body, err := httplimit.ReadLimited(resp.Body, currentFetchLimits().MaxFileSizeOrDefault())
 	if err != nil {
 		return "", "", false
 	}

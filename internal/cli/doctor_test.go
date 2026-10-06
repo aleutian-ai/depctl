@@ -553,7 +553,13 @@ func TestSeverityValuesAreExitCodes(t *testing.T) {
 func TestDoctorCommandReturnsExitCode(t *testing.T) {
 	isolateEnv(t)
 	endpoint := deadBackendURL(t)
-	writeTestConfig(t, func(c *config.Config) { c.Vector.QdrantDefaults(); c.Vector.Endpoint = endpoint })
+	// managed: false, so doctor only reports the outage instead of also
+	// trying to start a Qdrant container (which on CI runs Podman under
+	// the test's temp HOME and leaves undeletable storage behind).
+	writeTestConfig(t, func(c *config.Config) {
+		c.Vector.QdrantDefaults()
+		c.Vector.Endpoint, c.Vector.Managed = endpoint, false
+	})
 
 	root := NewRootCmd()
 	var out bytes.Buffer

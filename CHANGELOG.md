@@ -1,5 +1,31 @@
 # Changelog
 
+## v0.2.0 — 2026-10-05
+
+### No vector service needed by default
+- A fresh `ragctl init` keeps the search index in one file, `vectors.db`, in ragctl's data directory. No vector database or container runs; only Ollama, for embeddings. Search is exact and scoped to one dependency version (about 4 ms for a 2,000-chunk version).
+- `ragctl init --vector-backend qdrant` gives the previous default: a local Qdrant that ragctl starts in a container if none is running.
+- **Upgrading:** existing config files keep the backend they name. Nothing is migrated, and an existing Qdrant install keeps working as before.
+
+### Bring your own vector store
+- Use a Qdrant, PostgreSQL + pgvector, or Weaviate you already run (`vector.backend: qdrant | pgvector | weaviate`). ragctl creates one uniquely named collection or table of its own and never touches anything else on the server.
+- `vector.api_key_env` names the env var holding the Qdrant or Weaviate API key, or the Postgres password. It was documented before but never read. A wrong key now shows up in `ragctl doctor` instead of looking healthy.
+- Every backend passes one shared conformance suite against a real server. Two of its checks came from end-to-end runs that caught real bugs: two versions of a dependency must never overwrite each other's shared chunks, and filters must match whole values (`v1.5.0` never matches `v1.0.5`).
+
+### Export to memory systems
+- `ragctl export mem0 | cognee | graphiti` pushes a project's synced, version-correct docs into a self-hosted Mem0, Cognee, or Graphiti, so agents find them there too. ragctl's own index stays the source of truth. Re-exporting to Mem0 replaces the previous copy. Graphiti's published server needs the patched image in `docs/demos/graphiti/`.
+
+### Version correctness
+- Each dependency version has its own active generation (ADR-012). Two projects on different versions of a dependency each get their own version's docs, and a version change triggers a rebuild.
+- Versions that failed to build are retried on the next sync, unless the dependency has no docs source. Vector-store readiness is rechecked instead of being remembered as down. GC follows references per version.
+
+### Fixes
+- `ragctl doctor` no longer prints a password embedded in a vector-store connection URL.
+- Search for a dependency that isn't synced yet says so even when Ollama is down, so the MCP tool can start the missing sync.
+- A data race on fetch limits between concurrent syncs is fixed, and so are the CI failures from tests that assumed a local Ollama or started a Qdrant container.
+
+See [docs/demos/](docs/demos/README.md) for a runnable, verified demo of every integration.
+
 ## v0.1.0 — 2026-09-30
 
 First public release.

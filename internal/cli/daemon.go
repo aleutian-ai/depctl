@@ -660,6 +660,25 @@ func (e *engine) OrphanGC(ctx context.Context, dryRun bool, out io.Writer) (api.
 	return res, err
 }
 
+// notServed reports, from the stores alone, that a project-mode search
+// has nothing to search: an unknown dependency, or one with no active
+// generation. Search checks it when the embedder or vector backend isn't
+// ready, because that answer doesn't depend on them, and the MCP tool's
+// JIT sync keys off ErrNoActiveGeneration to start the missing sync.
+func (e *engine) notServed(ctx context.Context, req api.SearchRequest) error {
+	if req.Mode != "" && query.QueryMode(req.Mode) != query.ModeProject {
+		return nil
+	}
+	dv, err := e.baseQueryService().GetDependencyVersion(ctx, req.ProjectID, req.Dependency)
+	if err != nil {
+		return err
+	}
+	if _, err := e.store.GetActiveGeneration(ctx, dv.Dependency.Ecosystem, dv.Dependency.Name, dv.Version, e.cfg.Vector.Backend); err != nil {
+		return fmt.Errorf("%w: %s", query.ErrNoActiveGeneration, dv.Dependency.Name)
+	}
+	return nil
+}
+
 // SupersededDuplicatesGC plans and runs POINT-004's cleanup — see
 // RunSupersededDuplicatesGC.
 func (e *engine) SupersededDuplicatesGC(ctx context.Context, dryRun bool, out io.Writer) (api.GCResult, error) {
@@ -673,6 +692,9 @@ func (e *engine) SupersededDuplicatesGC(ctx context.Context, dryRun bool, out io
 func (e *engine) Search(ctx context.Context, req api.SearchRequest) (api.SearchResponse, error) {
 	svc, err := e.fullQueryService(ctx)
 	if err != nil {
+		if notServed := e.notServed(ctx, req); notServed != nil {
+			return api.SearchResponse{}, notServed
+		}
 		return api.SearchResponse{}, err
 	}
 	res, err := svc.SearchKnowledge(ctx, query.Query{
