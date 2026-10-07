@@ -46,7 +46,7 @@ func withToolLogging[In, Out any](name string, handler sdkmcp.ToolHandlerFor[In,
 	}
 }
 
-// registerTools wires every MCP-003 tool onto sdk, backed by deps.
+// registerTools wires every tool onto sdk, backed by deps.
 func registerTools(sdk *sdkmcp.Server, deps Deps) {
 	jit := jitDeps{svc: deps.Query, sync: deps.Sync, priority: deps.Priority, enabled: deps.EnableSyncTool}
 
@@ -131,6 +131,7 @@ func progressReporter(ctx context.Context, req *sdkmcp.CallToolRequest, total in
 
 // --- search_dependency_docs ---
 
+// SearchDependencyDocsIn is search_dependency_docs's input.
 type SearchDependencyDocsIn struct {
 	ProjectID  string `json:"project_id" jsonschema:"the registered project ID (see list_project_dependencies or ragctl project list)"`
 	Query      string `json:"query" jsonschema:"the natural-language search query"`
@@ -138,6 +139,7 @@ type SearchDependencyDocsIn struct {
 	Mode       string `json:"mode,omitempty" jsonschema:"one of project (default), latest, compare, all-retained"`
 }
 
+// SearchResultChunk is one matched chunk with its provenance.
 type SearchResultChunk struct {
 	ChunkID    string            `json:"chunk_id"`
 	Content    string            `json:"content"`
@@ -152,6 +154,7 @@ type SearchResultChunk struct {
 	Breadcrumb string            `json:"breadcrumb" jsonschema:"structural location of this chunk within its dependency/version, e.g. \"grpc-go@1.72.0 > Authentication > Transport Credentials > NewTLS\""`
 }
 
+// SearchDependencyDocsOut is search_dependency_docs's result.
 type SearchDependencyDocsOut struct {
 	Chunks []SearchResultChunk `json:"chunks"`
 	Note   string              `json:"note"`
@@ -218,17 +221,11 @@ func searchDependencyDocsHandler(svc QueryService, sync SyncTrigger, enableSync 
 				if ok {
 					result, err = svc.SearchKnowledge(ctx, q)
 				}
-				// Self-healing (OPS-005's MCP-facing fix): a plain sync
-				// NOOPs whenever a version reference already exists,
-				// regardless of whether it ever actually built — the
-				// exact "referenced but never built" state a stuck or
-				// interrupted earlier sync can leave behind. A search
-				// that still fails with ErrNoActiveGeneration after the
-				// plain retry above is exactly that signal, so this
-				// tries once more with rebuild:true (clears the stale
-				// pointer/reference before planning) before ever
-				// surfacing an error to the agent — no separate
-				// diagnostic step, no second tool call needed.
+				// Self-healing (OPS-005): one more attempt with
+				// rebuild:true, which clears the version's reference and
+				// pointer before planning, before surfacing an error to
+				// the agent. It predates PLAN-005, since which a plain sync
+				// already retries a referenced-but-unbuilt version.
 				if !stillRunning && err != nil && errors.Is(err, query.ErrNoActiveGeneration) {
 					ok, stillRunning = triggerAndAwaitSync(ctx, sync, in.ProjectID, in.Dependency, true)
 					if ok {
@@ -284,11 +281,13 @@ func resultChunks(chunks []query.ResultChunk) []SearchResultChunk {
 
 // --- get_dependency_version ---
 
+// GetDependencyVersionIn is get_dependency_version's input.
 type GetDependencyVersionIn struct {
 	ProjectID string `json:"project_id"`
 	Package   string `json:"package"`
 }
 
+// GetDependencyVersionOut is get_dependency_version's result.
 type GetDependencyVersionOut struct {
 	Ecosystem string `json:"ecosystem"`
 	Package   string `json:"package"`
@@ -310,10 +309,12 @@ func getDependencyVersionHandler(svc QueryService) sdkmcp.ToolHandlerFor[GetDepe
 
 // --- list_project_dependencies ---
 
+// ListProjectDependenciesIn is list_project_dependencies's input.
 type ListProjectDependenciesIn struct {
 	ProjectID string `json:"project_id"`
 }
 
+// DependencyInfo is one resolved dependency and whether it has synced knowledge.
 type DependencyInfo struct {
 	Ecosystem           string `json:"ecosystem"`
 	Package             string `json:"package"`
@@ -322,6 +323,7 @@ type DependencyInfo struct {
 	HasActiveGeneration bool   `json:"has_active_generation" jsonschema:"real state as of this call, not a stale or best-effort flag — false means this exact version has no synced knowledge yet. It becomes true the moment a sync (background, sync_project, or search_dependency_docs's own automatic one-shot sync on a miss) actually completes for it. You don't need to sync a false one before searching it: search_dependency_docs already triggers and waits on that sync for you. Syncing many false ones at once is faster with one sync_project call than with many parallel search_dependency_docs calls, which share a bounded daemon-wide concurrency limit and so queue behind each other rather than running faster in parallel."`
 }
 
+// ListProjectDependenciesOut is list_project_dependencies's result.
 type ListProjectDependenciesOut struct {
 	Dependencies []DependencyInfo `json:"dependencies"`
 	Note         string           `json:"note"`
@@ -346,18 +348,21 @@ func listProjectDependenciesHandler(svc QueryService) sdkmcp.ToolHandlerFor[List
 
 // --- get_release_changes ---
 
+// GetReleaseChangesIn is get_release_changes's input.
 type GetReleaseChangesIn struct {
 	Dependency string `json:"dependency"`
 	From       string `json:"from" jsonschema:"exact version string, e.g. v1.60.0"`
 	To         string `json:"to" jsonschema:"exact version string, e.g. v1.67.0"`
 }
 
+// ReleaseChangeInfo is one version's release-note excerpt.
 type ReleaseChangeInfo struct {
 	Ecosystem string `json:"ecosystem"`
 	Version   string `json:"version"`
 	Excerpt   string `json:"excerpt"`
 }
 
+// GetReleaseChangesOut is get_release_changes's result.
 type GetReleaseChangesOut struct {
 	Changes []ReleaseChangeInfo `json:"changes"`
 	Note    string              `json:"note"`
@@ -382,13 +387,16 @@ func getReleaseChangesHandler(svc QueryService) sdkmcp.ToolHandlerFor[GetRelease
 
 // --- knowledge_status ---
 
+// KnowledgeStatusIn is knowledge_status's input; it takes no arguments.
 type KnowledgeStatusIn struct{}
 
+// ProjectRefOut is one registered project's ID and root.
 type ProjectRefOut struct {
 	ProjectID string `json:"project_id"`
 	Root      string `json:"root"`
 }
 
+// KnowledgeStatusOut is knowledge_status's result.
 type KnowledgeStatusOut struct {
 	TotalProjects           int             `json:"total_projects"`
 	TotalDependencies       int             `json:"total_dependencies"`
@@ -420,27 +428,18 @@ func knowledgeStatusHandler(svc QueryService) sdkmcp.ToolHandlerFor[KnowledgeSta
 
 // --- sync_project ---
 
+// SyncProjectIn is sync_project's input.
 type SyncProjectIn struct {
 	ProjectID  string `json:"project_id"`
 	Dependency string `json:"dependency,omitempty" jsonschema:"optional — limit the sync to one package instead of the whole project"`
-	// Rebuild is the self-healing fix for a specific, otherwise-stuck
-	// failure mode: search_dependency_docs (or this tool) returns "no
-	// synced knowledge for this version yet" for a dependency that
-	// list_project_dependencies/knowledge_status shows is a real,
-	// resolved dependency of the project. That combination means a
-	// version reference was already recorded (from an earlier sync
-	// attempt) but its actual build never completed — a plain sync sees
-	// the reference and does nothing, so retrying without rebuild will
-	// keep failing identically forever. Set rebuild: true with
-	// dependency set to the exact stuck package name to clear that
-	// stale reference and force a genuine rebuild. Note:
-	// search_dependency_docs already retries with this automatically on
-	// a miss, so you usually never need to set it by hand — reach for
-	// it directly only if you want to force a rebuild proactively, or a
-	// search failure persists after its own automatic retry.
-	Rebuild bool `json:"rebuild,omitempty" jsonschema:"self-healing fix for a dependency stuck as \"referenced but never built\" (see field description) — clears the stale reference and forces a real rebuild instead of the no-op a plain sync would otherwise perform"`
+	// Rebuild mirrors `ragctl sync --rebuild`: it clears the named
+	// dependency's reference and active pointer before planning, forcing
+	// a genuine rebuild even of a version that looks built (for example
+	// one whose stored content is gone).
+	Rebuild bool `json:"rebuild,omitempty" jsonschema:"force a full rebuild of the named dependency's current version, even if it already looks built (clears its version reference and active generation first). A plain sync already builds versions that were never built; use this when a built version's results look wrong."`
 }
 
+// SyncProjectOut is sync_project's result.
 type SyncProjectOut struct {
 	Synced        int    `json:"synced,omitempty"`
 	Failed        int    `json:"failed,omitempty"`
@@ -454,8 +453,7 @@ type SyncProjectOut struct {
 // mcpSyncWaitBound bounds how long syncProjectHandler waits for
 // SyncTrigger.SyncProject before returning a partial, still-running
 // response instead — so an MCP tool call never blocks a calling client
-// past this, no matter how long the underlying sync legitimately takes
-// (up to maxActionDuration, internal/daemon/scheduler.go).
+// past this, no matter how long the underlying sync legitimately takes.
 //
 // Live-found calibration: opencode's own tool-call timeout (unrelated
 // to anything ragctl controls — the MCP spec doesn't standardize one)
@@ -524,10 +522,12 @@ func syncProjectHandler(query QueryService, sync SyncTrigger, enabled bool) sdkm
 
 // --- scan_project ---
 
+// ScanProjectIn is scan_project's input.
 type ScanProjectIn struct {
 	Root string `json:"root,omitempty" jsonschema:"directory to scan for projects, absolute or relative to the MCP server's working directory; omit to scan that working directory itself (the common case — the directory the agent session is already operating in)"`
 }
 
+// ScanProjectOut is scan_project's result.
 type ScanProjectOut struct {
 	ProjectIDs []string `json:"project_ids"`
 	Summary    string   `json:"summary"`
@@ -553,6 +553,7 @@ func scanProjectHandler(scan ScanTrigger) sdkmcp.ToolHandlerFor[ScanProjectIn, S
 
 // --- explain_call_site ---
 
+// ExplainCallSiteIn is explain_call_site's input: a call site in the project's source.
 type ExplainCallSiteIn struct {
 	ProjectID string `json:"project_id" jsonschema:"the registered project ID"`
 	File      string `json:"file" jsonschema:"path to the source file, relative to the project root"`
@@ -561,6 +562,7 @@ type ExplainCallSiteIn struct {
 	Query     string `json:"query,omitempty" jsonschema:"optional — what to ask about the resolved symbol; defaults to the symbol's own qualified name if omitted"`
 }
 
+// ResolvedSymbol is the external symbol a call site refers to.
 type ResolvedSymbol struct {
 	Ecosystem     string `json:"ecosystem"`
 	Module        string `json:"module"`
@@ -569,6 +571,7 @@ type ResolvedSymbol struct {
 	Version       string `json:"version"`
 }
 
+// ExplainCallSiteOut is explain_call_site's result.
 type ExplainCallSiteOut struct {
 	Symbol *ResolvedSymbol     `json:"symbol,omitempty"`
 	Chunks []SearchResultChunk `json:"chunks,omitempty"`
@@ -679,7 +682,7 @@ func toolError(err error) error {
 	case errors.Is(err, query.ErrDependencyNotFound):
 		return fmt.Errorf("dependency not found for this project: %w", err)
 	case errors.Is(err, query.ErrNoActiveGeneration):
-		return fmt.Errorf("no synced knowledge for this version yet — if this persists after a plain sync_project call, it likely means a version reference exists but was never actually built; call sync_project again with dependency set to this exact package and rebuild: true: %w", err)
+		return fmt.Errorf("no synced knowledge for this version yet — call sync_project for this project (a plain sync also builds a version that was referenced but never built); if searching still finds nothing afterwards, call sync_project with dependency set to this exact package and rebuild: true to force a full rebuild: %w", err)
 	case errors.Is(err, symbolgraph.ErrDependencyNotResolved):
 		return fmt.Errorf("this call site's dependency isn't in the project's resolved dependencies — call scan_project/sync_project, or the resolution may be stale: %w", err)
 	default:
@@ -689,6 +692,7 @@ func toolError(err error) error {
 
 // --- sync_progress ---
 
+// SyncProgressIn is sync_progress's input.
 type SyncProgressIn struct {
 	ProjectID string `json:"project_id"`
 }

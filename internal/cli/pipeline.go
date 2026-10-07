@@ -1,8 +1,7 @@
-// pipeline.go wires together the concrete providers (embedder, vector
-// backend, Git cache) that generation.Build/Replicate and
-// validate/promote need — shared between `ragctl plan` (just needs the
-// configured backend's name) and `ragctl sync` (needs the whole
-// pipeline running for real).
+// pipeline.go builds the configured providers (embedder, vector store,
+// Git cache) that sync needs; `ragctl plan` only needs the configured
+// vector backend's name. The keyword index is built in retrieval.go.
+
 package cli
 
 import (
@@ -61,7 +60,7 @@ func configuredVectorBackendName() (string, error) {
 
 // buildEmbedder constructs the configured Embedder wrapped in a
 // content-hash cache backed by badgerStore. "ollama" is the only
-// supported provider in v0.1, matching EMB-002's scope.
+// supported provider.
 func buildEmbedder(cfg config.Config, badgerStore *badger.Store) (embedding.Embedder, error) {
 	if cfg.Embedding.Provider != "ollama" {
 		return nil, fmt.Errorf("unsupported embedding provider %q (only \"ollama\" is implemented)", cfg.Embedding.Provider)
@@ -70,9 +69,9 @@ func buildEmbedder(cfg config.Config, badgerStore *badger.Store) (embedding.Embe
 	return cache.New(client, badgerStore), nil
 }
 
-// buildVectorBackend constructs the configured VectorBackend: "qdrant"
-// (the default), "pgvector" (VEC-014), "weaviate" (VEC-011) or
-// "embedded" (VEC-015, a file in the data dir; no service).
+// buildVectorBackend constructs the configured vector store: "embedded"
+// (the default for fresh installs; a file in the data dir, no service),
+// "qdrant", "pgvector" or "weaviate".
 func buildVectorBackend(cfg config.Config) (backend.VectorBackend, error) {
 	// vector.api_key_env names the env var holding the secret: Qdrant's
 	// or Weaviate's API key, or pgvector's database password. It's read by whichever

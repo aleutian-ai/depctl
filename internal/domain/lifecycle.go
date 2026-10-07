@@ -1,7 +1,8 @@
 package domain
 
 // GenerationState is a Generation's position in its build/promotion/GC
-// lifecycle.
+// lifecycle. GC_ELIGIBLE and DELETED are never stored today: GC deletes a
+// generation's record outright.
 type GenerationState string
 
 const (
@@ -38,7 +39,7 @@ var generationTransitions = map[GenerationState][]GenerationState{
 }
 
 // ValidGenerationTransition reports whether a Generation may move directly
-// from state from to state to.
+// from state from to state to. The stores do not enforce it.
 func ValidGenerationTransition(from, to GenerationState) bool {
 	for _, allowed := range generationTransitions[from] {
 		if allowed == to {

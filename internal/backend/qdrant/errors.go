@@ -18,10 +18,12 @@ type Error struct {
 	Cause error
 }
 
+// Error formats the failed operation and its cause.
 func (e *Error) Error() string {
 	return fmt.Sprintf("qdrant %s: %v", e.Op, e.Cause)
 }
 
+// Unwrap exposes both Kind and Cause to errors.Is/As.
 func (e *Error) Unwrap() []error {
 	return []error{e.Kind, e.Cause}
 }

@@ -93,32 +93,6 @@ func runSync(cmd *cobra.Command, projectID string, dependencies []string, dryRun
 	return nil
 }
 
-// RunSync computes the plan for projectID (or every registered project,
-// if projectID is empty — same as `ragctl sync` with no `--project`
-// flag) and executes it: exported so internal/mcp's disabled-by-default
-// `sync_project` tool (MCP-003) can trigger the identical sync logic
-// `ragctl sync` uses, against the same already-open store/badger handles
-// a long-running `ragctl serve` process holds — RunSync never opens its
-// own Badger store, since Badger only allows one open handle per
-// directory per process and the MCP server already holds one open for
-// query.Service's whole lifetime.
-//
-// coordinator gates every actual generation build (ActionSyncVersion)
-// and every reference-state mutation (ActionAddReference/DropReference)
-// against concurrent GC and against duplicate builds of the identical
-// generation — see daemon.BuildCoordinator and epic 53/COORD-001..002.
-//
-// daemonSem, if non-nil, is a daemon-wide semaphore (SCOPE-002's known
-// risk: ambient sync fires per project, and each project's own worker
-// pool below is unaware of every other project's) — one shared channel
-// the daemon's single `engine` instance owns across every RunSync call
-// for every project, sized by cfg.Sync.MaxTotalConcurrency. A worker
-// acquires it only around the actual action (build+replicate — the
-// network/GPU-bound work), never around the cheap local queue pop, so
-// total concurrent action processing across the whole daemon stays
-// bounded regardless of how many projects are syncing at once. nil (the
-// CLI's own direct test/tool call sites that don't construct a daemon
-// engine) means uncapped, matching this function's pre-existing behavior.
 // syncActionConcurrencyHook, if set, runs once per action while its
 // daemonSem slot is held — test-only instrumentation for proving the
 // daemon-wide cap actually bounds concurrency across separate RunSync
@@ -188,6 +162,16 @@ func clearForRebuild(ctx context.Context, store *bboltstore.Store, backendName, 
 	return nil
 }
 
+// RunSync computes the plan for projectID (every registered project if
+// empty, like `ragctl sync` without --project) and executes it, inside the
+// daemon against the stores it already holds open.
+//
+// coordinator gates every generation build and reference change against
+// concurrent GC and duplicate builds of the same generation (see
+// daemon.BuildCoordinator). daemonSem, if non-nil, is the daemon-wide
+// semaphore sized by sync.max_total_concurrency, held only around each
+// action's build and replicate step so many projects syncing at once stay
+// bounded; nil means uncapped.
 func RunSync(ctx context.Context, coordinator *daemon.BuildCoordinator, store *bboltstore.Store, badgerStore *badgerstore.Store, cfg config.Config, projectID string, dependencies []string, offline, force, rebuild bool, out io.Writer, readiness *embeddingReadiness, vecReadiness *vectorReadiness, priority *daemon.SyncPriority, progress *daemon.SyncProgress, daemonSem chan struct{}, gitCache *git.Cache) (synced, failed, skipped int, err error) {
 	// SEC-003: applied once per call, ahead of any fallback-manifest
 	// fetch this run might trigger. A plain package var, not threaded as
@@ -621,10 +605,8 @@ func addReference(ctx context.Context, store *bboltstore.Store, action planner.A
 	})
 }
 
-// syncPipeline bundles the network-touching providers syncVersion needs,
-// built once (lazily) and reused across every SYNC_VERSION action in one
-// `ragctl sync` run.
-// syncPipeline is what one sync builds with. embedder and vector are nil
+// syncPipeline is what one sync builds with, built lazily and reused
+// across every SYNC_VERSION action in the run. embedder and vector are nil
 // for a keyword-only build; vb is every index the build writes.
 type syncPipeline struct {
 	embedder embedding.Embedder
@@ -757,7 +739,7 @@ func fetchLimitRedirectPolicy(req *http.Request, via []*http.Request) error {
 // vanityImportHTTPClient's own convention.
 var npmRegistryHTTPClient = &http.Client{CheckRedirect: fetchLimitRedirectPolicy}
 
-// npmRepositoryField is the subset of the npm registry's package document
+// npmRegistryDoc is the subset of the npm registry's package document
 // this needs. repository can be a plain string ("github:org/repo",
 // "org/repo", or a bare URL) or an object — the object shape is tried
 // first since json.RawMessage lets both be handled without two round trips.

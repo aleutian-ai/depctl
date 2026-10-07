@@ -15,6 +15,7 @@ type Resolver struct{}
 // New returns a Go ecosystem resolver.
 func New() *Resolver { return &Resolver{} }
 
+// Name returns "go".
 func (r *Resolver) Name() string { return "go" }
 
 // Detect reports whether root is a Go module root: a single os.Stat check

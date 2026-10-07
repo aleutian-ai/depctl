@@ -1,7 +1,7 @@
 // Package python is ragctl's Python ecosystem resolver: detects Python
 // projects via their lock/manifest files and resolves exact dependency
 // versions, preferring lockfiles (uv, then Poetry) over unpinned
-// manifests. See docs/tickets/backlog/20-python-resolver.
+// manifests (requirements.txt). See docs/tickets/completed/20-python-resolver.
 package python
 
 import (
@@ -26,6 +26,7 @@ type Resolver struct{}
 // New returns a Python ecosystem resolver.
 func New() *Resolver { return &Resolver{} }
 
+// Name returns "python".
 func (r *Resolver) Name() string { return "python" }
 
 // Detect reports whether root contains any recognized Python lock or

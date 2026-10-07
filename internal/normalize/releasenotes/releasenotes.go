@@ -2,8 +2,8 @@
 // (NORM-005): a thin decorator over the Markdown and plain-text
 // normalizers, not a parser of its own. It tags content from recognized
 // release-note sources with content_type=release_note and, for Markdown
-// sources, attaches a release_version to each heading section whose text
-// looks like a version.
+// sources, sets release_version from the first heading that looks like a
+// version (usually the newest entry).
 package releasenotes
 
 import (

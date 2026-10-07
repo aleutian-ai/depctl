@@ -46,10 +46,9 @@ func SparsePatterns(ecosystem domain.Ecosystem) []string {
 		// subdirectory the target package actually lives in.
 		// *.d.ts is NORM-008's own structured-extraction input — small,
 		// declaration-only files (no implementation), cheap to always
-		// fetch. Unlike godoc's *.go, this is deliberately NOT the whole
-		// story: a package with no .d.ts at all (the JSDoc-only fallback
-		// NORM-008's ticket defers) still only gets README/CHANGELOG/
-		// LICENSE content today — see that ticket's own Non-goals.
+		// fetch. A package with no .d.ts gets its plain-.js entry file
+		// added separately (nodeJSEntryPatterns in build.go) for tsdoc's
+		// JSDoc fallback, rather than fetching every .js file here.
 		patterns = append(patterns, "package.json", "*.d.ts")
 	}
 	if ecosystem == domain.EcosystemPython {

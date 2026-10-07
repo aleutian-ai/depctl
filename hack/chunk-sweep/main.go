@@ -1,7 +1,7 @@
 // Command chunk-sweep runs the full normalize -> fingerprint -> chunk
 // pipeline across a broad, evenly-sampled slice of a real corpus (e.g.
-// ~/offline-knowledge), assigning each KnowledgeObject an ID exactly the
-// way a future generation builder would (HASH-001+HASH-002), then
+// ~/offline-knowledge), assigning each KnowledgeObject an ID the same
+// way the generation builder (internal/data/generation) does, then
 // chunking it and checking basic invariants: no panics/errors, no empty
 // chunks, no duplicate chunk IDs within an object, and no wildly
 // oversized chunks. A dev tool, not part of ragctl itself — the

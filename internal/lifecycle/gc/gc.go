@@ -1,7 +1,7 @@
-// Package gc implements RET-004: executing RET-003's GC plan by
-// deleting a version's data from the vector backend, Badger, and bbolt,
-// in that fixed order, restartably and idempotently via bbolt's job
-// system.
+// Package gc implements RET-004: executing internal/retention's GC plans
+// (unreferenced versions, orphan generations, superseded duplicates) by
+// deleting data from the search index, Badger, and bbolt, in that fixed
+// order, restartably and idempotently via bbolt's job system.
 package gc
 
 import (
@@ -48,8 +48,9 @@ type Result struct {
 	Error     string
 }
 
-// Run executes every candidate in plan: claim/resume its job, delete its
-// vector replica, its Badger generation data, then its bbolt generation
+// Run executes every candidate in plan: claim/resume its job, clear the
+// version's active pointer, delete its index points (vb is every index
+// the install writes), its Badger generation data, then its bbolt generation
 // and reference records, in that fixed order — then mark the job
 // SUCCEEDED. A candidate's deletion failure marks its job FAILED with
 // LastError and does not block the remaining candidates; each step is

@@ -188,7 +188,7 @@ func RunSupersededDuplicatesGC(ctx context.Context, store *bboltstore.Store, bad
 // RunOrphanGC plans and executes GC-001/GC-002/GC-003's orphan-
 // generation cleanup — a separate eligibility path from RunGC's
 // reference-based one, never combined into the same report or deletion
-// run (see docs/tickets/planned/22-orphan-lifecycle-gc). It runs inside
+// run (see docs/tickets/completed/22-orphan-lifecycle-gc). It runs inside
 // the daemon, against the stores it holds open, exactly like RunGC.
 func RunOrphanGC(ctx context.Context, store *bboltstore.Store, badgerStore *badgerstore.Store, cfg config.Config, dryRun bool, out io.Writer, vecReadiness *vectorReadiness) (api.GCResult, error) {
 	candidates, err := retention.PlanOrphanGC(ctx, store, cfg.Vector.Backend, cfg.Retention.OrphanAge, time.Now())

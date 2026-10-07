@@ -432,6 +432,7 @@ type RemoteError struct {
 	Kind    string
 }
 
+// Error returns the daemon's own message.
 func (e *RemoteError) Error() string { return e.Message }
 
 // responseError turns a non-2xx response into the daemon's own error

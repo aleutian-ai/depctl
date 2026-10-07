@@ -16,13 +16,12 @@ import (
 // because it is stopping.
 var ErrShuttingDown = errors.New("ragctl daemon is shutting down")
 
-// maxActionDuration bounds one sync or GC run so a hung network call (an
-// unreachable embedder or vector backend) can never keep the daemon
-// process alive forever — see execute's own comment for why this
-// doesn't conflict with "never cancel an in-flight run." Shared by both:
-// GC takes the same global lock sync does (see gcState's doc), so an
-// unbounded GC would wedge every future sync exactly as an unbounded
-// sync used to wedge every future GC. A var only so tests can shorten it.
+// maxActionDuration bounds one GC run (and the scan and export routes),
+// so a hung network call can never keep the daemon busy forever. GC holds
+// the build gate exclusively (BuildCoordinator.ExcludeForGC), so an
+// unbounded GC would stall every build. Sync runs aren't wrapped in it:
+// each SYNC_VERSION action has its own bound instead (see execute). A var
+// only so tests can shorten it.
 var maxActionDuration = 30 * time.Minute
 
 // SyncOptions are the knobs one sync run takes. Resolve is set by
@@ -158,7 +157,7 @@ type Scheduler struct {
 type gcState struct {
 	running bool
 	dirty   bool
-	pending bool // dry-run only if every collapsed request wanted dry-run
+	pending bool // dry-run if any collapsed request wanted dry-run
 	waiters []*gcWaiter
 }
 
@@ -415,8 +414,6 @@ func (s *Scheduler) Shutdown() {
 // Wait blocks until no sync or GC run is in flight.
 func (s *Scheduler) Wait() { s.inFlight.Wait() }
 
-// start launches one run. The caller holds s.mu and has already marked
-// the project as syncing.
 // start launches one run. Callers hold s.mu already (Request, finish),
 // so setting st.priority here is safe without a separate lock.
 func (s *Scheduler) start(projectID string, opts SyncOptions, waiters []*waiter) {

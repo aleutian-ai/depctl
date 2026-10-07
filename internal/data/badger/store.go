@@ -1,10 +1,6 @@
 // Package badger is ragctl's data-plane store: high-volume normalized
-// content (knowledge objects, chunks, manifests, embedding metadata).
-//
-// This is the minimal slice needed for `ragctl init` to create the badger/
-// directory. CRUD methods (PutKnowledgeObject, PutChunk, ...) are added as
-// later commands need them — see STORE-003 in
-// docs/tickets/completed/02-core-domain-storage.
+// content (knowledge objects, chunks, manifests, the content-hash index,
+// and the embedding cache).
 package badger
 
 import (
@@ -30,6 +26,7 @@ const (
 	blockCacheSize = 128 << 20
 )
 
+// Store is ragctl's Badger database; every data-plane method hangs off it.
 type Store struct {
 	db *bg.DB
 }
@@ -52,6 +49,7 @@ func Open(path string) (*Store, error) {
 	return &Store{db: db}, nil
 }
 
+// Close closes the underlying Badger database.
 func (s *Store) Close() error {
 	return s.db.Close()
 }

@@ -45,3 +45,7 @@ The container is not required to use `ragctl` — a user can run everything nati
 - `Dockerfile`, `hack/run.sh`, `hack/test-linux.sh`
 - `docs/tickets/completed/03-config-cli/` (where `init`'s cross-platform path logic first mattered)
 - Amended by [ADR-011](ADR-011-single-owner-daemon.md): the "long-running `serve` daemon" referred to here is now `ragctl daemon run`, and `ragctl serve` is a stdio MCP proxy with no store access. Native-first still holds, and now applies to the daemon, which is what runs the resolvers against the user's real toolchain.
+
+## Update (2026-10-07)
+
+The "alongside Qdrant, Ollama" deployment story above is now optional on both counts: the default vector store is embedded (a file in the data directory, no service or container), and Ollama is needed only for semantic search (`retrieval.mode: auto` falls back to keyword search without it; `keyword` mode never uses it). Managed Qdrant is opt-in via `ragctl init --vector-backend qdrant`.

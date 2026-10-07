@@ -781,8 +781,8 @@ flowchart LR
 ## VEC-015 (2026-10-05): embedded backend, no service
 
 `vector.backend: embedded` (or `ragctl init --vector-backend embedded`) keeps the index in one bbolt file, `<data-dir>/vectors.db`, with no vector service and no container. It is plain Go: no SQLite, no CGo, no new dependency.
-- **Search is exact.** Point keys are `ecosystem\0dependency\0version\0generation\0id`, so ragctl's version-scoped searches are a prefix scan followed by brute-force cosine. That takes about 4 ms for a 2,000-chunk version; embedding the query dominates end-to-end latency.
-- **Identity.** A `(generation, id)` index keeps the conformance identity rule.
+- **Search is exact.** A version-scoped search reads just that version's generation and compares every vector by cosine. That takes about 4 ms for a 2,000-chunk version; embedding the query dominates end-to-end latency. (Storage layout: see "Embedded and keyword storage layout" below.)
+- **Identity.** A point's location is its (generation, chunk ID), which is the conformance identity rule.
 - **Writes.** Upserts are one transaction.
 - **Single owner.** The file follows the same rule as `control.db` (ADR-011): only the daemon opens it. Every call site that builds a backend already runs there. Another process gets a clear "in use" error, not a hang.
 - **Display.** `vectorLocation` gives doctor, readiness and the foreign-collection warning one display string: the embedded file's path, or the endpoint with any password redacted.
@@ -805,11 +805,29 @@ flowchart LR
 ```
 
 - **One `VectorBackend` for every mode.** `searchIndex` (`internal/cli/retrieval.go`) wraps the indexes a mode writes. Upsert and Delete reach all of them, and Count is the largest across them. Its name is the existing active-generation key, so planning, validation, promotion and GC are unchanged, and a generation's lifecycle is the same however it's searched. Points carry `Text` as well as `Vector`, and with no embedder `Replicate`, the version-correctness check and `query.Service` all use text.
-- **Keyword index.** `internal/backend/keyword` is BM25 computed at query time over the one dependency version a search is filtered to: keys are `ecosystem\0dependency\0version\0generation\0id`, so that's a prefix scan, and no inverted index is kept. The tokenizer keeps identifiers whole and split (`pgxpool.newwithconfig`, `pgxpool`, `new`, `with`, `config`). API-doc chunks are indexed under their qualified symbol (`pgxpool.New`).
+- **Keyword index.** `internal/backend/keyword` is BM25 computed at query time over the one dependency version a search is filtered to (that version's generation is read directly), so no inverted index is kept. The tokenizer keeps identifiers whole and split (`pgxpool.newwithconfig`, `pgxpool`, `new`, `with`, `config`). API-doc chunks are indexed under their qualified symbol (`pgxpool.New`).
 - **Readiness.** `keyword` mode starts no Ollama probe, no model pull and no managed container. `auto` decides per build and per search: vectors only when the embedder and the vector store are both ready, waiting up to 10 s for a probe that's still running.
 - **Backfill.** At the start of every sync, active generations missing from the keyword index get keyword entries (local, no model). Generations built without vectors (their replica records no embedding model) get vectors once the embedder is ready. `generation.AddToIndex` never changes a serving generation's state, and on failure removes what it wrote.
 - **Conformance**, now 17 checks: a backend may support keyword search instead of vector search, every point has text, and deleting from or counting in a namespace that was never created is a no-op or 0.
 - **Index files** (`keyword.db`, and `vectors.db` by default) sit next to the configured `control.db`.
+
+## Embedded and keyword storage layout (2026-10-07)
+
+Both bbolt stores (`internal/backend/embedded`, `vectors.db`; `internal/backend/keyword`, `keyword.db`) store each namespace as:
+- `generations`: generation ID → its ecosystem, dependency and version, stored once. A generation is one dependency version (the `backend.Point` contract), and a point that contradicts its generation's metadata is rejected.
+- `chunks`: one bucket per generation, keyed by chunk ID. The bucket is the point's identity, so no separate identity index exists. Deleting a generation (GC) is a single bucket delete.
+- Pages are filled 100%. A generation's chunks arrive in key order (Badger lists them in order, and each batch is sorted), so its bucket only grows at the end.
+- Keyword values are varint-encoded: source type, authority, document length, then each distinct term and its count.
+
+**Why it changed.** v0.3.0 keyed every point `ecosystem\0dependency\0version\0generation\0id` in one bucket, with fixed-width values and a separate `(generation, id)` index. Measured on ragctl's own 187 dependency versions (146,580 chunks), the keyword index was 202 MB for 57.6 MB of data:
+- pages were about half full, because bbolt's default split leaves them 50% full;
+- the identity index added about 230 bytes per point, in random order;
+- the repeated key prefix cost 10.6 MB;
+- the fixed-width per-term fields (14.7 MB) were larger than the term text.
+
+A simulation of the real write pattern (two sync workers interleaving 64-chunk transactions) reproduced 201.9 MB, and the new layout comes to 50.4 MB, stable through GC and re-sync. The embedded store had the same problem: 1.29 GB for 452 MB of vectors, against 495–507 MB now.
+
+**Conversion.** Opening a v0.3.0 file converts it: `migrate.go` streams it into a new file in the current layout and swaps that in, which also compacts it. The original is untouched until the new file is complete, and nothing is re-fetched or re-embedded. On the real files: `keyword.db` went from 202.3 to 54.1 MB in 0.9 s with identical BM25 scores, and a simulated `vectors.db` went from 1,290.5 to 495.0 MB in 4.4 s. Searches got faster too, about 1 ms, since a generation is now read directly instead of through a key-prefix scan.
 
 ## Testing notes
 

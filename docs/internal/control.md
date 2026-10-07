@@ -1,49 +1,56 @@
 # internal/control
 
-`internal/control/bbolt` is ragctl's control-plane store: small, strongly structured lifecycle and bookkeeping state (projects, resolutions, generations, active-generation pointers, backend replicas, jobs, version references). It exists to keep "what does ragctl know / what state is something in" separate from `internal/data/badger`'s high-volume content store — a bbolt file is cheap to keep fully in memory-mapped form and well suited to small keyed records with occasional prefix scans, unlike Badger's LSM design tuned for large content blobs.
+`internal/control/bbolt` is ragctl's control-plane store, the file `control.db`. It holds small, strongly structured lifecycle and bookkeeping state: projects, resolutions, generations, active-generation pointers, backend replicas, jobs, version references, and "no docs source" records. It is kept separate from `internal/data/badger`, the high-volume content store: bbolt suits small keyed records with occasional prefix scans, while Badger's LSM design is tuned for large content blobs.
+
+Terms used below:
+- A **generation** is one build of one dependency version's docs (ID like `gen_01J8...`), moving through states such as READY, ACTIVE, SUPERSEDED and FAILED.
+- An **active pointer** says which generation queries should use for one exact dependency version on one vector backend (ADR-012: pointers are per version, so several versions of one dependency can be active at once when different projects use them).
+- A **reference** records that a project (or a grace period) still needs a dependency version; GC removes versions nothing references.
 
 ## Key types and functions
 
 - `Store` — wraps a `*bolt.DB`; every control-plane method hangs off it. internal/control/bbolt/store.go
-- `Open(path)` — opens/creates the bbolt file and ensures all 12 control-plane buckets exist (`projects`, `project_dependencies`, `dependency_versions`, `knowledge_sources`, `generations`, `active_generations`, `backend_replicas`, `jobs`, `references`, `retention`, `migrations`, `meta`), then runs `ensureSchema`. Waits at most 2 seconds (`lockTimeout`) for bbolt's exclusive file lock and returns `ErrLocked` rather than blocking forever when another process holds it — a thin wrapper over `OpenWithTimeout(path, lockTimeout)`. internal/control/bbolt/store.go
-- `OpenWithTimeout(path, timeout)` — `Open` with an explicit lock wait, for callers that want to fail faster than the 2-second default. `ragctl daemon run` uses a 200ms timeout for its own attempt to become the store owner: a losing candidate in a concurrent auto-start race needs to find out and exit almost immediately, not park inside the lock wait long enough to inherit an abandoned lock later (see `docs/internal/daemon.md`). internal/control/bbolt/store.go
-- `CurrentSchemaVersion` / `Migration` / `ensureSchema` / `Store.SchemaVersion` — the schema-version guard (STORE-002): `meta/schema_version` is set to 1 on a fresh database, pending migrations are applied in order inside `Open`, and a database written by a newer binary is refused with `ErrUnsupportedSchemaVersion`. `SchemaVersion` is what `ragctl doctor` reports. internal/control/bbolt/schema.go
-- `Store.Close()` — closes the underlying bbolt file. internal/control/bbolt/store.go
-- `Store.PutProject` / `GetProject` / `ListProjects` — CRUD for `domain.Project`, keyed by project ID. internal/control/bbolt/projects.go
-- `Store.PutResolution` / `GetResolution` — one `domain.Resolution` per project, keyed by project ID; an interim simplification of STORE-001's fuller relational split. internal/control/bbolt/resolutions.go
-- `Store.PutGeneration` / `GetGeneration` / `DeleteGenerationRecord` / `ListGenerationsByDependencyVersion` — CRUD for `domain.Generation` lifecycle records, keyed by generation ID; the version-scan is a full bucket scan since no `(ecosystem,pkg,version)` index exists. internal/control/bbolt/generations.go
-- `Store.PromoteGeneration` — one bbolt transaction that supersedes the prior active generation for a dependency+backend, activates the candidate, and swaps the `active_generations` pointer. internal/control/bbolt/active_generations.go
-- `Store.GetActiveGeneration` — looks up the currently active generation for `(ecosystem, dependencyName, backendName)`. internal/control/bbolt/active_generations.go
-- `Store.ListActivePointers(ctx, backendName)` / `ActivePointer` — every active-generation pointer scoped to one backend, as `(ecosystem, dependency, generation ID)`. The pointed-to record is deliberately not resolved, so `ragctl doctor` can spot a pointer whose generation record is missing; `ragctl status` counts them. internal/control/bbolt/active_generations.go
-- `Store.PutBackendReplica` / `GetBackendReplica` — CRUD for `domain.BackendReplica`, keyed by `generationID/backendName`. internal/control/bbolt/backend_replicas.go
-- `Store.PutJob` / `GetJob` / `ListJobs` — CRUD for `domain.Job`, keyed by (deterministic, GC-caller-supplied) job ID; `ListJobs` feeds `ragctl status`'s job counts and `ragctl doctor`'s stuck-job check. internal/control/bbolt/jobs.go
-- `Store.AddReference` / `RemoveReference` / `CountReferences` / `ListReferences` / `ListProjectReferences` / `DeleteAllReferences` / `ListAllReferences` — CRUD over `domain.VersionReference`, keyed `<ecosystem>|<package>|<version>|<projectID>|<reason>` so one version can carry multiple simultaneous references. internal/control/bbolt/references.go
+- `Open(path)` — opens/creates the bbolt file, ensures all 13 control-plane buckets exist (`meta`, `projects`, `project_dependencies`, `dependency_versions`, `knowledge_sources`, `generations`, `active_generations`, `backend_replicas`, `jobs`, `references`, `retention`, `migrations`, `no_source_versions`), then runs `ensureSchema`. Waits at most 2 seconds (`lockTimeout`) for bbolt's exclusive file lock and returns `ErrLocked` rather than blocking forever when another process holds it — a thin wrapper over `OpenWithTimeout(path, lockTimeout)`. internal/control/bbolt/store.go
+- `OpenWithTimeout(path, timeout)` — `Open` with an explicit lock wait. `ragctl daemon run` uses 200ms for its own attempt to become the store owner: a losing candidate in a concurrent auto-start race needs to find out and exit almost immediately, not park inside the lock wait long enough to inherit the lock later (see `docs/internal/daemon.md`). internal/control/bbolt/store.go
+- `CurrentSchemaVersion` (2) / `Migration` / `ensureSchema` / `Store.SchemaVersion` — the schema-version guard (STORE-002). Pending migrations run in order inside `Open`, each in one transaction; a database written by a newer binary is refused with `ErrUnsupportedSchemaVersion`. Migration 1 just records version 1; migration 2 (`migrateActivePointersPerVersion`, ADR-012) rekeys old per-dependency active pointers by version. `SchemaVersion` is what `ragctl doctor` reports. internal/control/bbolt/schema.go
+- `Store.Close()` — closes the bbolt file, releasing its lock. internal/control/bbolt/store.go
+- `Store.PutProject` / `GetProject` / `ListProjects` — `domain.Project` records, keyed by project ID. internal/control/bbolt/projects.go
+- `Store.PutResolution` / `GetResolution` — one `domain.Resolution` per project, keyed by project ID (stored in the `project_dependencies` bucket; see Notes). internal/control/bbolt/resolutions.go
+- `Store.PutGeneration` / `GetGeneration` / `DeleteGenerationRecord` / `ListGenerationsByDependencyVersion` / `ListAllGenerations` — `domain.Generation` records, keyed by generation ID. The two list methods are full bucket scans: GC uses the first to find a version's generations, orphan GC uses the second to find never-promoted ones. internal/control/bbolt/generations.go
+- `Store.PromoteGeneration(ctx, candidate, backendName)` — one bbolt transaction that marks the generation previously active for the candidate's exact version (if any) SUPERSEDED, marks the candidate ACTIVE, and points the version's active pointer at it. Other versions of the same dependency are untouched. internal/control/bbolt/active_generations.go
+- `Store.GetActiveGeneration(ctx, ecosystem, dependency, version, backendName)` — the active generation for one exact dependency version, or `ErrNotFound`. There is deliberately no version-less lookup (ADR-012). internal/control/bbolt/active_generations.go
+- `Store.ClearActiveGeneration(...)` — removes one version's active pointer and marks its generation SUPERSEDED, so the planner treats that version as unbuilt; used by `ragctl sync --rebuild` (OPS-004). internal/control/bbolt/active_generations.go
+- `Store.ListActivePointers(ctx, backendName)` / `ActivePointer` — every active pointer for one backend, as `(ecosystem, dependency, version, generation ID)`. The pointed-to record is deliberately not resolved, so `ragctl doctor` can spot a pointer whose generation record is missing; `ragctl status` counts them, and sync's keyword/vector backfill walks them. A legacy pointer that migration 2 couldn't rekey is listed with an empty version. internal/control/bbolt/active_generations.go
+- `Store.PutBackendReplica` / `GetBackendReplica` — `domain.BackendReplica` records, keyed by generation ID + backend name. A replica's empty `EmbeddingModel` marks a generation built keyword-only. internal/control/bbolt/backend_replicas.go
+- `Store.PutJob` / `GetJob` / `ListJobs` — `domain.Job` records (GC's deletion jobs, with deterministic IDs); `ListJobs` feeds `ragctl status`'s job counts and `ragctl doctor`'s stuck-job check. internal/control/bbolt/jobs.go
+- `Store.AddReference` / `RemoveReference` / `CountReferences` / `ListReferences` / `ListProjectReferences` / `DeleteAllReferences` / `ListAllReferences` — `domain.VersionReference` records, keyed `<ecosystem>|<package>|<version>|<projectID>|<reason>` so one version can carry several references at once. internal/control/bbolt/references.go
+- `NoSourceVersion` / `Store.PutNoSourceVersion` / `HasNoSource` / `DeleteNoSourceVersion` — records that sync found no usable docs source for a dependency version (no registry manifest and no fallback). Kept separate from FAILED generations because failures are retried on the next sync and no-source versions are not. internal/control/bbolt/no_source.go
 - `ErrNotFound` — sentinel returned by every getter when a key is absent, checked via `errors.Is`. internal/control/bbolt/errors.go
-- `ErrLocked` — returned (wrapped) by `Open` when the file lock can't be acquired within `lockTimeout`; `ragctl watch` retries on it, `ragctl doctor` reports it. internal/control/bbolt/errors.go
+- `ErrLocked` — returned (wrapped) by `Open` when the file lock can't be acquired in time; `ragctl daemon run` turns it into an "another daemon is already running" explanation (`ownershipError`), and `ragctl doctor`'s no-daemon fallback reports it. internal/control/bbolt/errors.go
 
 ## Dataflow
 
 ```mermaid
 flowchart LR
     subgraph Callers
-        init["cli.runInit\n(opens control.db directly— the one\ncommand that must, since it creates it)"]
+        init["cli.initStores\n(ragctl init, or auto-init;\nopens control.db directly to create it)"]
         scan["engine.Scan\n(inside ragctl daemon run,\nreached via cli.runScan→ensureDaemon)"]
         planSync["engine.Plan / engine.Sync\n(inside the daemon)"]
-        gc["engine.GC (inside the daemon)"]
+        gc["engine.GC / OrphanGC /\nSupersededDuplicatesGC\n(inside the daemon)"]
         genPkg["data/generation.Create/Build/Replicate"]
         validate["lifecycle/validate.Run"]
         promote["lifecycle/promote.Promote"]
-        query["query.Service\n(MCP — inside the daemon now;\nragctl serve is a client, see daemon.md)"]
-        statusDoctor["cli.runDoctor\n(dial-only fallback path;\nengine.Doctor when a daemon answers)"]
+        query["query.Service\n(MCP — inside the daemon;\nragctl serve is a client)"]
+        statusDoctor["engine.Status / engine.Doctor\n(or doctor's no-daemon fallback)"]
     end
 
     init -->|Open, create buckets| Store
     scan -->|PutProject, PutResolution| Store
-    planSync -->|GetResolution, ListVersionReferences,\nGetActiveGeneration, AddReference,\nRemoveReference| Store
+    planSync -->|GetResolution, ListProjectReferences,\nGetActiveGeneration, AddReference,\nRemoveReference, ClearActiveGeneration,\nHasNoSource, ListActivePointers| Store
     genPkg -->|PutGeneration, GetGeneration,\nPutBackendReplica| Store
     validate -->|GetGeneration, GetBackendReplica| Store
     promote -->|PromoteGeneration| Store
-    gc -->|PutJob/GetJob, ListGenerationsByDependencyVersion,\nDeleteGenerationRecord, DeleteAllReferences| Store
+    gc -->|PutJob/GetJob, ListAllReferences,\nListGenerationsByDependencyVersion,\nListAllGenerations, DeleteGenerationRecord,\nDeleteAllReferences| Store
     query -->|GetResolution, GetActiveGeneration| Store
     statusDoctor -->|ListProjects, ListAllReferences,\nListActivePointers, ListJobs,\nSchemaVersion, GetBackendReplica| Store
 
@@ -53,33 +60,33 @@ flowchart LR
 
 ## Walkthrough
 
-Scenario: project `proj_8f3e1c2a` (root `/Users/dev/website-backend`) has already been scanned, its `go.mod` resolved to include `github.com/redis/go-redis/v9@v9.5.1`, and a sync has just built and validated a new generation for that dependency that's now ready for promotion to the `qdrant` backend, superseding a previously active generation.
+Scenario: project `proj_8f3e1c2a` (root `/Users/dev/website-backend`) has already been scanned, its `go.mod` resolved to include `github.com/redis/go-redis/v9@v9.5.1`, and a sync has just built and validated a new generation for that version on the `embedded` vector backend, replacing a previously active generation of the same version (a rebuild).
 
-1. **Scan stores the resolution.** `cli.runScan` calls `Store.PutResolution(ctx, "proj_8f3e1c2a", r)` with a `domain.Resolution{Ecosystem: "go", ManifestPath: "go.mod", Dependencies: []domain.DependencyVersion{{Dependency: {Ecosystem: "go", Name: "github.com/redis/go-redis/v9", Direct: true}, Version: "v9.5.1", ResolvedBy: "go.sum"}, ...}}`. internal/control/bbolt/resolutions.go JSON-marshals `r` and writes it under key `"proj_8f3e1c2a"` in the bucket literally named `project_dependencies` (`resolutionsBucket`, internal/control/bbolt/resolutions.go) — not `dependency_versions`, which STORE-001 reserved for a relational split that hasn't been built yet.
+1. **Scan stores the resolution.** Inside the daemon, `engine.Scan` → `scanAndResolve` calls `Store.PutResolution(ctx, "proj_8f3e1c2a", r)` with a `domain.Resolution{Ecosystem: "go", ManifestPath: "go.mod", Dependencies: []domain.DependencyVersion{{Dependency: {Ecosystem: "go", Name: "github.com/redis/go-redis/v9", Direct: true}, Version: "v9.5.1", ResolvedBy: "go.sum"}, ...}}`. `resolutions.go` JSON-marshals `r` and writes it under key `"proj_8f3e1c2a"` in the bucket named `project_dependencies` (`resolutionsBucket`).
 
-2. **A generation is built and reaches READY.** Elsewhere (`internal/data/generation`, see docs/internal/data-generation.md), `Create`/`Build`/validation produce `domain.Generation{ID: "gen_01J8Z3K9QG7XZQZ8YB2QYQXABC", Dependency: {Dependency: {Ecosystem: "go", Name: "github.com/redis/go-redis/v9"}, Version: "v9.5.1"}, State: domain.GenReady}`, persisted via `Store.PutGeneration` under key `"gen_01J8Z3K9QG7XZQZ8YB2QYQXABC"` in the `generations` bucket (internal/control/bbolt/generations.go).
+2. **A generation is built and reaches READY.** `internal/data/generation` (see `docs/internal/data-generation.md`) produces `domain.Generation{ID: "gen_01J8Z3K9QG7XZQZ8YB2QYQXABC", Dependency: {Dependency: {Ecosystem: "go", Name: "github.com/redis/go-redis/v9"}, Version: "v9.5.1"}, State: domain.GenReady}`, persisted via `Store.PutGeneration` under its ID in the `generations` bucket.
 
-3. **Promotion is requested.** `lifecycle/promote.Promote` calls `Store.PromoteGeneration(ctx, candidate, "qdrant")` where `candidate` is that `GenReady` generation. internal/control/bbolt/active_generations.go first computes the pointer key via `activeGenerationKey`:
+3. **Promotion is requested.** `lifecycle/promote.Promote` calls `Store.PromoteGeneration(ctx, candidate, "embedded")`. `activeGenerationKey` builds the pointer key from the candidate's exact version:
 
    ```
-   key := "go" + "|" + "github.com/redis/go-redis/v9" + "|" + "qdrant"
-        = "go|github.com/redis/go-redis/v9|qdrant"
+   key = "go|github.com/redis/go-redis/v9|v9.5.1|embedded"
    ```
 
-   internal/control/bbolt/active_generations.go — pipe-separated deliberately, since the dependency name itself contains `/`.
+   Pipe-separated deliberately, since dependency names contain `/`.
 
-4. **Inside the single `db.Update`** (internal/control/bbolt/active_generations.go): `activeBucket.Get(key)` finds the prior pointer value, say `"gen_01J7Q2M4NPBXTVK1RS9WYH3EFG"` (yesterday's active generation for this exact dependency+backend pair). `genBucket.Get([]byte("gen_01J7Q2M4NPBXTVK1RS9WYH3EFG"))` loads that record, its `State` is flipped from `ACTIVE` to `domain.GenSuperseded` (`"SUPERSEDED"`), `UpdatedAt` set to `now`, re-marshaled, and written back to the same key in `generations`.
+4. **Inside the single `db.Update`:** `activeBucket.Get(key)` finds the prior pointer value, say `"gen_01J7Q2M4NPBXTVK1RS9WYH3EFG"` (yesterday's build of v9.5.1). `markSuperseded` loads that record, sets its `State` to `SUPERSEDED` and `UpdatedAt` to now, and writes it back.
 
-5. **The candidate is activated.** `candidate.State = domain.GenActive` (`"ACTIVE"`), `UpdatedAt = now`, marshaled, and `genBucket.Put([]byte("gen_01J8Z3K9QG7XZQZ8YB2QYQXABC"), data)` writes it into `generations`.
+5. **The candidate is activated.** `candidate.State = domain.GenActive`, `UpdatedAt = now`, written back under its ID.
 
-6. **The pointer swings over.** `activeBucket.Put(key, []byte("gen_01J8Z3K9QG7XZQZ8YB2QYQXABC"))` — so the `active_generations` bucket entry for `"go|github.com/redis/go-redis/v9|qdrant"` now resolves to the new generation ID. All of this — reading the old pointer, superseding the old record, activating the new one, swinging the pointer — is one bbolt transaction; a crash partway through leaves the *previous* state intact (bbolt only commits atomically), never a dangling pointer to a non-`ACTIVE` generation.
+6. **The pointer swings over.** `activeBucket.Put(key, "gen_01J8Z3K9QG7XZQZ8YB2QYQXABC")`. Reading the old pointer, superseding the old record, activating the new one and moving the pointer is one bbolt transaction, so a crash partway through leaves the previous state intact, never a pointer to a non-ACTIVE generation. If another project uses v9.4.0 of the same module, that version's pointer (`...|v9.4.0|embedded`) is untouched.
 
-7. **A later query reads it back.** `query.Service` (MCP) calls `Store.GetActiveGeneration(ctx, "go", "github.com/redis/go-redis/v9", "qdrant")`, which recomputes the same key, looks up `"gen_01J8Z3K9QG7XZQZ8YB2QYQXABC"` in `active_generations`, then that ID in `generations`, and returns the now-`ACTIVE` record — internal/control/bbolt/active_generations.go.
+7. **A later query reads it back.** `query.Service` calls `Store.GetActiveGeneration(ctx, "go", "github.com/redis/go-redis/v9", "v9.5.1", "embedded")`, which recomputes the key, looks up the generation ID in `active_generations`, then that ID in `generations`, and returns the ACTIVE record.
 
 ## Notes
 
-- `resolutionsBucket` uses the bucket name `project_dependencies` for historical/schema reasons — an interim simplification of STORE-001's fuller `project_dependencies`/`dependency_versions` relational split; the latter bucket is created but unused. internal/control/bbolt/resolutions.go
-- Only one process can have `control.db` open at a time: bbolt holds an exclusive file lock for as long as a `Store` is open, and even a read-only open needs a shared lock that conflicts with it. Under ADR-011, `ragctl daemon run` is that one process for its whole lifetime, with every other command a client over its socket instead of opening the file itself (see `docs/internal/daemon.md`) — `ragctl watch` no longer exists as its own process, folded into the daemon, and `ragctl serve`/`project`/`deps`/`describe` (WATCH-010, then a later pass) no longer open a store either. `init` remains a deliberate exception (creates the store, must run before a daemon can exist), and `doctor` is the one command with a genuine two-path design: it dials without autostarting, and only falls back to opening the stores itself if no daemon answers — see `docs/internal/cli.md`'s notes.
-- No `dependency_versions`-bucket index from `(ecosystem, package, version)` to generation ID exists, so `ListGenerationsByDependencyVersion` and `ListAllReferences`/GC candidate discovery are full bucket scans — an accepted "small keyspace" tradeoff, not an oversight (see comments at internal/control/bbolt/generations.go and references.go).
-- `PromoteGeneration` is the one place in this package that does multi-record read-modify-write inside a single `db.Update` — every other method is a single get/put, keeping the rest of the package simple key-value CRUD.
-- Every write path here is a full JSON marshal of the whole record on every update — fine at ragctl's current scale, but means large records (e.g. a generation with many nested fields) are rewritten wholesale rather than patched.
+- The pointer key's last part is `vector.backend` in every retrieval mode, including keyword mode, so a generation's lifecycle doesn't depend on how it is searched (see `searchIndex` in `docs/internal/cli.md`).
+- Resolutions live in the `project_dependencies` bucket — an interim simplification of STORE-001's planned `project_dependencies`/`dependency_versions` relational split. `dependency_versions`, `knowledge_sources`, `retention` and `migrations` are created by `Open` but unused (the schema version lives in `meta`). internal/control/bbolt/resolutions.go
+- Only one process can have `control.db` open at a time: bbolt holds an exclusive file lock for as long as a `Store` is open. Under ADR-011, `ragctl daemon run` is that process for its whole lifetime, and every other command is a client over its socket (see `docs/internal/daemon.md`). The exceptions are `init` (and the auto-init `ensureDaemon` runs), which creates the store before a daemon can exist, and `doctor`, which dials without autostarting and only opens the stores itself if no daemon answers — see `docs/internal/cli.md`'s notes.
+- No index from `(ecosystem, package, version)` to generation ID exists, so `ListGenerationsByDependencyVersion`, `ListAllGenerations` and `ListAllReferences` are full bucket scans — an accepted "small keyspace" tradeoff (see the comments in generations.go and references.go).
+- `PromoteGeneration`, `ClearActiveGeneration` and migration 2 are the multi-record read-modify-write transactions here; every other method is a single get, put or scan.
+- Every write is a full JSON marshal of the whole record — fine at ragctl's scale, but records are rewritten wholesale rather than patched.

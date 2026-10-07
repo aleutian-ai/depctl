@@ -7,8 +7,8 @@
 // as OBS-001's own ticket allows ("via context or explicit parameter").
 //
 // Field naming is deliberately not ragctl-invented where a real,
-// external standard already exists, so OBS-002 (OpenTelemetry) can later
-// bridge these same key names straight into span attributes with no
+// external standard already exists, so the same key names double as
+// OpenTelemetry span attributes (internal/observability/trace) with no
 // rename: gen_ai.* is the OpenTelemetry GenAI semantic convention
 // (https://opentelemetry.io/docs/specs/semconv/registry/attributes/gen-ai/),
 // and embedding.model_name/retrieval.* are OpenInference's

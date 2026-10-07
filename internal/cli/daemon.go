@@ -127,9 +127,10 @@ func closeWithTimeout(name string, close func() error, timeout time.Duration) {
 var daemonExecutable string
 
 // ensureDaemon returns a client for the running daemon, starting one if
-// none is running and config allows it. Every command that needs stored
-// state goes through here: there is deliberately no path that opens the
-// stores directly instead (ADR-011).
+// none is running and config allows it, and running init first if the
+// stores don't exist yet. Commands that need stored state go through here
+// (ADR-011); only init and doctor's no-daemon fallback open the stores
+// directly.
 func ensureDaemon(ctx context.Context) (*client.Client, error) {
 	socket, err := socketPath()
 	if err != nil {

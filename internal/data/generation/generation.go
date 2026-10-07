@@ -1,9 +1,7 @@
 // Package generation drives a resolved dependency version through
 // acquisition, normalization, fingerprinting, and chunking into a staged
-// knowledge Generation — the point where the acquisition (Git),
-// normalization, and fingerprinting/chunking milestones come together
-// into one artifact that later milestones embed, replicate, validate, and
-// promote. See docs/tickets/completed/11-generation-builder.
+// knowledge Generation (Build), then writes its chunks into the search
+// indexes (Replicate, AddToIndex), ready for validation and promotion.
 package generation
 
 import (

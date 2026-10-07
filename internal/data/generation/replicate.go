@@ -103,9 +103,13 @@ func Replicate(ctx context.Context, gen domain.Generation, sources []registry.So
 		embedCtx, embedEnd := trace.StartSpan(ctx, "embed")
 		embedStart := time.Now()
 		points, err := embedBatch(embedCtx, embedder, badgerStore, objectCache, gen, sourcesByID, batch)
-		metrics.EmbedSeconds.Observe(time.Since(embedStart).Seconds())
-		embedDuration += time.Since(embedStart)
-		embeddedChunks += len(batch)
+		// A keyword-only build embeds nothing; recording its batch
+		// preparation as embedding time would mislead the metric.
+		if embedder != nil {
+			metrics.EmbedSeconds.Observe(time.Since(embedStart).Seconds())
+			embedDuration += time.Since(embedStart)
+			embeddedChunks += len(batch)
+		}
 		if err != nil {
 			trace.RecordError(embedCtx, err)
 			embedEnd()

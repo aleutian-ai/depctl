@@ -2,7 +2,7 @@
 // ~/offline-knowledge) for exercising ragctl's resolvers and acquisition
 // layer against genuine projects rather than synthetic fixtures. It
 // replaces ad hoc shell clone loops with a single shared bare mirror per
-// repository (internal/source/git, GIT-001) plus a persistent worktree
+// repository (internal/source/git) plus a persistent worktree
 // checkout, so re-runs are fast, idempotent, and don't re-download
 // history that's already cached. Not part of the ragctl binary — a dev
 // tool, run via `go run ./hack/fetch-corpus`.

@@ -1,6 +1,6 @@
-// Package ollama implements ragctl's reference embedding.Embedder against
-// a local Ollama HTTP endpoint (EMB-002) — the default v0.1 embedding
-// provider.
+// Package ollama implements ragctl's embedding.Embedder against a local
+// Ollama HTTP endpoint (EMB-002) — the only embedding provider, and an
+// optional one: keyword search works without it.
 package ollama
 
 import (

@@ -1,6 +1,6 @@
 // Package resolver defines the contract every ecosystem-specific dependency
-// resolver (Go, Python, Node, Rust, Java) implements, plus a registry for
-// deterministic resolver ordering. No ecosystem-specific logic lives here.
+// resolver (Go, Python, Node) implements, plus a registry for deterministic
+// resolver ordering. No ecosystem-specific logic lives here.
 package resolver
 
 import (

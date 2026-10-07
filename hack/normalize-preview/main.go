@@ -2,9 +2,7 @@
 // (internal/normalize) against a single real file or Go package
 // directory and prints the resulting KnowledgeObject(s) as JSON. It's a
 // dev tool for eyeballing normalizer output against real content (e.g.
-// anything under ~/offline-knowledge) before there's a `ragctl` command
-// or storage layer (STORE-003) to run it through end to end — Normalize
-// currently just returns objects in memory to whoever calls it.
+// anything under ~/offline-knowledge) without running a full sync.
 package main
 
 import (

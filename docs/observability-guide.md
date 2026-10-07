@@ -99,8 +99,8 @@ observability:
 | `ragctl_sync_failures_total` | counter | sync actions that failed, across all types |
 | `ragctl_acquire_seconds` | histogram | time spent acquiring a generation's source content |
 | `ragctl_normalize_seconds` | histogram | time spent normalizing acquired content |
-| `ragctl_embed_seconds` | histogram | time spent embedding one batch of chunks |
-| `ragctl_backend_upsert_seconds` | histogram | time spent upserting one batch into the vector backend |
+| `ragctl_embed_seconds` | histogram | time spent preparing one batch of chunks for the index, including embedding (a keyword-only sync — `retrieval.mode: keyword`, or `auto` without Ollama — still records it, with no embedding time) |
+| `ragctl_backend_upsert_seconds` | histogram | time spent upserting one batch into the search index (the vector store and/or keyword index `retrieval.mode` writes) |
 | `ragctl_active_generations` | gauge | active generations for the configured backend, refreshed every 30s |
 | `ragctl_gc_candidates` | gauge | GC candidates found by the most recent planning pass |
 | `ragctl_badger_bytes` | gauge | on-disk Badger data-store size, refreshed every 30s |

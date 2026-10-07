@@ -23,20 +23,20 @@ flowchart LR
     match -->|Manifest or 'no match'| planner["internal/planner.Plan\n(see sync.md)"]
 ```
 
-These three are deliberately decoupled: `project.Scan` never imports `resolver`, and neither imports `registry` — `cli.runScan` and `cli.computePlans` are the only places that wire them together, which keeps each package testable (and swappable — e.g. adding a Rust resolver) without touching the others.
+These three are deliberately decoupled: `project.Scan` never imports `resolver`, and neither imports `registry` — `cli.scanAndResolve` (`ragctl scan`'s work) and `cli.computePlans` are the only places that wire them together, which keeps each package testable (and swappable — e.g. adding a Rust resolver) without touching the others.
 
 ## `ragctl scan` end to end
 
 ```mermaid
 sequenceDiagram
     participant User
-    participant CLI as cli.runScan
+    participant CLI as cli.scanAndResolve (in the daemon)
     participant Scanner as project.Scan
     participant FS as Filesystem
     participant Store as control/bbolt.Store
     participant Resolver as resolvers[ecosystem]
 
-    User->>CLI: ragctl scan [path]
+    User->>CLI: ragctl scan [path]\n(cli.runScan makes the path absolute\nand sends it to the daemon)
     CLI->>Scanner: Scan(ctx, path)
     Scanner->>FS: walk tree, skip .git/node_modules/vendor/...
     FS-->>Scanner: manifest matches (go.mod, package.json,\nCargo.toml, pyproject.toml/requirements.txt,\npom.xml/build.gradle*)

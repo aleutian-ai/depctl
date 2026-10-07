@@ -46,8 +46,8 @@ const (
 	// live counters while a run is in flight, the last run's afterwards.
 	PathSyncProgress = "/v1/sync/progress"
 	// PathExportMem0, PathExportGraphiti, and PathExportCognee each run
-	// one epic-65 connector's export: a project's (or one named
-	// dependency's) already-synced chunks pushed into a user's own
+	// one epic-65 connector's export: a project's (or its named
+	// dependencies') already-synced chunks pushed into a user's own
 	// instance of that system. Reads the stores in-process on the daemon
 	// side (ADR-011) — the CLI command is a thin client of each route,
 	// never opening Badger itself. Each connector has its own

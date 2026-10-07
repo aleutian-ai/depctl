@@ -1,8 +1,8 @@
 // Package query implements the transport-agnostic business logic behind
 // every MCP tool (MCP-003): resolving a project's dependency versions
 // and performing version-filtered knowledge search. No MCP/HTTP/gRPC
-// transport type is imported here — internal/mcp is the only package
-// that knows this service exists.
+// transport type is imported here; the daemon builds the Service and
+// serves it over its socket to internal/mcp and CLI commands.
 package query
 
 import (
@@ -48,7 +48,7 @@ var (
 type Query struct {
 	ProjectID  string
 	Text       string
-	Dependency string // package name; required for all modes except ModeAllRetained's ecosystem-wide case — see SearchKnowledge's doc comment
+	Dependency string // package name; required for every mode — see SearchKnowledge's doc comment
 	Mode       QueryMode
 	TopK       int // 0 defaults to defaultTopK
 }
@@ -161,14 +161,11 @@ type ReleaseChange struct {
 // Service is ragctl's query business logic — one struct, plain methods,
 // no generic pipeline/middleware framework.
 //
-// embedder wasn't in the ticket's sketched Service struct, but
-// VectorBackend.Query needs a query *vector*, and nothing turns
-// Query.Text into one without an Embedder — omitting it would leave
-// SearchKnowledge unable to actually search. backendName/namespace
-// weren't shown either, for the same reason GEN-002/VAL-004 needed
-// them: GetActiveGeneration and VectorBackend.Query are both
-// backend/namespace-scoped, and a Service has to know which one it's
-// searching.
+// embedder turns Query.Text into a query vector for a vector search; it
+// is nil for a keyword-only Service, which sends the text alone.
+// backendName is the active-generation key (vector.backend, in every
+// retrieval mode) and namespace the index namespace, since
+// GetActiveGeneration and VectorBackend.Query are both scoped by them.
 type Service struct {
 	control     ControlStore
 	data        DataStore

@@ -710,10 +710,9 @@ func appendAttributed(objects []domain.KnowledgeObject, dep domain.DependencyVer
 // TrustClassForSourceType maps a registry.Source's type to the
 // TrustClass SEC-001 requires every KnowledgeObject to carry. git/godoc
 // both derive directly from the package's own repository; website and
-// github-releases are registry-declared official sources. TrustCommunity
-// and TrustUser are assigned elsewhere, by whatever future mechanism
-// lets a manifest be added outside the built-in/reviewed tier — nothing
-// currently produces an object through that path.
+// github-releases are registry-declared official sources. Nothing
+// produces TrustCommunity or TrustUser objects today; they exist for
+// manifests added outside the built-in, reviewed registry.
 func TrustClassForSourceType(sourceType string) domain.TrustClass {
 	switch sourceType {
 	case "git", "godoc":

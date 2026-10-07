@@ -33,24 +33,24 @@ Scenario: `data/generation.indexObjects` is resolving the identity of a `domain.
 
    ```
    Fingerprint(
-     "go-redis-git@a1c9f3e7b2d84f1e6c0a2b7d9e5f1a3c8b6d4e20", // sourceIdentity, 51 bytes
+     "go-redis-git@a1c9f3e7b2d84f1e6c0a2b7d9e5f1a3c8b6d4e20", // sourceIdentity, 53 bytes
      "README.md",                                            // logicalPath, 9 bytes
-     "markdown-normalizer",                                  // normalizerName, 20 bytes
+     "markdown-normalizer",                                  // normalizerName, 19 bytes
      "v1",                                                    // normalizerVersion, 2 bytes
      []byte("# go-redis\n\nType-safe Redis client for Go.\n..."), // content, say 4381 bytes
    )
    ```
 
-4. **Each field is length-prefixed before hashing** (`writeLengthPrefixed`, internal/data/fingerprint/fingerprint.go). For `sourceIdentity` (51 bytes), `binary.PutUvarint` encodes `51` as a single byte `0x33` (uvarint fits in one byte for any value < 128), written before the 51 content bytes; for `content` at 4381 bytes, the uvarint needs two bytes (`4381` = `0b1000100011101`, encoded LEB128-style as `0x9d 0x22` — low 7 bits `0x1d` with the continuation bit set, then the remaining `0x22`) written before the 4381 content bytes. This is what makes `"ab"+"c"` and `"a"+"bc"` unambiguous — the hash input includes each field's exact length, not just concatenated bytes — so e.g. a `logicalPath` of `"READ"` + content starting `"ME.md..."` can never collide with `logicalPath: "READ.md"` + different content.
+4. **Each field is length-prefixed before hashing** (`writeLengthPrefixed`, internal/data/fingerprint/fingerprint.go). For `sourceIdentity` (53 bytes), `binary.PutUvarint` encodes `53` as a single byte `0x35` (uvarint fits in one byte for any value < 128), written before the 53 content bytes; for `content` at 4381 bytes, the uvarint needs two bytes (`4381` = `0b1000100011101`, encoded LEB128-style as `0x9d 0x22` — low 7 bits `0x1d` with the continuation bit set, then the remaining `0x22`) written before the 4381 content bytes. This is what makes `"ab"+"c"` and `"a"+"bc"` unambiguous — the hash input includes each field's exact length, not just concatenated bytes — so e.g. a `logicalPath` of `"READ"` + content starting `"ME.md..."` can never collide with `logicalPath: "READ.md"` + different content.
 
 5. **BLAKE3 digests the five length-prefixed fields in sequence** into one `[32]byte`, e.g. (illustrative) `digest = 0xb4 0x7e 0x2a 0x91 ... ` (32 bytes total).
 
 6. **`ObjectID` derives the storage key** (internal/data/fingerprint/fingerprint.go): `base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(digest[:])` lowercased and prefixed, yielding something like `ko_5xj2qk7v3n8w1yzrt9m4pbhs6c0e2d` — this is the exact string `resolveObjectIdentity` assigns to `obj.ID` (internal/data/generation/build.go) and the suffix `data/badger.PutKnowledgeObject` uses to build key `obj/ko_5xj2qk7v3n8w1yzrt9m4pbhs6c0e2d`.
 
-7. **Separately, `resolveObjectIdentity` also computes `chunk.ContentHash(obj.Content)`** — a *pure* content hash with no source/path/normalizer inputs — and checks `GetContentHashIndex` for that hash before trusting the `Fingerprint`-derived ID: if a byte-identical README was already indexed by an earlier generation (e.g. this version's git tag didn't actually change the README from `v9.5.0`), the earlier object's ID is reused instead, even though `Fingerprint`'s `sourceIdentity` input (which embeds the new commit) would have produced a *different* digest. `Fingerprint`/`ObjectID` answer "what's this object's identity key given where it came from"; `ContentHash` alone answers "have I already stored these exact bytes."
+7. **Separately, `resolveObjectIdentity` also computes `chunk.ContentHash(obj.Content)`** — a *pure* content hash with no source/path/normalizer inputs — and checks it — first against objects already queued earlier in this same build, then against Badger's `GetContentHashIndex` — before trusting the `Fingerprint`-derived ID: if a byte-identical README was already indexed by an earlier generation (e.g. this version's git tag didn't actually change the README from `v9.5.0`), the earlier object's ID is reused instead, even though `Fingerprint`'s `sourceIdentity` input (which embeds the new commit) would have produced a *different* digest. `Fingerprint`/`ObjectID` answer "what's this object's identity key given where it came from"; `ContentHash` alone answers "have I already stored these exact bytes."
 
 ## Notes
 
 - `Fingerprint` does not itself normalize whitespace — it trusts that content arriving here was already run through `normalize.NormalizeLineEndings` by whichever `Normalizer` produced it (CRLF/lone-CR to LF), per the doc comment at internal/data/fingerprint/fingerprint.go. This is a deliberate separation of concerns: whitespace policy belongs to normalizers, not to the hash function.
-- The only current caller is `data/generation.resolveObjectIdentity` (internal/data/generation/build.go), which combines `Fingerprint`/`ObjectID` with a *separate* pure-content hash (`chunk.ContentHash`, no source/logical-path/normalizer inputs) for GEN-003's dedup lookup — `Fingerprint` alone is not what dedup keys on; `ContentHash` is.
+- The only production caller is `data/generation.resolveObjectIdentity` (internal/data/generation/build.go; `hack/chunk-sweep` also uses it offline), which combines `Fingerprint`/`ObjectID` with a *separate* pure-content hash (`chunk.ContentHash`, no source/logical-path/normalizer inputs) for GEN-003's dedup lookup — `Fingerprint` alone is not what dedup keys on; `ContentHash` is.
 - `internal/resolver.Fingerprint` is an unrelated, pre-existing hash with the same name in a different package (uppercase base32, used for resolution no-op detection, not object identity) — the two are easy to confuse by name only.

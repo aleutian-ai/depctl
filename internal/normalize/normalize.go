@@ -1,6 +1,6 @@
 // Package normalize converts acquired raw content (Markdown, plain text,
-// Go source, release notes) into the domain's structured KnowledgeObject
-// model. Every content-type-specific normalizer implements the shared
+// release notes, and Go, Python and TypeScript/JavaScript API docs) into
+// the domain's structured KnowledgeObject model. Every content-type-specific normalizer implements the shared
 // Normalizer interface defined here.
 //
 // SEC-004 invariant: no normalizer, in this package or any of its

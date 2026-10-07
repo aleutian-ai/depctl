@@ -10,17 +10,18 @@ Related package docs: [retention](../internal/retention.md), [lifecycle](../inte
 
 - no project reference,
 - no `"manual_pin"` or `"latest"` reference,
-- not the current active generation for that dependency+backend,
 - its `"grace_period"` reference (added the moment the last real reference was dropped, via `retention.DropReference`) has actually expired against `config.Retention.GracePeriod`.
 
 A version with zero references and no grace-period row yet is *not* eligible — the grace period only starts counting once `DropReference` has run at least once for it.
+
+Being the active (served) generation does not protect a version. Active generations are per dependency version (ADR-012), so an old version stays active until GC retires it; references and the grace period alone decide its lifetime. Deletion clears the version's active pointer first, so search never resolves to data that's mid-deletion.
 
 ## End-to-end flow
 
 ```mermaid
 sequenceDiagram
     participant User
-    participant CLI as cli.runGC
+    participant CLI as cli.RunGC (in the daemon)
     participant Ret as internal/retention.PlanGC
     participant Bbolt as control/bbolt.Store
     participant GC as lifecycle/gc.Run
@@ -31,8 +32,8 @@ sequenceDiagram
     CLI->>Ret: PlanGC(store, backendName, gracePeriod, now)
     Ret->>Bbolt: ListAllReferences (candidate discovery)
     loop each (ecosystem, package, version)
-        Ret->>Bbolt: ListReferences, GetActiveGeneration
-        Note over Ret: eligible only if no project/latest/pin<br/>reference AND grace expired AND not active
+        Ret->>Bbolt: ListReferences
+        Note over Ret: eligible only if no project/latest/pin<br/>reference AND grace expired
     end
     Ret-->>CLI: []GCCandidate{Ecosystem, Package, Version, Reason}
     CLI-->>User: print candidates
@@ -44,6 +45,7 @@ sequenceDiagram
             CLI->>GC: Run(candidate)
             GC->>Bbolt: GetJob/PutJob\n(deterministic ID = BLAKE3(type+dep+version))
             Note over GC: re-running against the same candidate\nresumes the same job, doesn't duplicate it
+            GC->>Bbolt: ClearActiveGeneration (stop serving it)
             GC->>VB: Delete(filter: ecosystem+dependency+version)
             GC->>Bbolt: ListGenerationsByDependencyVersion
             GC->>Badger: DeleteGeneration per generation ID\n(objects/chunks/manifest, batched)
@@ -54,11 +56,13 @@ sequenceDiagram
     end
 ```
 
+`VB` here is every index that may hold this install's data (`buildAllIndexes`, `internal/cli/retrieval.go`): the keyword index in `auto`/`keyword` mode and the vector store in `auto`/`vector` mode — in `auto` mode GC deletes from the vector store even when Ollama is down.
+
 ## Why deletion order is vector → Badger → bbolt
 
 Each of the three deletion steps is individually idempotent — deleting something already gone is a no-op — so the *order* is chosen so a crash between any two steps always leaves state a re-run can clean up correctly, never a state where something is queryable but partially gone:
 
-1. **Vector backend first**: if this step succeeds but the process crashes before Badger/bbolt are touched, the version is simply unqueryable (safe) while its bookkeeping still exists — a re-run finds the same candidate and continues.
+1. **Search index first** (vector store and/or keyword index): if this step succeeds but the process crashes before Badger/bbolt are touched, the version is simply unqueryable (safe) while its bookkeeping still exists — a re-run finds the same candidate and continues.
 2. **Badger second**: once vector points are gone, deleting the underlying chunks/objects can't create a state where a live query returns points with no backing content.
 3. **bbolt last**: the generation record and references are the bookkeeping *about* the other two stores — deleting them last means a crash never leaves bbolt claiming a generation is gone while Badger/the vector backend still hold its data.
 
@@ -68,7 +72,7 @@ A `domain.Job` (bbolt, `internal/control/bbolt/jobs.go`) tracks each candidate's
 
 - `--dry-run` stops after printing candidates — `retention.PlanGC` is read-only; nothing is deleted, no jobs are created.
 - A candidate's `Reason` field (printed to the user) explains *why* it's eligible — e.g. "grace period expired" — so `ragctl gc`'s output is auditable, not just a bare list of deletions.
-- GC is per-backend: `PlanGC` and `gc.Run` both take `backendName`, since a `BackendReplica`/active-generation pointer is itself backend-scoped — running against two configured backends requires running `ragctl gc` once per backend name.
+- GC is per-backend: `PlanGC` takes `backendName` (`vector.backend`, in every retrieval mode) and `gc.Run` clears the active pointer under the index's `Name()`, since active-generation pointers are backend-scoped. A data dir that was used with two different `vector.backend` values needs `ragctl gc` run under each config.
 - One candidate's failure is caught and reported per-candidate; the loop continues to the rest, and the command's exit code reflects whether *any* candidate failed — the same "don't let one bad item abort the batch" pattern `ragctl sync` uses for `SYNC_VERSION` actions.
 
 ## The separate orphan-generation path (`--orphans`)
@@ -86,3 +90,7 @@ Everything above assumes a generation that *succeeded* — it was promoted, serv
 
 - Same three-store deletion order as the reference-based path (vector → Badger → bbolt), same idempotent-job restartability (`orphanJobID`, derived directly from the generation ID rather than a hash of dependency+version, since a generation ID already is a unique, stable identity).
 - `config.Retention.OrphanAge` is independent of `GracePeriod` — the two paths' eligibility windows are configured separately.
+
+## The superseded-duplicate path (`--superseded-duplicates`)
+
+`ragctl gc --superseded-duplicates [--dry-run]` is a third, separate pass (it can't be combined with `--orphans`). `retention.PlanSupersededDuplicateGC` selects `SUPERSEDED` generations left behind by a same-version build race — ones whose exact (ecosystem, package, version) still has an `ACTIVE` generation. Their content is identical to the active one, so no grace period or reference check is needed. Deletion (`gc.RunSupersededDuplicates`) is generation-ID scoped like the orphan path, in the same index → Badger → bbolt order.

@@ -14,7 +14,8 @@ func embedKey(key string) []byte {
 }
 
 // PutEmbeddingMetadata upserts raw embedding metadata bytes under key
-// (caller-constructed, e.g. "<generation-id>/<provider>/<chunk-id>").
+// (caller-constructed; the embedding cache uses
+// "embedcache/<content-hash>/<provider>/<model>").
 func (s *Store) PutEmbeddingMetadata(ctx context.Context, key string, meta []byte) error {
 	return s.db.Update(func(txn *bg.Txn) error {
 		return txn.Set(embedKey(key), meta)

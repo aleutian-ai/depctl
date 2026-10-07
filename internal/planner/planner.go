@@ -15,6 +15,7 @@ import (
 // ActionKind identifies what Plan wants done for one dependency.
 type ActionKind string
 
+// Action kinds. RETAIN_VERSION is declared but never emitted (see Plan).
 const (
 	ActionAddReference  ActionKind = "ADD_REFERENCE"
 	ActionDropReference ActionKind = "DROP_REFERENCE"
@@ -58,16 +59,12 @@ func referenceKey(ecosystem domain.Ecosystem, pkg string) string {
 // touching bbolt, so the caller resolves it via GetActiveGeneration and
 // passes the answer in as a map).
 //
-// GC_CANDIDATE/RETAIN_VERSION are emitted as provisional markers only:
-// per PLAN-001's own non-goals, real retention/GC eligibility (does any
-// *other* project still reference this version?) needs epic 16's
-// cross-project reference counting, which doesn't exist yet. Every
-// version this project drops is marked GC_CANDIDATE unconditionally —
-// the correct, conservative default until RET-001 can check other
-// projects. RETAIN_VERSION is never emitted by this ticket's Plan (a
-// single project's diff structurally can't prove another project still
-// needs a version); it exists in the ActionKind enum for RET-001 to
-// produce once it has fleet-wide reference data.
+// GC_CANDIDATE is a provisional marker only: whether any *other* project
+// still references a dropped version is internal/retention's decision
+// (PlanGC), made fleet-wide at GC time, so every version this project
+// drops is marked unconditionally. RETAIN_VERSION is never emitted: a
+// single project's diff can't prove another project still needs a
+// version.
 //
 // noSource holds versions sync has recorded as having no docs source
 // (PLAN-005). A version needs building whenever it has no active

@@ -91,3 +91,7 @@ Reconciled against the sketch above:
 - Both miss some: `NewV7` for "an id that sorts by creation time", and `MaxConns`.
 
 With the qualified-symbol header, keyword search puts `pgxpool.New` first; without it, neither mode found it. Ten questions is a sanity check, not a benchmark: epic 26's evaluation framework is where retrieval quality gets measured properly.
+
+### Update (2026-10-07): storage layout
+
+The layout described above (one bucket keyed `ecosystem\0dependency\0version\0generation\0id`, plus a `(generation, id)` index) used about 4x the space of its data for the keyword index and 2.5x for vectors. Both stores now keep one bucket per generation, keyed by chunk ID, with the generation's ecosystem, dependency and version stored once, and pack pages full. v0.3.0 files are converted on first open. See `docs/architecture.md`, "Embedded and keyword storage layout", for the measurements.

@@ -1,6 +1,22 @@
 # Changelog
 
-## v0.3.0 — unreleased
+## v0.3.1 — unreleased
+
+### Smaller index files
+- The keyword index (`keyword.db`) is about 4x smaller and the embedded vector store (`vectors.db`) about 2.5x smaller. On ragctl's own 187 dependency versions that's 202 MB → 54 MB and 1.29 GB → 495 MB. Both now store each generation in its own bucket with its dependency and version written once, and pack pages full.
+- Files written by v0.3.0 are converted automatically the first time the daemon opens them: about a second for the keyword index and a few seconds for vectors. Nothing is re-fetched or re-embedded, and search results don't change. Searches on these stores are faster too.
+- After the conversion, v0.3.0 can no longer read these files.
+
+### Fixes
+- `latest` and `all_retained` searches now read only each version's active build, like project searches already did. Before, while a rebuilt version's previous build waited for GC, its chunks could mix into results.
+- The MCP server reports ragctl's real build version instead of a fixed "v0.1.0".
+- Keyword-only syncs no longer record "embed" timings in metrics and traces, since nothing is embedded.
+- MCP messages about rebuilding no longer say a plain sync can't build a version that was referenced but never built; it has done that since PLAN-005.
+
+### Docs
+- Package, project and repo documentation brought up to date with the current code. That covers every Go package comment, the per-package guides in `docs/internal`, the feature docs, the guides (including running opencode with a small local model), ADR status notes, the README (requirements and on-disk files), CONTRIBUTING and SECURITY.
+
+## v0.3.0 — 2026-10-07
 
 ### Works without Ollama
 - **Keyword search.** ragctl can sync and search a dependency's docs with no embedding model at all, using keyword (BM25) search that's still scoped to the exact version your project uses. It's built for code docs: identifiers match whole and in parts (`pgxpool.NewWithConfig`, `NewRandom`, `snake_case`), and API docs are found by their qualified name (`pgxpool.New`).

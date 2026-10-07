@@ -8,11 +8,11 @@ import (
 	"time"
 )
 
-// BuildCoordinator gates concurrent generation builds againt gc and against
-// duplicate builds of the identical generation. You can end up with a bunch
-// of RLocks because of different generations building at once. GC excludes
-// all of them while it has a lock/runs. Two callers building the identical
-// dependency+version join one real build via singleflight.
+// BuildCoordinator gates generation builds against GC and against
+// duplicate builds of the identical generation. Builds of different
+// generations share the gate's read side and run concurrently; GC takes the
+// write side. Two callers building the same dependency version join one
+// real build via singleflight.
 type BuildCoordinator struct {
 	gate  sync.RWMutex
 	group singleflight.Group
@@ -60,7 +60,7 @@ func buildKey(dep domain.DependencyVersion) string {
 }
 
 // Build runs fn under the shared build/GC gate's read side. This coalesces
-// concurrent callers for the identical dep into one reacl call to fn. That
+// concurrent callers for the identical dep into one real call to fn. That
 // means every caller waiting on the same in-flight build gets its result.
 // fn must already be closed over a context independent of any single caller's
 // own cancellation. Build takes no ctx of its own specifically so that a

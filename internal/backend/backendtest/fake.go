@@ -1,6 +1,6 @@
 // Package backendtest provides an in-memory backend.VectorBackend fake
-// for tests — this package's own (VEC-001) and later ones (VAL-*, MCP-*)
-// that need a VectorBackend without standing up a real vector database.
+// for tests across the codebase that need a VectorBackend without
+// opening a real store or standing up a vector database.
 package backendtest
 
 import (

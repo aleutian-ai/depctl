@@ -46,14 +46,6 @@ func (s *Store) DeleteGenerationRecord(ctx context.Context, id string) error {
 	})
 }
 
-// ListGenerationsByDependencyVersion returns every generation recorded
-// for (ecosystem, pkg, version) — GC (RET-004) needs this to find which
-// generation IDs' Badger data to delete for a GC-eligible version, since
-// no index from (ecosystem, package, version) to generation ID exists
-// (the `generations` bucket is keyed by generation ID only); a full
-// bucket scan is the substitute, same "small keyspace" tradeoff already
-// made for references (RET-001's ListAllReferences) and GC candidate
-// discovery (RET-003's PlanGC).
 // ListAllGenerations returns every generation record in the bucket —
 // GC-001's orphan planner needs a fleet-wide scan since an orphaned
 // generation, by definition, was never promoted and so has no
@@ -75,6 +67,14 @@ func (s *Store) ListAllGenerations(ctx context.Context) ([]domain.Generation, er
 	return gens, err
 }
 
+// ListGenerationsByDependencyVersion returns every generation recorded
+// for (ecosystem, pkg, version) — GC (RET-004) needs this to find which
+// generation IDs' Badger data to delete for a GC-eligible version, since
+// no index from (ecosystem, package, version) to generation ID exists
+// (the `generations` bucket is keyed by generation ID only); a full
+// bucket scan is the substitute, same "small keyspace" tradeoff already
+// made for references (RET-001's ListAllReferences) and GC candidate
+// discovery (RET-003's PlanGC).
 func (s *Store) ListGenerationsByDependencyVersion(ctx context.Context, ecosystem domain.Ecosystem, pkg, version string) ([]domain.Generation, error) {
 	var gens []domain.Generation
 	err := s.db.View(func(tx *bolt.Tx) error {

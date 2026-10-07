@@ -165,12 +165,11 @@ func (c *CachingEmbedder) Embed(ctx context.Context, texts []string) ([][]float3
 
 // cacheKey derives a deterministic key from text's content hash plus
 // provider and model, so a model or provider change never reuses a
-// stale vector. Passed to badger.Store's existing
-// PutEmbeddingMetadata/GetEmbeddingMetadata (STORE-003) under the
-// "embedcache/" sub-prefix named in EMB-003's design — a distinct shape
-// from the generation-scoped "embed/<generation-id>/..." keys those
-// methods also serve, since a generation ID is always a "gen_"-prefixed
-// ULID and never literally "embedcache".
+// stale vector. Passed to badger.Store's
+// PutEmbeddingMetadata/GetEmbeddingMetadata under the "embedcache/"
+// sub-prefix named in EMB-003's design, which keeps it clear of any
+// generation-scoped key shape those methods could also hold (a
+// generation ID is always a "gen_"-prefixed ULID).
 func cacheKey(text, provider, model string) string {
 	return "embedcache/" + dchunk.ContentHash([]byte(text)) + "/" + provider + "/" + model
 }

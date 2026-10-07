@@ -89,11 +89,12 @@ func (s *Service) GetProvenance(ctx context.Context, generationID, chunkID strin
 }
 
 // GetReleaseChanges returns release-note excerpts for dependency at
-// exactly from and to — NORM-005's release-note normalizer tags each
-// versioned section with Metadata["release_version"], and this reads
-// those sections directly out of Badger (a metadata scan, not a vector
-// search — there's no semantic query here, just "give me the section
-// for this exact version").
+// exactly from and to, read directly out of Badger by
+// Metadata["release_version"] (a metadata scan, not a search). The
+// release-note normalizer tags each release-note file with its first
+// version-like heading only, so a version is found when it leads a
+// release-notes file (typically the newest entry of a changelog), not
+// when it's an older entry further down.
 //
 // This deliberately does NOT walk every version between from and to:
 // no version-ordering/semver-range utility exists anywhere in this
@@ -152,13 +153,14 @@ func (s *Service) GetReleaseChanges(ctx context.Context, dependency, from, to st
 	return changes, nil
 }
 
-// SearchKnowledge embeds q.Text and searches the vector backend,
-// constrained to whichever version(s) q.Mode resolves, returning each
-// match's actual chunk content (read from Badger — a vector point alone
-// only carries an ID/score/metadata) plus provenance.
+// SearchKnowledge searches the index for q.Text (embedding it first when
+// the Service has an embedder), constrained to whichever version(s)
+// q.Mode resolves, returning each match's actual chunk content (read
+// from Badger — a point alone only carries an ID/score/metadata) plus
+// provenance.
 //
-// q.Dependency is required for every mode except ModeAllRetained's
-// ecosystem-unfiltered case: the whole value of "version-correct search"
+// q.Dependency is required for every mode (ModeAllRetained still
+// searches every ecosystem's versions of it): the whole value of "version-correct search"
 // depends on knowing exactly which package's exact version to constrain
 // to, and backend.Filter has one Dependency/Version field, not a list —
 // there is no coherent single Filter for "all of this project's
@@ -236,10 +238,17 @@ func (s *Service) searchLatest(ctx context.Context, q Query) (SearchResult, erro
 	if err != nil {
 		return SearchResult{}, err
 	}
+	// Scoped to the version's active generation, as in searchProject, so
+	// a rebuild's not-yet-collected predecessor never mixes in.
+	gen, err := s.control.GetActiveGeneration(ctx, ref.Ecosystem, ref.Package, ref.Version, s.backendName)
+	if err != nil {
+		return SearchResult{}, fmt.Errorf("%w: %s %s", ErrNoActiveGeneration, ref.Package, ref.Version)
+	}
 	return s.search(ctx, q.Text, q.TopK, &backend.Filter{
 		Ecosystem:  string(ref.Ecosystem),
 		Dependency: ref.Package,
 		Version:    ref.Version,
+		Generation: gen.ID,
 	})
 }
 
@@ -279,7 +288,13 @@ func (s *Service) searchAllRetained(ctx context.Context, q Query) (SearchResult,
 
 	var merged SearchResult
 	for _, r := range versions {
-		result, err := s.search(ctx, q.Text, q.TopK, &backend.Filter{Ecosystem: string(r.Ecosystem), Dependency: r.Package, Version: r.Version})
+		// Only versions with an active generation, and only that
+		// generation (see searchLatest).
+		gen, err := s.control.GetActiveGeneration(ctx, r.Ecosystem, r.Package, r.Version, s.backendName)
+		if err != nil {
+			continue
+		}
+		result, err := s.search(ctx, q.Text, q.TopK, &backend.Filter{Ecosystem: string(r.Ecosystem), Dependency: r.Package, Version: r.Version, Generation: gen.ID})
 		if err != nil {
 			continue
 		}

@@ -4,7 +4,10 @@
 // independently verifiable against the real repository — the two
 // questions "OK" in a sync log doesn't answer on its own.
 //
-// Usage: go run ./hack/verify-sync <data-dir> [-ecosystem go|node|python]
+// Usage: go run ./hack/verify-sync [-ecosystem go|node|python] [-check-tags=false] <data-dir>
+//
+// Flags must come before <data-dir>; the flag package stops parsing at the
+// first positional argument.
 package main
 
 import (
@@ -44,7 +47,7 @@ func main() {
 	checkTags := flag.Bool("check-tags", true, "independently verify each generation's commit is reachable via git ls-remote")
 	flag.Parse()
 	if flag.NArg() < 1 {
-		fmt.Fprintln(os.Stderr, "usage: verify-sync <data-dir> [-ecosystem go|node|python] [-check-tags=false]")
+		fmt.Fprintln(os.Stderr, "usage: verify-sync [-ecosystem go|node|python] [-check-tags=false] <data-dir>")
 		os.Exit(2)
 	}
 	data := flag.Arg(0)

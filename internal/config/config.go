@@ -22,6 +22,7 @@ import (
 // initialized" from "malformed config".
 var ErrConfigNotFound = errors.New("config file not found")
 
+// Config is the whole of config.yaml.
 type Config struct {
 	Version       int                 `yaml:"version"`
 	Storage       StorageConfig       `yaml:"storage"`
@@ -41,7 +42,7 @@ type Config struct {
 }
 
 // ExportConfig groups epic 65's opt-in cross-agent-memory push
-// connectors (MEM0-001, GRAPHITI-001, LETTA-001, COGNEE-001) — a zero
+// connectors (Mem0, Graphiti, Cognee) — a zero
 // value means none are configured, so `ragctl export <target>` always
 // requires an explicit endpoint (here or via its own flags) rather than
 // silently defaulting to somewhere data could be sent.
@@ -219,27 +220,32 @@ type GitConfig struct {
 	CheckoutSearchPaths []string `yaml:"checkout_search_paths,omitempty"`
 }
 
+// StorageConfig locates the control store (bbolt) and data store (Badger).
 type StorageConfig struct {
 	Control ControlStoreConfig `yaml:"control"`
 	Data    DataStoreConfig    `yaml:"data"`
 }
 
+// ControlStoreConfig locates control.db.
 type ControlStoreConfig struct {
 	Type string `yaml:"type"` // "bbolt"
 	Path string `yaml:"path"`
 }
 
+// DataStoreConfig locates the Badger data directory.
 type DataStoreConfig struct {
 	Type string `yaml:"type"` // "badger"
 	Path string `yaml:"path"`
 }
 
+// EmbeddingConfig selects the embedding model; Ollama is the only provider.
 type EmbeddingConfig struct {
 	Provider string `yaml:"provider"`
 	Model    string `yaml:"model"`
 	Endpoint string `yaml:"endpoint"`
 }
 
+// VectorConfig selects the vector store: embedded, qdrant, pgvector or weaviate.
 type VectorConfig struct {
 	Backend    string `yaml:"backend"`
 	Endpoint   string `yaml:"endpoint"`
@@ -247,8 +253,8 @@ type VectorConfig struct {
 	APIKeyEnv  string `yaml:"api_key_env,omitempty"`
 	// Managed controls whether the daemon starts its own Qdrant
 	// container (WATCH-016) when the configured endpoint is
-	// unreachable. Defaults to true for fresh installs (see Default);
-	// a config file written before this field existed has no
+	// unreachable. `ragctl init --vector-backend qdrant` sets it (see
+	// QdrantDefaults); a config file written before this field existed has no
 	// "managed" key, which unmarshals to false — so nobody who already
 	// points Endpoint at their own real Qdrant gets a surprise second
 	// instance competing for the same port.
@@ -281,6 +287,7 @@ func (r RetrievalConfig) ModeOrDefault() string {
 	return r.Mode
 }
 
+// RetentionConfig controls when `ragctl gc` may delete generations.
 type RetentionConfig struct {
 	GracePeriod time.Duration `yaml:"grace_period"`
 	KeepLatest  bool          `yaml:"keep_latest"`
@@ -322,6 +329,7 @@ type SyncConfig struct {
 	DisableAmbient bool `yaml:"disable_ambient"`
 }
 
+// WatchConfig controls the daemon's manifest watcher.
 type WatchConfig struct {
 	Enabled  bool          `yaml:"enabled"`
 	Debounce time.Duration `yaml:"debounce"`
@@ -351,6 +359,7 @@ type ServerConfig struct {
 	MCP MCPServerConfig `yaml:"mcp"`
 }
 
+// MCPServerConfig controls the MCP server that `ragctl serve` runs.
 type MCPServerConfig struct {
 	Enabled bool `yaml:"enabled"`
 	// EnableSyncTool gates the sync_project MCP tool (MCP-003) — on by
@@ -396,7 +405,7 @@ func defaultCollectionName() string {
 	return "ragctl-" + hex.EncodeToString(b[:])
 }
 
-// Default returns the documented v0.1 defaults, rooted at the given data
+// Default returns the defaults a fresh install gets, rooted at the given data
 // directory (control.db and badger/ live under it).
 func Default(dataDir string) Config {
 	return Config{
@@ -504,9 +513,8 @@ func (c Config) Validate() error {
 	return nil
 }
 
-// Save writes c to path as YAML, creating the parent directory if needed.
-// It never serializes resolved secrets — only the api_key_env reference,
-// which is already the only secret-shaped field on Config.
+// Save writes c to path as YAML; the parent directory must exist. It
+// never serializes secrets, only the names of the env vars holding them.
 func (c Config) Save(path string) error {
 	data, err := yaml.Marshal(c)
 	if err != nil {

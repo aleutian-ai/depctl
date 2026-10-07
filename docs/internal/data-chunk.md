@@ -9,22 +9,22 @@
 - `NewRegistry()` — returns an empty `Registry`. internal/data/chunk/chunk.go
 - `Registry.Register(chunker, contentTypes...)` — associates a chunker with one or more content types; chainable. internal/data/chunk/chunk.go
 - `Registry.Select(obj)` — returns the first registered chunker whose content types include `obj.ContentType`, or `(nil, false)`. internal/data/chunk/chunk.go
-- `ChunkID(objectID, ordinal, content)` — derives a deterministic `"chk_"`-prefixed ID from the parent object ID, ordinal, and content (BLAKE3, length-prefixed fields) — content is included so a chunk whose boundaries shift gets a new ID rather than reusing a stale one. internal/data/chunk/chunk.go
+- `ChunkID(objectID, ordinal, content)` — derives a deterministic `"chk_"`-prefixed, lowercase base32 ID from the parent object ID, ordinal, and content (BLAKE3, length-prefixed fields) — content is included so a chunk whose boundaries shift gets a new ID rather than reusing a stale one. Because it's content-derived, an unchanged chunk keeps its ID across versions, which is why search indexes key points by (generation, chunk ID). internal/data/chunk/chunk.go
 - `ContentHash(content)` — hex BLAKE3 digest of content alone, independent of position. internal/data/chunk/chunk.go
 
 ## Key types and functions (internal/data/chunk/markdown — CHUNK-002)
 
 - `Chunker` — implements `chunk.Chunker` for `ContentType` "markdown"/"text". internal/data/chunk/markdown/markdown.go
 - `New(maxChunkBytes)` — returns a `Chunker` bounded to `maxChunkBytes` (falls back to `DefaultMaxChunkBytes` = 2000 if non-positive). internal/data/chunk/markdown/markdown.go
-- `Chunker.Chunk` — splits `obj.Content` into heading-section chunks via `splitSections`, further splitting any oversized section at paragraph boundaries via `packSection`. internal/data/chunk/markdown/markdown.go
-- `splitSections(content)` — line-by-line, fence-aware ATX-heading scan producing one `section{headingPath, headingLine, body}` per heading (Setext headings not recognized). internal/data/chunk/markdown/sections.go
+- `Chunker.Chunk` — splits `obj.Content` into heading-section chunks via `splitSections`, further splitting any oversized section at paragraph boundaries via `packSection`. Each chunk's metadata: `heading_path` (` > `-joined display string), `section_path` (the same headings as a JSON array), and `dependency`, `version`, `source_type` copied from the object. internal/data/chunk/markdown/markdown.go
+- `splitSections(content)` — line-by-line, fence-aware ATX-heading scan producing one `section{headingPath, sectionPath, headingLine, body}` per heading (Setext headings not recognized). internal/data/chunk/markdown/sections.go
 - `packSection(headingLine, body, maxBytes)` — returns the section whole if it fits, else paragraph-packed groups with the heading prepended only to the first part. internal/data/chunk/markdown/sections.go
 
 ## Key types and functions (internal/data/chunk/symbol — CHUNK-003)
 
-- `Chunker` — implements `chunk.Chunker` for `ContentType` "symbol_doc"/"package_doc"; near 1:1 passthrough of NORM-004 output. internal/data/chunk/symbol/symbol.go
+- `Chunker` — implements `chunk.Chunker` for `ContentType` "symbol_doc"/"package_doc" (API docs from the Go, TypeScript and Python doc normalizers); a near 1:1 passthrough. internal/data/chunk/symbol/symbol.go
 - `New()` — returns a ready-to-use symbol chunker. internal/data/chunk/symbol/symbol.go
-- `Chunker.Chunk` — emits exactly one `domain.Chunk` per object, with package/symbol/signature/source_path/version metadata promoted; falls back to `fallbackContent` (signature, then `package.symbol`) when `Content` is empty (undocumented symbol). internal/data/chunk/symbol/symbol.go
+- `Chunker.Chunk` — emits exactly one `domain.Chunk` per object, with package/symbol/signature/source_path/version/dependency/source_type metadata promoted; falls back to `fallbackContent` (signature, then `package.symbol`) when `Content` is empty (undocumented symbol). internal/data/chunk/symbol/symbol.go
 
 ## Dataflow
 
@@ -37,7 +37,7 @@ flowchart TD
     symChunker["chunk/symbol.Chunker\n(symbol_doc, package_doc)"]
     ids["ChunkID / ContentHash"]
     chunks["[]domain.Chunk"]
-    badger["data/badger.Store.PutChunk\n(keyed generationID/chunkID)"]
+    badger["data/badger Batch.PutChunk\n(keyed generationID/chunkID)"]
 
     normObjects --> build --> reg
     reg -->|markdown/text| mdChunker
@@ -45,12 +45,12 @@ flowchart TD
     mdChunker --> ids
     symChunker --> ids
     ids --> chunks --> badger
-    badger --> replicate["data/generation.Replicate\n(embeds & upserts chunks)"]
+    badger --> replicate["data/generation.Replicate\n(embeds if available, upserts\nto the search indexes)"]
 ```
 
 ## Walkthrough (markdown)
 
-Scenario: the markdown chunker (`maxChunkBytes` left at `DefaultMaxChunkBytes` = 2000) is given a `domain.KnowledgeObject` with `ID: "ko_5xj2qk7v3n8w1yzrt9m4pbhs6c0e2d"` and this `Content` (a trimmed real-shaped go-redis README excerpt, three headings, ~650 bytes total):
+Scenario: the markdown chunker (`maxChunkBytes` left at `DefaultMaxChunkBytes` = 2000) is given a `domain.KnowledgeObject` for `github.com/redis/go-redis/v9@v9.5.1` (source type `git`) with `ID: "ko_5xj2qk7v3n8w1yzrt9m4pbhs6c0e2d"` and this `Content` (a trimmed real-shaped go-redis README excerpt, three headings, ~650 bytes total):
 
 ````
 # go-redis
@@ -76,7 +76,7 @@ PRs welcome — see CONTRIBUTING.md for guidelines and the # code-of-conduct rul
 
 1. **`Chunk` calls `splitSections`** (internal/data/chunk/markdown/markdown.go, sections.go). Scanning line by line: the leading `# go-redis` line matches `atxHeading`, `flush()` emits nothing yet (nothing accumulated), `headingStack = ["go-redis"]`, `currentPath = "go-redis"`. The next line, blank, then `"Type-safe Redis client for Go."` accumulate into `current` until `## Installation` is hit — `flush()` emits `section{headingPath: "go-redis", headingLine: "# go-redis", body: "Type-safe Redis client for Go."}`. Critically, the ` ```go ... ``` ` and plain ` ``` ` fences around the install/quick-start snippets set `inFence = true` via `fenceMarkerOf`, so the fenced lines (including any that start with `#`) are written straight into `current` without being tested against `atxHeading` — the literal `# code-of-conduct` text inside the Contributing section's prose is outside any fence, but note it's *not* a line starting with `#` at column 0 (it's mid-sentence), so it was never at risk of misparsing anyway; the fence-awareness matters for a hypothetical `# comment` as the first token of a fenced shell line.
 
-2. **Three sections result:** `{headingPath: "go-redis", body: "Type-safe Redis client for Go."}`, `{headingPath: "go-redis > Installation", body: "```\ngo get github.com/redis/go-redis/v9\n```"}`, `{headingPath: "go-redis > Quick start", body: "```go\nrdb := redis.NewClient(...)\n```"}`, `{headingPath: "go-redis > Contributing", body: "PRs welcome — ... code-of-conduct rules linked there."}` — each well under 2000 bytes, so `packSection` (sections.go) returns each `headingLine+"\n\n"+body` as a single whole part; no paragraph-packing triggers.
+2. **Four sections result:** `{headingPath: "go-redis", body: "Type-safe Redis client for Go."}`, `{headingPath: "go-redis > Installation", body: "```\ngo get github.com/redis/go-redis/v9\n```"}`, `{headingPath: "go-redis > Quick start", body: "```go\nrdb := redis.NewClient(...)\n```"}`, `{headingPath: "go-redis > Contributing", body: "PRs welcome — ... code-of-conduct rules linked there."}` — each well under 2000 bytes, so `packSection` (sections.go) returns each `headingLine+"\n\n"+body` as a single whole part; no paragraph-packing triggers.
 
 3. **Chunks are built** (markdown.go), one per part, `ordinal` incrementing across *all* sections (not reset per section):
 
@@ -87,7 +87,13 @@ PRs welcome — see CONTRIBUTING.md for guidelines and the # code-of-conduct rul
      Ordinal:     0,
      Content:     []byte("# go-redis\n\nType-safe Redis client for Go."),
      ContentHash: dchunk.ContentHash(content0), // hex blake3, e.g. "3b8f01a2..."
-     Metadata:    map[string]string{"heading_path": "go-redis"},
+     Metadata:    map[string]string{
+       "heading_path": "go-redis",
+       "section_path": `["go-redis"]`,
+       "dependency":   "github.com/redis/go-redis/v9",
+       "version":      "v9.5.1",
+       "source_type":  "git",
+     },
    }
    ```
 
@@ -105,6 +111,8 @@ domain.KnowledgeObject{
   ContentType: "symbol_doc",
   LogicalPath: "client.go",
   Version:     "v9.5.1",
+  Dependency:  /* github.com/redis/go-redis/v9 @ v9.5.1 */,
+  SourceType:  "git",
   Content:     []byte{},  // no doc comment
   Metadata: map[string]string{
     "package":   "redis",
@@ -114,7 +122,7 @@ domain.KnowledgeObject{
 }
 ```
 
-1. **`Chunker.Chunk` builds the metadata map first** (internal/data/chunk/symbol/symbol.go): `{"package": "redis", "symbol": "NewClient", "signature": "func NewClient(opt *Options) *Client", "source_path": "client.go", "version": "v9.5.1"}`.
+1. **`Chunker.Chunk` builds the metadata map first** (internal/data/chunk/symbol/symbol.go): `{"package": "redis", "symbol": "NewClient", "signature": "func NewClient(opt *Options) *Client", "source_path": "client.go", "version": "v9.5.1", "dependency": "github.com/redis/go-redis/v9", "source_type": "git"}`.
 
 2. **The empty-content check fires** (symbol.go): `bytes.TrimSpace(obj.Content)` is zero-length, so `content = []byte(fallbackContent(metadata))`. `fallbackContent` (symbol.go) sees `metadata["signature"] != ""` and returns it immediately — `content` becomes `[]byte("func NewClient(opt *Options) *Client")`, never falling through to the `package.symbol` or bare-field cases.
 
@@ -135,8 +143,8 @@ domain.KnowledgeObject{
 
 ## Notes
 
-- `chunk.Registry` is populated fresh in `data/generation.indexObjects` on every `Build` call (`Register(chunkmd.New(...), "markdown", "text").Register(symbol.New(), "symbol_doc", "package_doc")`) — internal/data/generation/build.go — not a package-level singleton.
-- `data/generation.indexObjects` deduplicates chunk writes within one build via a `writtenChunkIDs` set: since `ChunkID` is content-derived, two objects that GEN-003-dedup to the same object ID (identical content) produce identical chunk IDs too, and without the guard `PutChunk` would silently overwrite while the manifest's chunk counter double-incremented (see internal/data/generation/build.go).
+- `chunk.Registry` is populated fresh in `data/generation.indexObjects` on every `Build` call (`Register(chunkmd.New(chunkmd.DefaultMaxChunkBytes), "markdown", "text").Register(symbol.New(), "symbol_doc", "package_doc")`) — internal/data/generation/build.go — not a package-level singleton.
+- `data/generation.indexObjects` deduplicates chunk writes within one build via a `writtenChunkIDs` set: since `ChunkID` is content-derived, two objects that GEN-003-dedup to the same object ID (identical content) produce identical chunk IDs too, and without the guard the second `PutChunk` would silently overwrite the first while the manifest's chunk counter double-incremented (see internal/data/generation/build.go).
 - `markdown.Chunker` uses a byte-length bound for `maxChunkBytes`, not a real tokenizer count — accepted as good enough for v0.1.
 - A single paragraph larger than `maxChunkBytes` is emitted as its own over-limit chunk rather than cut mid-paragraph — confirmed against a real 67KB single-table paragraph during the corpus sweep (architecture.md), an accepted edge case, not a bug.
 - `symbol.Chunker`'s empty-`Content` fallback was a real bug found by a real-corpus sweep (`hack/chunk-sweep`), not by unit tests: ~11% of real exported Go symbols have no doc comment, and the first version shipped an empty chunk instead of falling back to the signature.

@@ -1,6 +1,7 @@
 // Package promote implements VAL-004: atomically promoting a validated
 // candidate generation to ACTIVE, superseding whichever generation was
-// previously active for the same dependency+backend.
+// previously active for the same dependency version and backend (a
+// rebuild); other versions stay active (ADR-012).
 package promote
 
 import (

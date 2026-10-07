@@ -88,10 +88,12 @@ type ManifestError struct {
 	Cause error
 }
 
+// Error formats the underlying validation or parse failure.
 func (e *ManifestError) Error() string {
 	return fmt.Sprintf("invalid manifest: %v", e.Cause)
 }
 
+// Unwrap returns Cause.
 func (e *ManifestError) Unwrap() error {
 	return e.Cause
 }

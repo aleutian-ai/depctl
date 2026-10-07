@@ -1,6 +1,6 @@
 # Demo: embedded (the default, no vector service)
 
-**Shows:** ragctl with no vector database and no container at all. Its index is one file, `vectors.db`, next to ragctl's other data. Search, multiple versions and garbage collection work exactly as with a server. Only Ollama runs, for embeddings.
+**Shows:** ragctl with no vector database and no container at all. Its vector index is one file, `vectors.db`, next to ragctl's other data. Search, multiple versions and garbage collection work exactly as with a server. Only Ollama runs, for embeddings. (The default `retrieval.mode: auto` also keeps a keyword index, `keyword.db`, beside it; see the [keyword demo](keyword.md).)
 
 ## Run
 

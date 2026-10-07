@@ -12,7 +12,8 @@ import (
 )
 
 // Ecosystem identifies a package-manager ecosystem. Values are canonical,
-// lowercase, and never free-form.
+// lowercase, and never free-form. Rust and Java are detected by
+// project.Scan but have no resolver, so scan reports them as unsupported.
 type Ecosystem string
 
 const (
@@ -31,6 +32,7 @@ type Project struct {
 	UpdatedAt time.Time
 }
 
+// Validate reports whether p has the ID and Root every stored project needs.
 func (p Project) Validate() error {
 	if p.ID == "" {
 		return fmt.Errorf("project: ID must not be empty")
@@ -164,19 +166,19 @@ type BackendReplica struct {
 	BackendName    string
 	EmbeddingModel string
 	Dimensions     int
-	Status         string // "pending", "replicating", "complete", "failed"
+	Status         string // "replicating", "complete", "failed"
 	PointCount     int
 	LastError      string
 	UpdatedAt      time.Time
 }
 
-// Job is a restartable background unit of work — currently only GC
-// (RET-004) uses this, via Type "gc": re-invoking `ragctl gc` re-claims
-// any PENDING/RETRY gc job by its deterministic ID and resumes it,
-// rather than starting over or duplicating work.
+// Job is a restartable background unit of work — currently only GC uses
+// this: re-invoking `ragctl gc` re-claims any PENDING/RETRY job by its
+// deterministic ID and resumes it, rather than starting over or
+// duplicating work.
 type Job struct {
-	ID         string // deterministic, derived from (Type, Dependency) — see internal/lifecycle/gc.JobID
-	Type       string // "gc"
+	ID         string // deterministic — see internal/lifecycle/gc.JobID and its orphan/superseded-duplicate variants
+	Type       string // "gc", "gc_orphan", or "gc_superseded_duplicate"
 	Dependency DependencyVersion
 	State      JobState
 	LastError  string
@@ -205,7 +207,7 @@ const (
 	ReferenceReasonGracePeriod ReferenceReason = "grace_period"
 )
 
-// gracePeriodProjectID is the synthetic ProjectID a grace_period
+// GracePeriodProjectID is the synthetic ProjectID a grace_period
 // reference uses, since it isn't scoped to any one project.
 const GracePeriodProjectID = "_grace"
 

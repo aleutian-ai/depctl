@@ -15,7 +15,7 @@ import (
 // then refreshes the watched set so a newly registered project is
 // watched without waiting for the periodic refresh.
 //
-// Bounded by maxActionDuration, the same ceiling sync/GC runs use: scan
+// Bounded by maxActionDuration, the same ceiling GC runs use: scan
 // doesn't go through the scheduler (it's not mutually exclusive with
 // anything but a scan of the same project, via Scheduler.LockProject),
 // so without its own bound a hung resolver call had no ceiling at all.
@@ -230,10 +230,11 @@ func (s *Server) handleDoctor(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleGC runs garbage collection through the scheduler, exactly like
-// handleSync: it goes through the same global run lock as every sync (so
-// GC never interleaves with one), is bounded by maxActionDuration so a
-// hung GC can't wedge every future sync, and a GC request that arrives
-// while one is already running collapses into a single follow-up.
+// handleSync: it excludes every in-flight build and reference change
+// (BuildCoordinator.ExcludeForGC, so GC never interleaves with a sync), is
+// bounded by maxActionDuration so a hung GC can't stall every build, and a
+// GC request that arrives while one is already running collapses into a
+// single follow-up.
 // req.Orphans selects GC-001/GC-002's separate orphan-generation path
 // instead (RequestOrphanGC), and req.SupersededDuplicates selects
 // POINT-004's same-version-duplicate path the same way — no

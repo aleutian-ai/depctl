@@ -97,7 +97,7 @@ type Engine interface {
 	VectorReadiness(ctx context.Context) (state, detail string)
 
 	// ExportMem0, ExportGraphiti, and ExportCognee each push a project's
-	// (or one named dependency's) already-synced chunks into a user's
+	// (or its named dependencies') already-synced chunks into a user's
 	// own instance of that system (epic 65) — explicit, one-shot, never
 	// part of this daemon's own background sync path. Reads the stores
 	// in-process (ADR-011); the only state mutated outside this process

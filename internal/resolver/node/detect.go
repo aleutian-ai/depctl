@@ -2,7 +2,7 @@
 // resolver: detects Node projects via package.json and resolves exact
 // dependency versions from whichever lockfile is present. TypeScript rides
 // the Node package graph, not a separate ecosystem. See
-// docs/tickets/backlog/21-node-resolver.
+// docs/tickets/completed/21-node-resolver.
 package node
 
 import (
@@ -27,6 +27,7 @@ type Resolver struct{}
 // New returns a Node ecosystem resolver.
 func New() *Resolver { return &Resolver{} }
 
+// Name returns "node".
 func (r *Resolver) Name() string { return "node" }
 
 // Detect reports whether root contains a package.json — the one signal

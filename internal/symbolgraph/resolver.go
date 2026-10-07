@@ -108,10 +108,12 @@ type NotSyncedError struct {
 	Err        error
 }
 
+// Error names the unsynced dependency and the underlying cause.
 func (e *NotSyncedError) Error() string {
 	return fmt.Sprintf("dependency %s has not been synced yet: %v", e.Dependency, e.Err)
 }
 
+// Unwrap returns Err.
 func (e *NotSyncedError) Unwrap() error { return e.Err }
 
 // matchDependency finds the DependencyVersion in resolution whose name

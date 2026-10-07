@@ -66,3 +66,7 @@ Verified end to end in [docs/demos/embedded.md](../../../demos/embedded.md), run
 **Made the default (2026-10-05, the user's decision).** A fresh `ragctl init` now writes `vector.backend: embedded`; `ragctl init --vector-backend qdrant` gives the previous managed-Qdrant default. Existing configs are untouched. Tests that exercise Qdrant behavior now say so explicitly (`VectorConfig.QdrantDefaults()`) instead of relying on the default.
 
 Found alongside it: doctor printed `vector.endpoint` without redacting it in one check, so a password embedded in a pgvector DSN would have shown there. All three display sites now go through one helper that redacts passwords and shows the embedded file's path.
+
+### Update (2026-10-07): storage layout
+
+The layout described above (one bucket keyed `ecosystem\0dependency\0version\0generation\0id`, plus a `(generation, id)` index) used about 4x the space of its data for the keyword index and 2.5x for vectors. Both stores now keep one bucket per generation, keyed by chunk ID, with the generation's ecosystem, dependency and version stored once, and pack pages full. v0.3.0 files are converted on first open. See `docs/architecture.md`, "Embedded and keyword storage layout", for the measurements.

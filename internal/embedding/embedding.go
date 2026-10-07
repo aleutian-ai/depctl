@@ -27,10 +27,10 @@ type Embedder interface {
 	Embed(ctx context.Context, texts []string) ([][]float32, error)
 }
 
-// EmbeddingIdentity is the persisted metadata tying a vector replica to
-// exactly the provider/model/normalization that produced it. A
-// generation's vector replica is always tied to one EmbeddingIdentity;
-// changing provider or model must never silently reuse a prior replica.
+// EmbeddingIdentity describes the provider/model/normalization that
+// produced a set of vectors. Nothing persists it yet: a replica's model
+// and dimensions are recorded on domain.BackendReplica, and the
+// embedding cache keys on provider and model directly.
 type EmbeddingIdentity struct {
 	Provider      string
 	Model         string

@@ -32,7 +32,7 @@ var supportedEcosystems = map[domain.Ecosystem]bool{
 }
 
 // ErrUnregisteredProjectRoot is returned when something attempts to run
-// a resolver command (`go list`, `cargo metadata`, `npm ls`, ...) against
+// a resolver (for Go, which shells out to `go list`) against
 // a directory that isn't a project ragctl has actually registered
 // (SEC-004). In normal operation this is unreachable — scanAndResolve
 // and resolveProject both already only ever call a Resolver with a root

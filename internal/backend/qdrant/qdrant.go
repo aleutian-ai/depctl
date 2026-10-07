@@ -1,5 +1,5 @@
 // Package qdrant implements backend.VectorBackend against Qdrant's HTTP
-// API (VEC-002) — ragctl's reference vector backend. A small
+// API (VEC-002) — ragctl's first vector backend, now opt-in. A small
 // hand-written client (net/http + encoding/json), not a generated SDK,
 // per the plan's explicit preference for keeping dependency weight low.
 package qdrant
@@ -93,7 +93,7 @@ func (c *Client) Capabilities(ctx context.Context) (backend.Capabilities, error)
 // /healthz endpoint — the interface's Health(ctx) takes no namespace, so
 // it can't also confirm a specific collection exists. HealthCollection
 // below covers that more specific check for callers that know their
-// collection name (e.g. `ragctl doctor`). With an API key it checks
+// collection name (none do yet). With an API key it checks
 // /collections instead: Qdrant serves /healthz without auth, so a wrong
 // key would otherwise look healthy until the first sync failed.
 func (c *Client) Health(ctx context.Context) error {

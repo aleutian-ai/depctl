@@ -1,6 +1,6 @@
 # Contributing to ragctl
 
-Thanks for your interest in `ragctl`. The project is early (pre-v0.1, built CLI-first — see [docs/architecture.md](docs/architecture.md) for what's actually implemented) and moving quickly, so please open an issue to discuss non-trivial changes before investing time in a PR.
+Thanks for your interest in `ragctl`. The project is pre-1.0 (released versions are in the [CHANGELOG](CHANGELOG.md); it's built CLI-first, see [docs/architecture.md](docs/architecture.md) for what's actually implemented) and moving quickly, so please open an issue to discuss non-trivial changes before investing time in a PR.
 
 ## How contributions are reviewed
 
@@ -9,7 +9,7 @@ All changes land through pull requests — there is no direct push access to `ma
 ## Before you start
 
 - Read [CLAUDE.md](CLAUDE.md) for the Go coding standard this codebase follows (package doc comments, interfaces-then-structs-then-methods ordering, doc comments on every exported identifier) and the project conventions (CLI-first, one command's slice of `internal/domain`/`internal/config`/storage at a time — not full epic scope up front).
-- Read [docs/tickets/README.md](docs/tickets/README.md) to see what's already planned, in progress, or deliberately deferred (`docs/tickets/backlog/`). If what you want to build maps to an existing ticket, reference it in your PR; if it doesn't, open an issue first.
+- Read [docs/tickets/README.md](docs/tickets/README.md) to see what's shipped (`docs/tickets/completed/`), in progress (`docs/tickets/planned/`), or deliberately deferred (`docs/tickets/backlog/`). If what you want to build maps to an existing ticket, reference it in your PR; if it doesn't, open an issue first.
 - Check [docs/architecture.md](docs/architecture.md) for what's actually shipped versus specced — the tickets describe intent, this doc describes reality.
 
 ## Development workflow
@@ -19,7 +19,16 @@ go build ./... && go vet ./... && go test -race ./...   # native (macOS/Linux)
 hack/test-linux.sh                                       # Linux, via Podman + Alpine
 ```
 
-Every change should pass both before you open a PR. `gofmt` cleanliness is also checked in CI.
+Every change should pass both before you open a PR. CI runs `gofmt`, `go vet`, `go test` and `go test -race` on every push.
+
+Some tests start real servers in containers (Qdrant, PostgreSQL with pgvector, Weaviate) through testcontainers. They're skipped when `docker info` fails. With Podman, that means having a `docker` CLI and pointing it at the Podman machine:
+
+```bash
+export CONTAINER_HOST=unix://$(podman machine inspect --format '{{.ConnectionInfo.PodmanSocket.Path}}')
+go test ./internal/backend/...
+```
+
+The regular suite talks to fake Ollama servers, so it passes without Ollama installed (as on CI). Two live checks need a real Ollama and Qdrant; they only run with `RAGCTL_LIVE_BENCHMARK=1`.
 
 ## Pull request expectations
 

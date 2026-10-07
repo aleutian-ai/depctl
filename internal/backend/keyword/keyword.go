@@ -4,6 +4,13 @@
 // second: a search is filtered to one dependency version (hundreds to a
 // few thousand chunks), so BM25 is computed over exactly those chunks at
 // query time and no inverted index is kept.
+//
+// Layout, per namespace bucket: "generations" maps each generation ID to
+// its ecosystem/dependency/version (a generation is one dependency
+// version, so they're stored once), and "chunks" holds one bucket per
+// generation, keyed by chunk ID. A point's identity (generation, chunk
+// ID) is its location, so no separate index is needed, and deleting a
+// generation is one bucket delete.
 package keyword
 
 import (
@@ -33,13 +40,17 @@ const (
 	b  = 0.75
 	// openTimeout bounds waiting for the file lock (see embedded).
 	openTimeout = 2 * time.Second
+	// fillPercent packs pages full: a generation's chunks are written in
+	// key order (sorted per batch, and listed in order by Badger), so its
+	// bucket only ever grows at the end, where bbolt's default half-full
+	// split would just waste space.
+	fillPercent = 1.0
 )
 
-// Within a namespace's bucket: all points, and an index from a point's
-// identity (generation, chunk ID) to its points key.
+// Within a namespace's bucket (see the package comment).
 var (
-	pointsKey = []byte("points")
-	idsKey    = []byte("ids")
+	generationsKey = []byte("generations")
+	chunksKey      = []byte("chunks")
 )
 
 // dbs holds one open handle per file per process.
@@ -88,44 +99,41 @@ func (s *Store) EnsureNamespace(ctx context.Context, ns backend.Namespace) error
 		if err != nil {
 			return fmt.Errorf("keyword: create namespace %s: %w", ns.Name, err)
 		}
-		if _, err := bk.CreateBucketIfNotExists(pointsKey); err != nil {
+		if _, err := bk.CreateBucketIfNotExists(generationsKey); err != nil {
 			return err
 		}
-		_, err = bk.CreateBucketIfNotExists(idsKey)
+		_, err = bk.CreateBucketIfNotExists(chunksKey)
 		return err
 	})
 }
 
-// Upsert indexes req.Points' Text in one transaction.
+// Upsert indexes req.Points' Text in one transaction. Every point of a
+// generation must carry the same ecosystem/dependency/version (the
+// backend.Point contract); a point that contradicts its generation's is
+// an error, not a silent relabel.
 func (s *Store) Upsert(ctx context.Context, req backend.UpsertRequest) error {
 	db, err := s.db()
 	if err != nil {
 		return err
 	}
+	points := append([]backend.Point(nil), req.Points...)
+	sort.Slice(points, func(i, j int) bool {
+		if points[i].Metadata.Generation != points[j].Metadata.Generation {
+			return points[i].Metadata.Generation < points[j].Metadata.Generation
+		}
+		return points[i].ID < points[j].ID
+	})
 	return db.Update(func(tx *bolt.Tx) error {
 		bk, err := namespace(tx, req.Namespace)
 		if err != nil {
 			return err
 		}
-		points, ids := bk.Bucket(pointsKey), bk.Bucket(idsKey)
-		for _, p := range req.Points {
-			m := p.Metadata
-			key, err := joinKey(m.Ecosystem, m.Dependency, m.Version, m.Generation, p.ID)
+		for _, p := range points {
+			chunks, err := generationBucket(bk, p.Metadata)
 			if err != nil {
 				return err
 			}
-			// The same (generation, ID) re-written with different
-			// metadata must replace the old entry, not sit beside it.
-			identity := []byte(m.Generation + "\x00" + p.ID)
-			if old := ids.Get(identity); old != nil && !bytes.Equal(old, key) {
-				if err := points.Delete(old); err != nil {
-					return err
-				}
-			}
-			if err := points.Put(key, encodeValue(m, Tokenize(p.Text))); err != nil {
-				return err
-			}
-			if err := ids.Put(identity, key); err != nil {
+			if err := chunks.Put([]byte(p.ID), encodeValue(p.Metadata, Tokenize(p.Text))); err != nil {
 				return err
 			}
 		}
@@ -154,22 +162,28 @@ func (s *Store) Delete(ctx context.Context, req backend.DeleteRequest) error {
 		if bk == nil {
 			return nil // never created: nothing to delete
 		}
-		points, ids := bk.Bucket(pointsKey), bk.Bucket(idsKey)
-		// Collect first: bbolt cursors don't survive deletes mid-scan.
-		var doomed [][]byte
-		c := points.Cursor()
-		for k, _ := c.First(); k != nil; k, _ = c.Next() {
-			f := strings.Split(string(k), "\x00")
-			if wanted[f[4]] || (byFilter && matches(f, req.Filter)) {
-				doomed = append(doomed, bytes.Clone(k))
+		// Collect first: bbolt can't delete buckets mid-iteration.
+		var gone []string
+		err := forEachGeneration(bk, nil, func(gen string, _ backend.PointMetadata, chunks *bolt.Bucket) error {
+			if byFilter && matchesFilter(gen, generationMetadata(bk, gen), req.Filter) {
+				gone = append(gone, gen)
+				return nil
 			}
+			for id := range wanted {
+				if err := chunks.Delete([]byte(id)); err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			return err
 		}
-		for _, k := range doomed {
-			f := strings.Split(string(k), "\x00")
-			if err := points.Delete(k); err != nil {
+		for _, gen := range gone {
+			if err := bk.Bucket(chunksKey).DeleteBucket([]byte(gen)); err != nil {
 				return err
 			}
-			if err := ids.Delete([]byte(f[3] + "\x00" + f[4])); err != nil {
+			if err := bk.Bucket(generationsKey).Delete([]byte(gen)); err != nil {
 				return err
 			}
 		}
@@ -206,10 +220,13 @@ func (s *Store) Query(ctx context.Context, req backend.QueryRequest) (backend.Qu
 		if bk == nil {
 			return nil // nothing indexed yet: no matches
 		}
-		return scan(bk.Bucket(pointsKey), req.Filter, func(f []string, v []byte) {
-			m, length, tf := decodeValue(v, queryTerms)
-			m.Ecosystem, m.Dependency, m.Version, m.Generation = f[0], f[1], f[2], f[3]
-			docs = append(docs, doc{point: backend.ScoredPoint{ID: f[4], Metadata: m}, length: length, tf: tf})
+		return forEachGeneration(bk, req.Filter, func(gen string, meta backend.PointMetadata, chunks *bolt.Bucket) error {
+			return chunks.ForEach(func(k, v []byte) error {
+				m, length, tf := decodeValue(v, queryTerms)
+				m.Ecosystem, m.Dependency, m.Version, m.Generation = meta.Ecosystem, meta.Dependency, meta.Version, gen
+				docs = append(docs, doc{point: backend.ScoredPoint{ID: string(k), Metadata: m}, length: length, tf: tf})
+				return nil
+			})
 		})
 	})
 	if err != nil {
@@ -272,7 +289,10 @@ func (s *Store) Count(ctx context.Context, ns string, filter *backend.Filter) (i
 		if bk == nil {
 			return nil
 		}
-		return scan(bk.Bucket(pointsKey), filter, func([]string, []byte) { n++ })
+		return forEachGeneration(bk, filter, func(_ string, _ backend.PointMetadata, chunks *bolt.Bucket) error {
+			n += chunks.Stats().KeyN
+			return nil
+		})
 	})
 	return n, err
 }
@@ -294,6 +314,9 @@ func (s *Store) db() (*bolt.DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("keyword: open %s: %w", s.path, err)
 	}
+	if db, err = migrateIfNeeded(s.path, db); err != nil {
+		return nil, err
+	}
 	dbs[s.path] = db
 	return db, nil
 }
@@ -306,65 +329,109 @@ func namespace(tx *bolt.Tx, name string) (*bolt.Bucket, error) {
 	return bk, nil
 }
 
-// scan calls fn with the key fields and value of every point f selects.
-// Keys are ecosystem\0dependency\0version\0generation\0id, so the leading
-// filter fields that are set become a prefix and the scan touches only
-// those points.
-func scan(points *bolt.Bucket, f *backend.Filter, fn func(fields []string, v []byte)) error {
-	var prefix []byte
-	if f != nil {
-		for _, v := range []string{f.Ecosystem, f.Dependency, f.Version, f.Generation} {
-			if v == "" {
-				break
-			}
-			prefix = append(append(prefix, v...), 0)
-		}
+// generationBucket returns the chunk bucket for m's generation, creating
+// it (and recording the generation's metadata) on first use.
+func generationBucket(bk *bolt.Bucket, m backend.PointMetadata) (*bolt.Bucket, error) {
+	meta, err := encodeMeta(m)
+	if err != nil {
+		return nil, err
 	}
-	c := points.Cursor()
-	for k, v := c.Seek(prefix); k != nil && bytes.HasPrefix(k, prefix); k, v = c.Next() {
-		fields := strings.Split(string(k), "\x00")
-		if f == nil || matches(fields, f) {
-			fn(fields, v)
+	gens := bk.Bucket(generationsKey)
+	gen := []byte(m.Generation)
+	if have := gens.Get(gen); have == nil {
+		if err := gens.Put(gen, meta); err != nil {
+			return nil, err
+		}
+	} else if !bytes.Equal(have, meta) {
+		return nil, fmt.Errorf("keyword: generation %s is %q, but a point for it says %q (a generation is one dependency version)", m.Generation, strings.ReplaceAll(string(have), "\x00", " "), strings.ReplaceAll(string(meta), "\x00", " "))
+	}
+	chunks, err := bk.Bucket(chunksKey).CreateBucketIfNotExists(gen)
+	if err != nil {
+		return nil, err
+	}
+	chunks.FillPercent = fillPercent
+	return chunks, nil
+}
+
+// forEachGeneration calls fn for every generation f selects (nil selects
+// all), with the generation's metadata and chunk bucket. A filter naming
+// a generation is a direct lookup; otherwise only the small generations
+// bucket is scanned to find matches.
+func forEachGeneration(bk *bolt.Bucket, f *backend.Filter, fn func(gen string, meta backend.PointMetadata, chunks *bolt.Bucket) error) error {
+	visit := func(gen string) error {
+		chunks := bk.Bucket(chunksKey).Bucket([]byte(gen))
+		if chunks == nil {
+			return nil
+		}
+		meta := generationMetadata(bk, gen)
+		if f != nil && !matchesFilter(gen, meta, f) {
+			return nil
+		}
+		return fn(gen, meta, chunks)
+	}
+	if f != nil && f.Generation != "" {
+		return visit(f.Generation)
+	}
+	var gens []string
+	if err := bk.Bucket(generationsKey).ForEach(func(k, _ []byte) error {
+		gens = append(gens, string(k))
+		return nil
+	}); err != nil {
+		return err
+	}
+	for _, gen := range gens {
+		if err := visit(gen); err != nil {
+			return err
 		}
 	}
 	return nil
 }
 
-// matches reports whether key fields satisfy every non-empty field of f.
-func matches(fields []string, f *backend.Filter) bool {
-	for i, want := range []string{f.Ecosystem, f.Dependency, f.Version, f.Generation} {
-		if want != "" && fields[i] != want {
-			return false
-		}
+// generationMetadata reads gen's ecosystem/dependency/version.
+func generationMetadata(bk *bolt.Bucket, gen string) backend.PointMetadata {
+	f := strings.Split(string(bk.Bucket(generationsKey).Get([]byte(gen))), "\x00")
+	for len(f) < 3 {
+		f = append(f, "")
 	}
-	return true
+	return backend.PointMetadata{Ecosystem: f[0], Dependency: f[1], Version: f[2], Generation: gen}
 }
 
-func joinKey(parts ...string) ([]byte, error) {
-	for _, p := range parts {
-		if strings.Contains(p, "\x00") {
-			return nil, fmt.Errorf("keyword: metadata value %q contains a NUL byte", p)
-		}
-	}
-	return []byte(strings.Join(parts, "\x00")), nil
+// matchesFilter reports whether a generation satisfies every non-empty
+// field of f: whole-value matches only.
+func matchesFilter(gen string, m backend.PointMetadata, f *backend.Filter) bool {
+	return (f.Ecosystem == "" || f.Ecosystem == m.Ecosystem) &&
+		(f.Dependency == "" || f.Dependency == m.Dependency) &&
+		(f.Version == "" || f.Version == m.Version) &&
+		(f.Generation == "" || f.Generation == gen)
 }
 
-// encodeValue stores source type, authority, the document's length in
-// terms, and each distinct term with its count.
+func encodeMeta(m backend.PointMetadata) ([]byte, error) {
+	for _, v := range []string{m.Ecosystem, m.Dependency, m.Version, m.Generation} {
+		if strings.Contains(v, "\x00") {
+			return nil, fmt.Errorf("keyword: metadata value %q contains a NUL byte", v)
+		}
+	}
+	return []byte(m.Ecosystem + "\x00" + m.Dependency + "\x00" + m.Version), nil
+}
+
+// encodeValue stores, as varints: source type, authority, the document's
+// length in terms, and each distinct term with its count. Varints, not
+// fixed widths: per-term counts and lengths are small, and fixed widths
+// cost more than the terms themselves.
 func encodeValue(m backend.PointMetadata, terms []string) []byte {
 	tf := map[string]int{}
 	for _, t := range terms {
 		tf[t]++
 	}
-	out := binary.LittleEndian.AppendUint32(nil, uint32(len(m.SourceType)))
+	out := binary.AppendUvarint(nil, uint64(len(m.SourceType)))
 	out = append(out, m.SourceType...)
-	out = binary.LittleEndian.AppendUint64(out, uint64(int64(m.Authority)))
-	out = binary.LittleEndian.AppendUint32(out, uint32(len(terms)))
-	out = binary.LittleEndian.AppendUint32(out, uint32(len(tf)))
+	out = binary.AppendVarint(out, int64(m.Authority))
+	out = binary.AppendUvarint(out, uint64(len(terms)))
+	out = binary.AppendUvarint(out, uint64(len(tf)))
 	for t, n := range tf {
-		out = binary.LittleEndian.AppendUint16(out, uint16(len(t)))
+		out = binary.AppendUvarint(out, uint64(len(t)))
 		out = append(out, t...)
-		out = binary.LittleEndian.AppendUint32(out, uint32(n))
+		out = binary.AppendUvarint(out, uint64(n))
 	}
 	return out
 }
@@ -372,22 +439,39 @@ func encodeValue(m backend.PointMetadata, terms []string) []byte {
 // decodeValue returns the metadata, document length, and the counts of
 // just the terms in want (all a query needs).
 func decodeValue(v []byte, want map[string]bool) (backend.PointMetadata, int, map[string]int) {
-	n := int(binary.LittleEndian.Uint32(v))
-	m := backend.PointMetadata{SourceType: string(v[4 : 4+n])}
-	v = v[4+n:]
-	m.Authority = int(int64(binary.LittleEndian.Uint64(v)))
-	length := int(binary.LittleEndian.Uint32(v[8:]))
-	distinct := int(binary.LittleEndian.Uint32(v[12:]))
-	v = v[16:]
+	r := varintReader{b: v}
+	m := backend.PointMetadata{SourceType: string(r.bytes(int(r.uvarint())))}
+	m.Authority = int(r.varint())
+	length := int(r.uvarint())
+	distinct := int(r.uvarint())
 	tf := map[string]int{}
 	for range distinct {
-		l := int(binary.LittleEndian.Uint16(v))
-		term := v[2 : 2+l]
-		count := int(binary.LittleEndian.Uint32(v[2+l:]))
+		term := r.bytes(int(r.uvarint()))
+		count := int(r.uvarint())
 		if want[string(term)] {
 			tf[string(term)] = count
 		}
-		v = v[6+l:]
 	}
 	return m, length, tf
+}
+
+// varintReader walks an encodeValue value.
+type varintReader struct{ b []byte }
+
+func (r *varintReader) uvarint() uint64 {
+	v, n := binary.Uvarint(r.b)
+	r.b = r.b[n:]
+	return v
+}
+
+func (r *varintReader) varint() int64 {
+	v, n := binary.Varint(r.b)
+	r.b = r.b[n:]
+	return v
+}
+
+func (r *varintReader) bytes(n int) []byte {
+	out := r.b[:n]
+	r.b = r.b[n:]
+	return out
 }

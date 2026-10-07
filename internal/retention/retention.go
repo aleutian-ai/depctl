@@ -1,8 +1,8 @@
 // Package retention implements ragctl's grace-period bookkeeping
 // (RET-002) and GC eligibility planning (RET-003): keeping a dependency
 // version's knowledge retained for a configurable window after a
-// project stops referencing it, then computing which versions are
-// finally safe to delete. See docs/tickets/completed/16-retention-gc.
+// project stops referencing it, then computing which versions — and
+// which failed, stuck or duplicate generations — are safe to delete.
 package retention
 
 import (

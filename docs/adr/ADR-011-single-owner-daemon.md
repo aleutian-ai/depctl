@@ -86,3 +86,8 @@ Storage, sync, query, resolver, MCP, watch, and GC logic stay where they are. Ex
 - ADR-010 (native-first execution model) — amended: its "long-running `serve` daemon" is now `ragctl daemon run`; `serve` is a stdio proxy. The native-first reasoning is unchanged and applies to the daemon, which runs resolvers against the user's real toolchain.
 - ADR-006 (MCP as the primary agent interface) — unchanged: `internal/mcp` is still the only package importing the MCP SDK, and still contains no business logic.
 - `internal/control/bbolt` `ErrLocked` (epic 18, OPS-001) — the lock error this ADR builds ownership detection on.
+
+## Update (2026-10-07)
+
+- **Auto-start within one process is now coordinated.** §5 says simultaneous auto-starts need no coordination. That still holds across processes (the bbolt lock decides), but within one process `spawnDaemonOnce` (`internal/cli/daemon.go`) now lets concurrent callers share a single spawn attempt, which lasts until the new daemon answers on its socket, and the parent reaps the child. Without this, a losing subprocess could stay blocked on the lock and later start an unrequested daemon.
+- **The daemon owns more stores.** Besides `control.db` and Badger, the default embedded vector store (`vectors.db`, since v0.2.0) and the keyword index (`keyword.db`, since v0.3.0) are bbolt files in the same data directory, opened only by the daemon. "vector" in the diagram above can be one of those files or an external Qdrant, pgvector or Weaviate service.

@@ -1,10 +1,6 @@
-// Package bbolt is ragctl's control-plane store: small, strongly
-// structured state (projects, generations, jobs, references, ...).
-//
-// This is the minimal slice needed for `ragctl init` to create the
-// control.db file with its buckets. CRUD methods (PutProject, PutGeneration,
-// SetActiveGeneration, ...) are added as later commands need them — see
-// STORE-001 in docs/tickets/completed/02-core-domain-storage.
+// Package bbolt is ragctl's control-plane store (control.db): small,
+// strongly structured state such as projects, resolutions, generations,
+// active-generation pointers, jobs and references.
 package bbolt
 
 import (
@@ -16,9 +12,9 @@ import (
 )
 
 // lockTimeout bounds how long Open waits for control.db's file lock.
-// bbolt's default is to wait forever, which turned any command run
-// alongside `ragctl serve` (which holds the lock for its lifetime) into a
-// silent hang. A var only so tests can shorten it.
+// bbolt's default is to wait forever, which would turn any direct open
+// while the daemon holds the lock into a silent hang. A var only so tests
+// can shorten it.
 var lockTimeout = 2 * time.Second
 
 // buckets is the full bucket list from STORE-001, created up front so every
@@ -39,6 +35,7 @@ var buckets = []string{
 	noSourceVersionsBucket,
 }
 
+// Store is an open control.db.
 type Store struct {
 	db *bolt.DB
 }
@@ -85,6 +82,7 @@ func OpenWithTimeout(path string, timeout time.Duration) (*Store, error) {
 	return &Store{db: db}, nil
 }
 
+// Close closes the database, releasing its file lock.
 func (s *Store) Close() error {
 	return s.db.Close()
 }

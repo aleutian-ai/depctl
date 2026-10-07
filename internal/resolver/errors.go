@@ -11,10 +11,12 @@ type ResolutionError struct {
 	Cause    error
 }
 
+// Error formats the resolver name, project root and cause.
 func (e *ResolutionError) Error() string {
 	return fmt.Sprintf("resolver %s: resolve %s: %v", e.Resolver, e.Root, e.Cause)
 }
 
+// Unwrap returns Cause.
 func (e *ResolutionError) Unwrap() error {
 	return e.Cause
 }

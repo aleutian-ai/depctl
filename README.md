@@ -6,13 +6,14 @@ Dependency-aware knowledge synchronization for AI coding agents.
 
 ragctl is not the only locally-hosted or privacy-first option in this space, and it doesn't (yet) match some alternatives' acquisition breadth — arbitrary websites, PDFs, Office documents. Its bet is narrower and specific: automatic, validated synchronization with a repository's *actual resolved dependency state* — native dependency resolution, demand-driven sync, version-scoped retrieval, and explicit missing-knowledge states instead of a silent cross-version fallback — matters more for a coding agent than acquisition breadth.
 
-**Status:** early bootstrap, built CLI-first — commands are implemented one at a time, each pulling in only the domain/storage code it needs. See [docs/architecture.md](docs/architecture.md) for what's actually built, and [docs/tickets/](docs/tickets/README.md) for the roadmap.
+**Status:** pre-1.0 and released ([CHANGELOG](CHANGELOG.md)). It's built CLI-first: each command pulls in only the code it needs. See [docs/architecture.md](docs/architecture.md) for what's actually built, and [docs/tickets/](docs/tickets/README.md) for what's done and what's deferred.
 
 **Ecosystem coverage:** `ragctl` resolves dependencies for Go, Python, and Node projects, but resolving, syncing, and producing real API documentation are three different claims with three different maturity levels — Go is the only ecosystem where all three work today. See [docs/architecture.md](docs/architecture.md#ecosystem-coverage-resolve-acquire-and-document-are-three-different-claims) for the specifics.
 
 ## Requirements
 
-- Go 1.25.6+
+- Go 1.25.6+, to build ragctl.
+- `git`, which ragctl uses to fetch dependency sources. To scan a Go project, also the `go` toolchain (ragctl runs `go list`); Python and Node projects are resolved from their lockfiles. `python3` and `node` are only used to extract Python and TypeScript API docs. `ragctl doctor` checks what your projects need.
 - (recommended) [Ollama](https://ollama.com/) running locally, for semantic search. ragctl uses [`nomic-embed-text-v2-moe`](https://ollama.com/library/nomic-embed-text-v2-moe) (~957MB, Apache-2.0) and pulls it itself, in the background, the first time it's needed. **Without Ollama, ragctl still works:** it searches by keyword instead, and adds semantic search on the first sync after Ollama becomes available. See [Search modes](#search-modes).
 - Nothing else by default. ragctl keeps its search index in a file next to its other data, with no vector database or container to run. To use a vector database you already run (Qdrant, pgvector, Weaviate) or a ragctl-managed Qdrant instead, see [Integrations](#integrations) below.
 - (optional) [Podman](https://podman.io/) or [Docker](https://www.docker.com/) — only needed for a ragctl-managed Qdrant (`ragctl init --vector-backend qdrant`), plus the reference container and cross-platform tests, see below.
@@ -83,7 +84,7 @@ Every ✅ below was verified against real self-hosted containers with local mode
 
 | Store | Status | Demo |
 |---|---|---|
-| Embedded (no service, no container) | ✅ **The default.** One file, `vectors.db`, in ragctl's data directory. Only Ollama runs. Best for one machine; use a server to share an index. | [embedded](docs/demos/embedded.md) |
+| Embedded (no service, no container) | ✅ **The default.** One file, `vectors.db`, in ragctl's data directory; no other service runs. Best for one machine; use a server to share an index. | [embedded](docs/demos/embedded.md) |
 | Qdrant, managed by ragctl | ✅ `ragctl init --vector-backend qdrant`. If nothing is running, ragctl starts a `ragctl-qdrant` container itself (Podman or Docker). | [managed Qdrant](docs/demos/qdrant-managed.md) |
 | Qdrant you already run (standalone, or under your Mem0) | ✅ ragctl uses its own uniquely named collection and never touches yours. | [your own Qdrant](docs/demos/qdrant-byo.md) |
 | PostgreSQL + pgvector (including the Postgres under your Mem0) | ✅ ragctl creates one uniquely named table of its own and never touches other tables. The password comes from an env var, never the config file. | [your own pgvector](docs/demos/pgvector.md) |
@@ -134,9 +135,19 @@ Each command's `--help` covers its target's specifics. API keys are read by ragc
 
 ## Data persistence
 
-ragctl's own state — `control.db` (bbolt) and the object/chunk cache (Badger) — always lives as plain files on your real disk, under `~/Library/Application Support/ragctl` (macOS) or `$XDG_DATA_HOME/ragctl` (Linux), written directly by the `ragctl daemon` process. It is never inside a container and is unaffected by anything you do to Podman or Docker.
+ragctl's own state lives as plain files on your real disk, under `~/Library/Application Support/ragctl` (macOS) or `$XDG_DATA_HOME/ragctl` (Linux), written only by the `ragctl daemon` process:
 
-The automatically-managed Qdrant container (see [Requirements](#requirements)) stores its vector index in a **named Podman/Docker volume** (`ragctl-qdrant-data`), not a bind-mounted host directory — deliberately, since a host bind-mount doesn't work on every Podman setup (some Podman machines don't share any host directories into their VM at all, which broke this in practice before the named volume was adopted). That means the indexed vector data:
+| File | What it holds | Rough size |
+|---|---|---|
+| `control.db` | projects, dependency versions, generations, jobs (bbolt) | about 1 MB |
+| `badger/` | the fetched docs, split into chunks | about 1 KB per chunk |
+| `keyword.db` | the keyword index (`retrieval.mode` auto or keyword) | about 0.4 KB per chunk |
+| `vectors.db` | the embedded vector store (the default `vector.backend`) | about 3.4 KB per chunk at 768 dimensions |
+| `git/` | cached clones of dependency sources | depends on the dependencies |
+
+For scale: ragctl's own 187 dependency versions are about 147,000 chunks, which comes to about 140 MB of chunks, 54 MB of keyword index and roughly 500 MB of vectors. None of it lives in a container, and nothing you do to Podman or Docker affects it. Files written by v0.3.0 are converted to the current, smaller layout the first time a newer ragctl opens them.
+
+The automatically managed Qdrant container (`ragctl init --vector-backend qdrant`) stores its vector index in a **named Podman/Docker volume** (`ragctl-qdrant-data`), not a bind-mounted host directory — deliberately, since a host bind-mount doesn't work on every Podman setup (some Podman machines don't share any host directories into their VM at all, which broke this in practice before the named volume was adopted). That means the indexed vector data:
 
 - **Survives**: stopping/restarting the container, `ragctl daemon stop`/`run`, a host reboot.
 - **Does not survive**: `podman machine rm` (or recreating the machine), `docker system prune -a --volumes`, or manually removing the `ragctl-qdrant-data` volume.
@@ -166,9 +177,13 @@ hack/test-linux.sh                                       # Linux, via Podman + A
 - [docs/offline-quickstart.md](docs/offline-quickstart.md) — index your own docs repo and query it offline via a local model over MCP.
 - [docs/observability-guide.md](docs/observability-guide.md) — structured logs, OpenTelemetry tracing, and Prometheus metrics: what's on by default, what's opt-in, and how to try each against a real Jaeger/Prometheus.
 - [docs/security-hardening.md](docs/security-hardening.md) — the five security invariants ragctl enforces in code (trust labeling, prompt-injection labeling, fetch limits, no downloaded-code execution, no telemetry), each with a concrete example.
+- [docs/opencode-usage.md](docs/opencode-usage.md) — using ragctl from opencode, including with a small local model.
+- [docs/demos/](docs/demos/README.md) — runnable demos of every search mode and integration.
+- [docs/features/](docs/features/README.md) — how each user-facing feature works.
+- [docs/internal/](docs/internal/README.md) — one guide per internal package, for contributors.
 - [docs/architecture.md](docs/architecture.md) — current implemented architecture, updated as tickets land.
 - [docs/adr/](docs/adr/) — architecture decision records.
-- [docs/tickets/](docs/tickets/README.md) — the full build plan, split into `planned/` (v0.1 critical path) and `backlog/` (deferred epics).
+- [docs/tickets/](docs/tickets/README.md) — the build history and plan: `completed/` (shipped epics) and `backlog/` (deferred work).
 
 ## License
 

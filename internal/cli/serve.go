@@ -71,6 +71,7 @@ func runServe(cmd *cobra.Command) error {
 	}
 
 	deps := mcp.Deps{
+		Version:        ragctlVersion,
 		Query:          &daemonQueryService{c: c},
 		Sync:           &daemonSyncTrigger{c: c},
 		EnableSyncTool: health.EnableSyncTool,

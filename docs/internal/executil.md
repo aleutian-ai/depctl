@@ -1,6 +1,8 @@
 # internal/executil
 
-`internal/executil` runs subprocesses safely: argv-style invocation only, no shell interpretation, with context cancellation/timeout support. It exists as the single chokepoint every ecosystem resolver and git-source caller shells out through, instead of each calling `os/exec` directly — centralizing the "no shell, always respect context" guarantee in one place.
+`internal/executil` runs subprocesses safely: argv-style invocation only, no shell interpretation, with context cancellation/timeout support. It is the shared chokepoint for ragctl's short, capture-the-output tool calls (`go`, `git`, `python3`, the container runtime) instead of each calling `os/exec` directly — centralizing the "no shell, always respect context" guarantee in one place.
+
+Not everything goes through it: the Python and Node resolvers parse lockfiles and run no subprocess at all; the `pydoc`/`tsdoc` normalizers call `os/exec` directly because they pipe an embedded script over stdin, which `RunOptions` has no field for; and the CLI's daemon auto-start uses `os/exec` directly because it launches a long-lived background process rather than waiting for output.
 
 ## Key types and functions
 
@@ -12,17 +14,19 @@
 
 ```mermaid
 flowchart TD
-    Golang["internal/resolver/golang.list.go\n(go list, go mod)"] -->|RunOptions| Run["executil.Run"]
-    Git["internal/source/git\n(worktree.go, cache.go, delta.go — git commands)"] -->|RunOptions| Run
-    Liveness["internal/registry/liveness.go\n(source reachability checks)"] -->|RunOptions| Run
-    Corpus["internal/cli/corpus.go"] -->|RunOptions| Run
+    Golang["internal/resolver/golang\n(go list, go env GOVERSION)"] -->|RunOptions| Run["executil.Run"]
+    Git["internal/source/git\n(cache.go, worktree.go, delta.go, inspect.go — git commands)"] -->|RunOptions| Run
+    Liveness["internal/registry/liveness.go\n(git ls-remote reachability checks)"] -->|RunOptions| Run
+    Corpus["internal/cli/corpus.go\n(git rev-parse)"] -->|RunOptions| Run
+    Bootstrap["internal/cli/vector_bootstrap.go\n(podman/docker for the managed Qdrant container)"] -->|RunOptions| Run
+    LocalCache["internal/data/generation/localcache.go\n(go env GOMODCACHE, python3 site-packages probe)"] -->|RunOptions| Run
     Run -->|context.WithTimeout if opts.Timeout > 0| ExecCmd["exec.CommandContext(ctx, argv...)"]
     ExecCmd --> Process[(subprocess)]
     Process -->|stdout/stderr buffers, exit code| Run
     Run -->|RunResult, error| Callers[calling package]
 ```
 
-`executil.Run` has no upstream dependency inside `internal/` beyond the standard library (`os/exec`, `context`, `bytes`). Every caller (git worktree/cache/delta operations, the Go module resolver's `go list`/`go mod` invocations, registry source liveness checks, and `ragctl corpus`) builds a `RunOptions` and interprets the returned `RunResult`/error itself — `executil` has no opinion on exit-code semantics beyond "non-zero is not automatically an error."
+`executil.Run` has no upstream dependency inside `internal/` beyond the standard library (`os/exec`, `context`, `bytes`). Every caller (git mirror/worktree/delta operations, the Go module resolver's `go list` and `go env` invocations, registry source liveness checks, `ragctl corpus`, the managed Qdrant container bootstrap, and the local module-cache probes) builds a `RunOptions` and interprets the returned `RunResult`/error itself — `executil` has no opinion on exit-code semantics beyond "non-zero is not automatically an error."
 
 ## Walkthrough
 
@@ -34,12 +38,13 @@ The Go module resolver needs the full dependency graph for a project. It shells 
    opts := executil.RunOptions{
        Dir:     "/Users/jin/proj/myservice",
        Args:    []string{"go", "list", "-m", "-json", "all"},
-       Timeout: 30 * time.Second,
+       Timeout: 60 * time.Second,
+       Env:     []string{"GOFLAGS=-mod=mod", "GOWORK=off", "GOTOOLCHAIN=local"},
    }
    result, err := executil.Run(ctx, opts)
    ```
 
-2. `Run` sees `opts.Timeout > 0` and wraps `ctx` with `context.WithTimeout(ctx, 30*time.Second)` (internal/executil/run.go), then builds `exec.CommandContext(ctx, "go", "list", "-m", "-json", "all")` with `cmd.Dir` set to `opts.Dir` (internal/executil/run.go). `opts.Env` is empty here, so `cmd.Env` is left at its zero value and the subprocess inherits the current process's environment.
+2. `Run` sees `opts.Timeout > 0` and wraps `ctx` with `context.WithTimeout(ctx, 60*time.Second)` (internal/executil/run.go), then builds `exec.CommandContext(ctx, "go", "list", "-m", "-json", "all")` with `cmd.Dir` set to `opts.Dir` (internal/executil/run.go). `opts.Env` is non-empty, so `cmd.Env` becomes the current process's environment with those three variables appended (later entries win).
 
 3. Stdout and stderr are captured into in-memory buffers (internal/executil/run.go), then `cmd.Run()` executes.
 
@@ -64,7 +69,7 @@ RunResult{
 }, nil
 ```
 
-`err == nil` and `result.ExitCode == 0` (internal/executil/run.go, 70), so the resolver proceeds to decode `result.Stdout` as a stream of JSON module records.
+`err == nil` and `result.ExitCode == 0`, so the resolver proceeds to decode `result.Stdout` as a stream of JSON module records.
 
 **Non-zero exit case.** Run the same call from a directory with no `go.mod`. `cmd.Run()` fails with an `*exec.ExitError`. Since `ctx.Err() == nil` (no timeout/cancellation happened), `Run` takes the `exitErr` branch (internal/executil/run.go):
 
@@ -76,7 +81,7 @@ RunResult{
 }, nil
 ```
 
-Note `err` is still `nil` — a non-zero exit is not an error by this package's contract (internal/executil/run.go in this doc; internal/executil/run.go in source). The resolver must inspect `result.ExitCode` itself to decide this run failed, then surface `result.Stderr` in its own error message. If instead the 30s timeout had elapsed, `ctx.Err()` would be non-nil and `Run` would return `(result, fmt.Errorf("executil: run [go list -m -json all]: %w", context.DeadlineExceeded))` (internal/executil/run.go) — a real Go error, distinguishable from the exit-code case above.
+Note `err` is still `nil` — a non-zero exit is not an error by this package's contract. The resolver must inspect `result.ExitCode` itself to decide this run failed, then surface `result.Stderr` in its own error message. If instead the 60s timeout had elapsed, `ctx.Err()` would be non-nil and `Run` would return `(result, fmt.Errorf("executil: run [go list -m -json all]: %w", context.DeadlineExceeded))` (internal/executil/run.go) — a real Go error, distinguishable from the exit-code case above.
 
 ## Notes
 

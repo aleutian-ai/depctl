@@ -36,14 +36,11 @@ func (v dependencyVersion) key() string {
 //   - no "latest"-reason reference
 //   - no "manual_pin"-reason reference
 //   - a "grace_period" reference exists and now is past its expiry
-//   - it is not the active generation for that dependency+backendName
+//
+// Being active does not protect a version (ADR-012, see below); gc.Run
+// clears the active pointer itself. backendName is currently unused.
 //
 // Pure over store reads: no deletion happens here (RET-004).
-//
-// backendName isn't part of the ticket's sketched signature — checking
-// "not the active generation" needs one, since active-generation
-// pointers are backend-scoped (VEC-003), and PlanGC can't guess which
-// backend the caller means.
 //
 // The candidate set itself is discovered via ListAllReferences rather
 // than "iterating the dependency_versions bucket" the design sketch

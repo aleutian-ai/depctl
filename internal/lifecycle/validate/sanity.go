@@ -23,8 +23,9 @@ func DefaultSanityConfig() SanityConfig {
 	return SanityConfig{MinObjectCountRatio: 0.5, MaxChunkCountRatio: 3.0, MaxParserErrorRate: 0.05}
 }
 
-// Sanity compares candidate's object/chunk counts against prior (the
-// dependency's previously active generation, if any) and blocks
+// Sanity compares candidate's object/chunk counts against prior (sync
+// passes the dependency's most recently promoted generation of any other
+// version, if any) and blocks
 // promotion if the candidate looks implausible — e.g. an object count
 // collapse from 18,000 to 220 without genuine cause. If prior is nil
 // (first sync for this dependency), there's nothing to compare against

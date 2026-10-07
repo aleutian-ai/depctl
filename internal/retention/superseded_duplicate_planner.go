@@ -31,12 +31,9 @@ type tupleKey struct {
 // narrower cleanup, distinct from PlanGC's reference/grace-period path
 // and from PlanOrphanGC's never-promoted path. It never selects a
 // SUPERSEDED generation whose (ecosystem, package, version) tuple has no
-// currently-ACTIVE generation — that's the ordinary "an older version
-// was superseded by a newer one" case, and internal/query/search.go's
-// promoted-version check (ACTIVE or SUPERSEDED both count as eligible)
-// depends on that older version's own generation staying present so it
-// remains queryable (VALID-002's multi-project scenario). Only a
-// same-version duplicate is unconditionally safe: its content is, by
+// currently-ACTIVE generation: with nothing serving that version, it is
+// left to PlanGC's reference/grace-period rules. Only a same-version
+// duplicate is unconditionally safe: its content is, by
 // construction, identical to whichever generation for that exact
 // version *is* now ACTIVE, so deleting it changes nothing about what
 // search can return — unlike PlanGC/PlanOrphanGC, this needs no grace

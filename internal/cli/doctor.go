@@ -26,9 +26,8 @@ import (
 )
 
 // staleJobAge is how long a job may sit in RUNNING before doctor flags
-// it. ragctl has no job leases — jobs run synchronously inside a single
-// CLI invocation — so a RUNNING job this old means that process died
-// mid-run.
+// it. ragctl has no job leases, so a RUNNING job this old means the
+// daemon running it died or was stopped mid-run.
 const staleJobAge = time.Hour
 
 // resolverExecutables maps an ecosystem to the executable its resolver
@@ -43,6 +42,7 @@ var resolverExecutables = map[domain.Ecosystem]string{
 // status.
 type Severity int
 
+// Severities, mildest first; each value is also doctor's exit code.
 const (
 	SeverityOK Severity = iota
 	SeverityWarning
@@ -468,18 +468,6 @@ func checkBackendReplicas(ctx context.Context, env *doctorEnv) (Severity, string
 	return SeverityOK, fmt.Sprintf("%d complete", len(pointers))
 }
 
-// checkEmptyActiveGenerations is POINT-003: a collection populated
-// before POINT-001's point-ID fix can hold an ACTIVE generation whose
-// points were silently overwritten by a sibling (two generations with
-// byte-identical content used to collide on one shared point). It
-// reports as synced (its manifest, replica, and bbolt state all look
-// fine — checkActiveManifests/checkBackendReplicas above pass) but a
-// search against it returns nothing. Scoped deliberately to the exact-
-// zero case, not a fuzzy "far fewer than expected" threshold: GEN-003's
-// content-reuse dedup means a legitimate generation can share most of
-// its points with an earlier one, so a lower-than-manifest count isn't
-// on its own evidence of anything wrong — zero, for a generation whose
-// own manifest claims real chunks, always is.
 // emptyGenerationsCheckBudget bounds checkEmptyActiveGenerations' own
 // work independently of the whole `doctor` request's timeout (OPS-003,
 // epic 61): this check makes one real network call per active
@@ -495,6 +483,18 @@ var emptyGenerationsCheckBudget = 30 * time.Second
 // with worker count against a real backend, not generation count.
 const emptyGenerationsConcurrency = 8
 
+// checkEmptyActiveGenerations is POINT-003: a collection populated
+// before POINT-001's point-ID fix can hold an ACTIVE generation whose
+// points were silently overwritten by a sibling (two generations with
+// byte-identical content used to collide on one shared point). It
+// reports as synced (its manifest, replica, and bbolt state all look
+// fine — checkActiveManifests/checkBackendReplicas above pass) but a
+// search against it returns nothing. Scoped deliberately to the exact-
+// zero case, not a fuzzy "far fewer than expected" threshold: GEN-003's
+// content-reuse dedup means a legitimate generation can share most of
+// its points with an earlier one, so a lower-than-manifest count isn't
+// on its own evidence of anything wrong — zero, for a generation whose
+// own manifest claims real chunks, always is.
 func checkEmptyActiveGenerations(ctx context.Context, env *doctorEnv) (Severity, string) {
 	pointers, sev, detail, ok := activePointers(ctx, env)
 	if !ok {
@@ -627,18 +627,12 @@ func checkEmptyActiveGenerations(ctx context.Context, env *doctorEnv) (Severity,
 // stuck. A var so tests can shrink it.
 var referencedButNeverBuiltGrace = 5 * time.Minute
 
-// checkReferencedButNeverBuilt is OPS-005 (epic 61): a kill or crash
-// landing after a new dependency's reference is recorded but before its
-// matching build ever reaches ACTIVE leaves it permanently un-retriable —
-// internal/planner/planner.go's Plan emits ActionNoop unconditionally
-// once a reference exists at the current version, regardless of whether
-// an active generation has ever existed at all. Live-found (STRESS-006,
-// epic 49): no existing doctor check catches this, since it isn't about
-// an active generation being wrong (checkEmptyActiveGenerations's job) —
-// there's no active generation at all to inspect. `ragctl describe` was
-// live-confirmed not to help either — it only reports a dependency's
-// currently-active generation, so a referenced-but-never-built one is
-// invisible there too, not flagged as a problem.
+// checkReferencedButNeverBuilt (OPS-005) reports dependency versions a
+// project references that have no active generation. Since PLAN-005 every
+// sync retries them, so one still listed here keeps failing to build; one
+// recorded as having no docs source is only a warning. No other check
+// sees this state: there is no active generation to inspect, and
+// `ragctl describe` only shows active generations.
 func checkReferencedButNeverBuilt(ctx context.Context, env *doctorEnv) (Severity, string) {
 	if env.store == nil {
 		return notChecked("control DB")

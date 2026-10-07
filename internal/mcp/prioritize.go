@@ -109,6 +109,7 @@ func notReady(ctx context.Context, svc QueryService, projectID string, want []st
 
 // --- prioritize_file ---
 
+// PrioritizeFileIn is prioritize_file's input.
 type PrioritizeFileIn struct {
 	ProjectID string `json:"project_id"`
 	File      string `json:"file" jsonschema:"path of the Go file you are working on — absolute, or relative to the project root"`
@@ -122,6 +123,7 @@ type PrioritizedDependency struct {
 	Ready   bool   `json:"ready"`
 }
 
+// PrioritizeFileOut is prioritize_file's result.
 type PrioritizeFileOut struct {
 	File          string                  `json:"file"`
 	Imports       int                     `json:"imports"`

@@ -1,8 +1,8 @@
 // Package discover finds candidate knowledge sources for a package from
 // its own ecosystem's structured metadata (npm's repository field,
 // PyPI's project_urls/home_page). Results are never applied to a loaded
-// registry automatically — see REG-006 — only proposed for a human to
-// turn into a real manifest.
+// registry automatically — `ragctl registry discover` only prints them as a
+// draft manifest for a human to review.
 package discover
 
 import (

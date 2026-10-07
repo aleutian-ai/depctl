@@ -535,3 +535,27 @@ func TestStatusTalliesActiveAndPendingGenerations(t *testing.T) {
 		t.Errorf("Projects = %+v, want proj_1->/repo1 and proj_2->/repo2 (both listed even though proj_2 is unresolved)", status.Projects)
 	}
 }
+
+// A rebuild leaves the version's previous generation in the index until
+// GC collects it. latest and all-retained searches must, like project
+// mode, see only the active generation, never a mix of both builds.
+func TestLatestAndAllRetainedSearchOnlyTheActiveGeneration(t *testing.T) {
+	env := newTestEnv(t)
+	env.seedChunk(t, domain.EcosystemGo, "example.com/dep", "v1", "gen-old", "stale", "stale build")
+	env.seedChunk(t, domain.EcosystemGo, "example.com/dep", "v1", "gen-new", "fresh", "fresh build") // now the active one
+	env.control.refs = append(env.control.refs, domain.VersionReference{ProjectID: "p", Ecosystem: domain.EcosystemGo, Package: "example.com/dep", Version: "v1", Reason: domain.ReferenceReasonLatest})
+
+	for _, mode := range []QueryMode{ModeLatest, ModeAllRetained} {
+		res, err := env.svc.SearchKnowledge(context.Background(), Query{Text: "build", Dependency: "example.com/dep", Mode: mode, TopK: 10})
+		if err != nil {
+			t.Fatalf("%s search: %v", mode, err)
+		}
+		if len(res.Chunks) != 1 || res.Chunks[0].ChunkID != "fresh" {
+			var ids []string
+			for _, c := range res.Chunks {
+				ids = append(ids, c.ChunkID+"@"+c.Generation)
+			}
+			t.Errorf("%s search = %v, want only the active generation's chunk [fresh@gen-new]", mode, ids)
+		}
+	}
+}

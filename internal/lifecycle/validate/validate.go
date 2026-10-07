@@ -1,7 +1,7 @@
 // Package validate implements ragctl's deterministic pre-promotion
 // checks (VAL-001..003): structural completeness, sanity thresholds
 // against the prior active generation, and a version-correctness smoke
-// test against the live vector backend. Everything here is deterministic
+// test against the live search index. Everything here is deterministic
 // and testable without an LLM, per the project's core development
 // principle — no semantic/relevance scoring belongs in this package.
 package validate

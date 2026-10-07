@@ -18,7 +18,7 @@ One runnable demo per integration. Each was run exactly as written (2026-10-04; 
 
 - `ragctl` on your `PATH` (`go build -o build/ragctl ./cmd/ragctl`, then add `build/` to `PATH`).
 - [Podman](https://podman.io/) with a running machine.
-- [Ollama](https://ollama.com/) running locally. ragctl pulls its own embedding model on first use. The memory-system demos also need:
+- [Ollama](https://ollama.com/) running locally (the keyword demo doesn't need it). ragctl pulls its own embedding model on first use. The memory-system demos also need:
 
   ```bash
   ollama pull nomic-embed-text

@@ -1,6 +1,6 @@
 # Feature: syncing a dependency version
 
-This is ragctl's core write path — turning "project X depends on package Y at version Z" into a validated, queryable set of vector-embedded chunks. It's the one flow that touches every store (bbolt, Badger, the vector backend) and almost every pipeline package. `docs/architecture.md`'s "`ragctl plan` / `ragctl sync` flow" and "`ragctl gc` flow" sections cover the CLI-command boundary; this doc traces the same territory one layer deeper, across package boundaries, for a single `SYNC_VERSION` action end to end — including the failure/force paths that the per-command diagrams don't show.
+This is ragctl's core write path — turning "project X depends on package Y at version Z" into a validated, queryable set of indexed chunks. It's the one flow that touches every store (bbolt, Badger, and the search index — the vector store and/or the keyword index, depending on `retrieval.mode`) and almost every pipeline package. `docs/architecture.md`'s "`ragctl plan` / `ragctl sync` flow" and "`ragctl gc` flow" sections cover the CLI-command boundary; this doc traces the same territory one layer deeper, across package boundaries, for a single `SYNC_VERSION` action end to end — including the failure/force paths that the per-command diagrams don't show.
 
 Related package docs: [cli](../internal/cli.md), [planner](../internal/planner.md), [data-generation](../internal/data-generation.md), [source-git](../internal/source-git.md), [normalize](../internal/normalize.md), [data-fingerprint](../internal/data-fingerprint.md), [data-chunk](../internal/data-chunk.md), [embedding](../internal/embedding.md), [backend](../internal/backend.md), [lifecycle](../internal/lifecycle.md), [control](../internal/control.md), [data-badger](../internal/data-badger.md).
 
@@ -65,16 +65,20 @@ sequenceDiagram
     Rep->>Badger: ListGenerationChunks
     loop batches of 64
         Rep->>Badger: GetKnowledgeObject (parent, cached per call)
-        Rep->>Emb: Embed(texts)
+        opt embedder in use
+            Rep->>Emb: Embed(texts)
+        end
         Rep->>VB: Upsert(points)\nmetadata stamped from gen/sources, never the object
         Rep->>Bbolt: PutBackendReplica (progress after every batch)
     end
 
     Sync->>Val: Run(gen, manifest, replica, prior gen/manifest, embedder, vb)
     Val->>Val: Structural (counts self-consistent)
-    Val->>Val: Sanity (vs. prior active generation; auto-pass if none)
-    Val->>Emb: Embed 5 sample chunks
-    Val->>VB: Query filtered to gen.ID
+    Val->>Val: Sanity (vs. the most recently promoted generation\nof another version of this dependency; auto-pass if none)
+    opt embedder in use
+        Val->>Emb: Embed 5 sample chunks
+    end
+    Val->>VB: Query 5 samples (by vector or text) filtered to gen.ID
     Val->>Val: VersionCorrectness (every hit matches gen's version)
     Val->>Bbolt: setState VALIDATING -> READY or FAILED
 
@@ -85,9 +89,19 @@ sequenceDiagram
         Sync-->>Sync: error "validation failed: [...]"
     else all pass
         Sync->>Prom: Promote(gen, backendName, results)
-        Prom->>Bbolt: PromoteGeneration\n(one db.Update txn: supersede old active gen,\nactivate candidate, swap active_generations pointer)
+        Prom->>Bbolt: PromoteGeneration\n(one db.Update txn: supersede this exact version's\nprevious active gen, if any (a rebuild),\nactivate candidate, swap its active_generations pointer)
     end
 ```
+
+### Which index a sync writes (`retrieval.mode`)
+
+`VB` above is the CLI's `searchIndex` (`internal/cli/retrieval.go`): it presents every index the current mode writes as one `backend.VectorBackend`, so `Replicate`, validation and promotion don't know which indexes exist. `getPipeline()` picks the shape per run:
+
+- **`keyword`**: a keyword-only pipeline with a nil embedder. Points carry `Text` (chunk content; API docs lead with their qualified symbol) and no vector, and the keyword index (`keyword.db`, plain-Go BM25) indexes them. Ollama is never contacted.
+- **`auto`** (fresh installs): the keyword index plus, when Ollama and the vector store are both ready, the embedder and the vector store. If either isn't ready, the sync still succeeds keyword-only.
+- **`vector`** (also what a config without the key means): embedder and vector store only; a sync fails if either isn't ready.
+
+Before the action loop, `RunSync` backfills: in `auto`/`keyword` mode `backfillKeyword` adds keyword entries for versions built without them, and in `auto`/`vector` mode `backfillVectors` adds vectors to versions first built keyword-only, once embeddings are available (both via `generation.AddToIndex`). Both are best-effort; a failure is printed and retried on the next sync.
 
 ## State across the three stores, at each stage
 
@@ -95,15 +109,15 @@ sequenceDiagram
 |---|---|---|---|
 | `Create` | `Generation{PLANNED}` written | empty `Manifest` skeleton written | untouched |
 | `Build` (ACQUIRING→NORMALIZING→INDEXING) | `Generation.State` advances | `KnowledgeObject`s, `Chunk`s, content-hash index, final `Manifest` counts | untouched |
-| `Replicate` | `BackendReplica` progress per batch | chunks read back (to get text for embedding) | points upserted, namespace ensured |
+| `Replicate` | `BackendReplica` progress per batch | chunks read back (to get text for embedding and keyword indexing) | points upserted, namespace ensured |
 | `validate.Run` | `Generation.State` → `VALIDATING`/`READY`/`FAILED` | manifest read for count comparisons | queried (not written) to prove points are real and correctly tagged |
-| `promote.Promote` | one transaction: old active generation superseded, candidate activated, `active_generations` pointer swapped | untouched | untouched |
+| `promote.Promote` | one transaction: this version's previous active generation (if any) superseded, candidate activated, its `active_generations` pointer swapped. Other versions of the dependency stay active (ADR-012) | untouched | untouched |
 
 ## Failure and skip paths
 
-- **`--dry-run`**: `RunSync` is never called at all — `cli.runSync` prints `computePlans`' output and returns (`internal/cli/sync.go`). Nothing in this doc's pipeline executes.
-- **`--offline`**: each `SYNC_VERSION` action is reported `SKIP` and counted, without ever calling `getPipeline()` — no embedder/vector-backend/git-cache is constructed, so a fully offline `sync` run makes zero network calls even indirectly (`internal/cli/sync.go`).
-- **Lazy pipeline construction**: `getPipeline()` (`internal/cli/sync.go`) builds the embedder/vector-backend/git-cache exactly once, on the first action that needs it, and reuses it for the rest of the run — a plan with zero `SYNC_VERSION` actions never probes the embedder's `Dimensions()`, which is itself a live call.
+- **`--dry-run`**: `RunSync` is never called at all — `cli.runSync` asks the daemon for its plan, prints it and returns (`internal/cli/sync.go`). Nothing in this doc's pipeline executes.
+- **`--offline`**: each `SYNC_VERSION` action is reported `SKIP` and counted, without ever calling `getPipeline()` — no embedder or search index is constructed and vector backfill is skipped, so a fully offline `sync` run makes zero network calls even indirectly (keyword backfill still runs; it's local) (`internal/cli/sync.go`).
+- **Lazy pipeline construction**: `getPipeline()` (`internal/cli/sync.go`) builds the embedder and search index exactly once, on the first action that needs it, and reuses them for the rest of the run (the git cache is passed in by the caller) — a plan with zero `SYNC_VERSION` actions and nothing to backfill never probes the embedder's `Dimensions()`, which is itself a live call.
 - **Any `Build`/`Replicate` stage failure**: the generation is marked `FAILED` with the error persisted (wrapped in `ErrAcquisition`/`ErrNormalization`/`ErrReplication`); `syncVersion` returns the error, `RunSync` reports `FAIL` for that action and continues to the next one — one dependency's failure never aborts the whole `sync` run.
 - **`--force`**: overrides only a `Sanity` (VAL-002) failure — a plausible-but-flagged count change. `Structural` and `VersionCorrectness` failures always block promotion; they indicate a broken replica, not something a human judgment call should override.
 - **No registry manifest**: `fallbackManifest` (`internal/cli/sync.go`) derives a single `git` source for a Go module, tagged `Authority: 0` (still `TrustRepository`, since the content itself isn't less authoritative — only its ranking) — either directly, when the module path is already shaped like `github.com/org/repo`, or via `resolveVanityImport`'s `go-import` meta-tag lookup (GIT-008) for anything else. Anything else with no manifest match, or a non-Go ecosystem, fails immediately with "no registry manifest for `<dep>`", never reaching `generation.Create`.
