@@ -182,3 +182,18 @@ func redactDSN(endpoint string) string {
 	}
 	return u.String()
 }
+
+// readyWithin reports whether the vector store is ready, first waiting up
+// to timeout for a probe or managed-container start still in progress.
+// nil counts as ready, as in checkReady.
+func (r *vectorReadiness) readyWithin(timeout time.Duration) bool {
+	if r == nil {
+		return true
+	}
+	for deadline := time.Now().Add(timeout); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+		if state, _ := r.get(); state != vectorStateChecking && state != vectorStateStarting {
+			break
+		}
+	}
+	return r.checkReady() == nil
+}

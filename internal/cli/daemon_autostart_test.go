@@ -9,8 +9,10 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"aleutian-ai/ragctl/internal/config"
+	bboltstore "aleutian-ai/ragctl/internal/control/bbolt"
 	"aleutian-ai/ragctl/internal/daemon/client"
 )
 
@@ -83,6 +85,21 @@ func stopRunningDaemon(t *testing.T) {
 	waitFor(t, "the auto-started daemon to exit", func() bool {
 		_, err := client.Dial(context.Background(), socket)
 		return errors.Is(err, client.ErrNotRunning)
+	})
+	// The daemon closes its socket before it closes its stores, so a test
+	// that opens control.db right away can still lose the lock to it on a
+	// slow machine (seen on CI-like 2-CPU runs under -race).
+	path, err := controlDBPath()
+	if err != nil {
+		return
+	}
+	waitFor(t, "the auto-started daemon to release control.db", func() bool {
+		store, err := bboltstore.OpenWithTimeout(path, 50*time.Millisecond)
+		if err != nil {
+			return false
+		}
+		store.Close()
+		return true
 	})
 }
 

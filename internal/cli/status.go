@@ -12,6 +12,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"aleutian-ai/ragctl/internal/backend"
 	"aleutian-ai/ragctl/internal/config"
 	bboltstore "aleutian-ai/ragctl/internal/control/bbolt"
 	"aleutian-ai/ragctl/internal/daemon/api"
@@ -217,8 +218,18 @@ func diskUsage(path string) (int64, error) {
 // probeBackend runs the configured backend's health check; nil means
 // healthy. An unsupported backend name is reported the same way as an
 // unreachable one — neither can serve queries.
+//
+// It probes the vector store, or in keyword mode (which has none) the
+// keyword index. Vector readiness relies on this: a managed Qdrant is
+// started only when the vector store itself is unreachable.
 func probeBackend(ctx context.Context, cfg config.Config) error {
-	vb, err := buildVectorBackend(cfg)
+	var vb backend.VectorBackend
+	var err error
+	if usesEmbedder(cfg) {
+		vb, err = buildVectorBackend(cfg)
+	} else {
+		vb, err = buildSearchIndex(cfg, false)
+	}
 	if err != nil {
 		return err
 	}

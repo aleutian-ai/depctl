@@ -34,7 +34,8 @@ func SampleChunks(chunks []domain.Chunk) []domain.Chunk {
 // replica isn't cross-contaminated with another version's data. An empty
 // result for a chunk that was just embedded from the generation's own
 // content is itself a failure: it means the replica is missing content
-// it should have.
+// it should have. With a nil embedder (keyword-only search, LOCAL-001)
+// each chunk's own text is the query instead.
 func VersionCorrectness(ctx context.Context, embedder embedding.Embedder, vb backend.VectorBackend, ns backend.Namespace, gen domain.Generation, sampleChunks []domain.Chunk) (StructuralResult, error) {
 	if len(sampleChunks) == 0 {
 		return StructuralResult{Passed: true}, nil
@@ -44,12 +45,16 @@ func VersionCorrectness(ctx context.Context, embedder embedding.Embedder, vb bac
 	for i, c := range sampleChunks {
 		texts[i] = string(c.Content)
 	}
-	vectors, err := embedder.Embed(ctx, texts)
-	if err != nil {
-		return StructuralResult{}, fmt.Errorf("validate: embed sample chunks: %w", err)
-	}
-	if len(vectors) != len(sampleChunks) {
-		return StructuralResult{}, fmt.Errorf("validate: embedder returned %d vectors for %d sample chunks", len(vectors), len(sampleChunks))
+	vectors := make([][]float32, len(sampleChunks))
+	if embedder != nil {
+		var err error
+		vectors, err = embedder.Embed(ctx, texts)
+		if err != nil {
+			return StructuralResult{}, fmt.Errorf("validate: embed sample chunks: %w", err)
+		}
+		if len(vectors) != len(sampleChunks) {
+			return StructuralResult{}, fmt.Errorf("validate: embedder returned %d vectors for %d sample chunks", len(vectors), len(sampleChunks))
+		}
 	}
 
 	var failures []string
@@ -59,6 +64,7 @@ func VersionCorrectness(ctx context.Context, embedder embedding.Embedder, vb bac
 		result, err := vb.Query(ctx, backend.QueryRequest{
 			Namespace: ns.Name,
 			Vector:    vectors[i],
+			Text:      texts[i],
 			TopK:      10,
 			Filter:    &backend.Filter{Generation: gen.ID},
 		})

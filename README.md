@@ -13,7 +13,7 @@ ragctl is not the only locally-hosted or privacy-first option in this space, and
 ## Requirements
 
 - Go 1.25.6+
-- [Ollama](https://ollama.com/) running locally — ragctl ships with Ollama + [`nomic-embed-text-v2-moe`](https://ollama.com/library/nomic-embed-text-v2-moe) (~957MB, Apache-2.0) as its default local embedding path, and auto-pulls that model itself, in the background, the first time it's needed — no manual `ollama pull` required as long as Ollama itself is installed and running. Only `sync`/search actually need it, and only once there's real work to embed — `scan`/`project`/`deps`/`plan`/`doctor` and MCP's other tools work without it. If Ollama isn't reachable, `ragctl daemon status` says so plainly.
+- (recommended) [Ollama](https://ollama.com/) running locally, for semantic search. ragctl uses [`nomic-embed-text-v2-moe`](https://ollama.com/library/nomic-embed-text-v2-moe) (~957MB, Apache-2.0) and pulls it itself, in the background, the first time it's needed. **Without Ollama, ragctl still works:** it searches by keyword instead, and adds semantic search on the first sync after Ollama becomes available. See [Search modes](#search-modes).
 - Nothing else by default. ragctl keeps its search index in a file next to its other data, with no vector database or container to run. To use a vector database you already run (Qdrant, pgvector, Weaviate) or a ragctl-managed Qdrant instead, see [Integrations](#integrations) below.
 - (optional) [Podman](https://podman.io/) or [Docker](https://www.docker.com/) — only needed for a ragctl-managed Qdrant (`ragctl init --vector-backend qdrant`), plus the reference container and cross-platform tests, see below.
 
@@ -55,6 +55,20 @@ Using [opencode](https://opencode.ai) specifically? See [docs/opencode-usage.md]
 - **`sync_project` never blocks past ~90 seconds**, no matter how long the underlying sync actually takes. A large first sync returns a `still_running` status instead of hanging past your client's own timeout, while the sync keeps going in the background — check back with `list_project_dependencies` or call the tool again rather than assuming it failed.
 - **A first sync only fetches what's actually needed.** `ragctl` clones each dependency blobless and sparse-checkout-scoped to the doc-shaped files its normalizers read (Markdown, plaintext, license, and source for godoc extraction) — not that repo's full working tree or history content.
 - **`explain_call_site` resolves a source location straight to version-correct evidence.** Give it a file/line/column instead of a dependency name and question, and it figures out what that call is actually referring to (via a real `go/packages` type-checked load, Go only for now) before searching — useful when an agent doesn't yet know *which* dependency a piece of code depends on. It resolves against whatever project the MCP server's own working directory is — no JIT-sync-on-miss like `search_dependency_docs`, and it can't resolve calls into the standard library (ragctl doesn't track that as a "dependency").
+
+## Search modes
+
+`retrieval.mode` in the config decides how ragctl searches a dependency's docs:
+
+| Mode | Needs Ollama | What it does |
+|---|---|---|
+| `auto` (default) | No | Semantic search with Ollama embeddings when Ollama is available, keyword search when it isn't. Every sync also builds the keyword index, and versions synced without Ollama get their vectors on the first sync after it's back, with no rebuild. |
+| `vector` | Yes | Semantic search only, as before `retrieval.mode` existed. A config without the key means `vector`, so existing installs don't change. |
+| `keyword` | No | Keyword (BM25) search only. Nothing ever contacts Ollama or a vector store. |
+
+Pick one at setup with `ragctl init --retrieval-mode keyword`, or edit `retrieval.mode` and run `ragctl daemon stop`.
+
+Keyword search is built for code docs. It matches identifiers whole and in parts (`pgxpool.NewWithConfig`, `NewRandom`, `snake_case`), and it's strongest when a question uses the docs' own words. Semantic search is stronger on paraphrase ("run a function inside a transaction" finding `BeginFunc`). On a small comparison (uuid and pgx, ten questions) each found about half of the right docs in its top three, with different strengths. Both are always scoped to the exact version your project uses.
 
 ## Integrations
 

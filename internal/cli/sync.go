@@ -222,14 +222,42 @@ func RunSync(ctx context.Context, coordinator *daemon.BuildCoordinator, store *b
 	// (not the readiness checks, which can run concurrently) — COORD-003
 	// made getPipeline reachable from multiple worker goroutines at
 	// once, and an unguarded read/write of pipeline would race.
+	//
+	// retrieval.mode (LOCAL-002) decides what gets built: keyword never
+	// touches the embedder or vector store, so it has no readiness gate
+	// at all; vector requires both, as before; auto builds with vectors
+	// when both are ready and keyword-only otherwise (backfilled later).
 	var pipelineMu sync.Mutex
-	var pipeline *syncPipeline
-	getPipeline := func() (*syncPipeline, error) {
-		if err := readiness.checkReady(); err != nil {
+	var pipeline, keywordPipeline *syncPipeline
+	mode := cfg.Retrieval.ModeOrDefault()
+	getKeywordPipeline := func() (*syncPipeline, error) {
+		pipelineMu.Lock()
+		defer pipelineMu.Unlock()
+		if keywordPipeline != nil {
+			return keywordPipeline, nil
+		}
+		idx, err := buildSearchIndex(cfg, false)
+		if err != nil {
 			return nil, err
 		}
-		if err := vecReadiness.checkReady(); err != nil {
-			return nil, err
+		keywordPipeline = &syncPipeline{vb: idx, gitCache: gitCache, ns: backend.Namespace{Name: cfg.Vector.Collection}}
+		return keywordPipeline, nil
+	}
+	getPipeline := func() (*syncPipeline, error) {
+		switch mode {
+		case config.RetrievalKeyword:
+			return getKeywordPipeline()
+		case config.RetrievalAuto:
+			if !vectorsReady(readiness, vecReadiness) {
+				return getKeywordPipeline()
+			}
+		default:
+			if err := readiness.checkReady(); err != nil {
+				return nil, err
+			}
+			if err := vecReadiness.checkReady(); err != nil {
+				return nil, err
+			}
 		}
 		pipelineMu.Lock()
 		defer pipelineMu.Unlock()
@@ -240,7 +268,7 @@ func RunSync(ctx context.Context, coordinator *daemon.BuildCoordinator, store *b
 		if err != nil {
 			return nil, err
 		}
-		vb, err := buildVectorBackend(cfg)
+		idx, err := buildSearchIndex(cfg, true)
 		if err != nil {
 			return nil, err
 		}
@@ -250,7 +278,8 @@ func RunSync(ctx context.Context, coordinator *daemon.BuildCoordinator, store *b
 		}
 		pipeline = &syncPipeline{
 			embedder: embedder,
-			vb:       vb,
+			vb:       idx,
+			vector:   idx.vector,
 			gitCache: gitCache,
 			ns:       backend.Namespace{Name: cfg.Vector.Collection, Dimensions: dims, Distance: "cosine"},
 		}
@@ -260,6 +289,25 @@ func RunSync(ctx context.Context, coordinator *daemon.BuildCoordinator, store *b
 	reg, err := loadRegistryForCLI(ctx)
 	if err != nil {
 		return 0, 0, 0, fmt.Errorf("load registry: %w", err)
+	}
+
+	// Versions built before this install used keyword search get keyword
+	// entries (local, no model), and versions synced while embeddings
+	// were unavailable get their vectors now that they are. Vector
+	// backfill is checked from the store first, so a sync with nothing to
+	// backfill still makes no network calls. Both are best-effort: a
+	// failure never fails the sync, and the next one retries.
+	if mode != config.RetrievalVector {
+		if err := backfillKeyword(ctx, store, badgerStore, cfg, reg, out); err != nil {
+			fmt.Fprintf(out, "%-12s %v (will retry on the next sync)\n", "KEYWORD", err)
+		}
+	}
+	if !offline && mode != config.RetrievalKeyword && hasKeywordOnlyGenerations(ctx, store, cfg) {
+		if p, err := getPipeline(); err == nil && p.embedder != nil {
+			if err := backfillVectors(ctx, store, badgerStore, cfg, reg, p.embedder, p.vector, p.ns, out); err != nil {
+				fmt.Fprintf(out, "%-12s %v (will retry on the next sync)\n", "VECTORS", err)
+			}
+		}
 	}
 
 	// Flattened into one ordered queue up front, matching exactly the
@@ -576,9 +624,12 @@ func addReference(ctx context.Context, store *bboltstore.Store, action planner.A
 // syncPipeline bundles the network-touching providers syncVersion needs,
 // built once (lazily) and reused across every SYNC_VERSION action in one
 // `ragctl sync` run.
+// syncPipeline is what one sync builds with. embedder and vector are nil
+// for a keyword-only build; vb is every index the build writes.
 type syncPipeline struct {
 	embedder embedding.Embedder
 	vb       backend.VectorBackend
+	vector   backend.VectorBackend
 	gitCache *git.Cache
 	ns       backend.Namespace
 }

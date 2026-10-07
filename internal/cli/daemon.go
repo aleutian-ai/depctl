@@ -155,7 +155,7 @@ func ensureDaemon(ctx context.Context) (*client.Client, error) {
 	if err := ensureInitialized(ctx); err != nil {
 		return nil, err
 	}
-	if err := spawnDaemonOnce(socket); err != nil {
+	if err := spawnDaemonOnce(ctx, socket); err != nil {
 		return nil, err
 	}
 	return waitForDaemon(ctx, socket)
@@ -270,8 +270,11 @@ var (
 	spawnAttempts = map[string]*spawnAttempt{}
 )
 
-// spawnDaemonOnce runs spawnDaemon at most once per socket at a time:
-// concurrent ensureDaemon callers in this process (e.g. several commands
+// spawnDaemonOnce runs spawnDaemon at most once per socket at a time,
+// and the attempt lasts until the new daemon answers on its socket, not
+// just until its process starts: a caller arriving in between would
+// otherwise find no attempt and no daemon yet, and spawn a second one.
+// Concurrent ensureDaemon callers in this process (e.g. several commands
 // racing to auto-start) share one attempt and its result instead of each
 // spawning their own subprocess to race bolt.Open's file lock. That
 // race is otherwise real: a losing subprocess can sit blocked in the
@@ -281,7 +284,7 @@ var (
 // only closes the window for callers sharing one process; a losing
 // daemon subprocess itself still relies on openControlStoreForDaemonRun's
 // fail-fast timeout to exit before that can happen.
-func spawnDaemonOnce(socket string) error {
+func spawnDaemonOnce(ctx context.Context, socket string) error {
 	spawnMu.Lock()
 	if a, ok := spawnAttempts[socket]; ok {
 		spawnMu.Unlock()
@@ -293,6 +296,9 @@ func spawnDaemonOnce(socket string) error {
 	spawnMu.Unlock()
 
 	a.err = spawnDaemon()
+	if a.err == nil {
+		_, a.err = waitForDaemon(ctx, socket)
+	}
 	close(a.done)
 
 	spawnMu.Lock()
@@ -350,7 +356,7 @@ func ensureInitialized(ctx context.Context) error {
 	if err := requireNoDaemon(ctx); err != nil {
 		return err
 	}
-	return initStores(os.Stderr, "")
+	return initStores(os.Stderr, "", "")
 }
 
 // spawnDaemon starts `ragctl daemon run` detached. Its output goes to
@@ -387,7 +393,11 @@ func spawnDaemon() error {
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("start ragctl daemon: %w", err)
 	}
-	return cmd.Process.Release()
+	// Reap the child whenever it exits (a losing candidate exits within a
+	// second), so a long-running parent like `ragctl serve` doesn't
+	// collect zombie processes.
+	go cmd.Wait()
+	return nil
 }
 
 // waitForDaemon polls the socket until the daemon answers, reporting
@@ -473,6 +483,13 @@ type engine struct {
 	fullQuery     *query.Service
 	fullQueryErr  error
 
+	// keywordQuery is the keyword-only query.Service (LOCAL-002): all of
+	// keyword mode, and auto mode while the embedder isn't ready. It
+	// needs no network, so it's built once without a readiness gate.
+	keywordQueryOnce sync.Once
+	keywordQuery     *query.Service
+	keywordQueryErr  error
+
 	// syncSem is the daemon-wide cap RunSync's daemonSem parameter
 	// enforces (SCOPE-002's known risk) — one instance shared by every
 	// project's Sync call for this engine's whole lifetime, sized once at
@@ -530,15 +547,31 @@ func (e *engine) baseQueryService() *query.Service {
 // were the real build outcome, or every later call would keep
 // replaying that stale answer even once the model finishes
 // downloading.
+//
+// retrieval.mode (LOCAL-002) picks the service per call: keyword mode
+// always uses keyword search; auto uses it whenever the embedder or
+// vector store isn't ready right now; vector mode fails with the
+// readiness error, as before.
 func (e *engine) fullQueryService(ctx context.Context) (*query.Service, error) {
-	if err := e.embeddingReadiness.checkReady(); err != nil {
-		return nil, err
-	}
-	if err := e.vectorReadiness.checkReady(); err != nil {
-		return nil, err
+	switch e.cfg.Retrieval.ModeOrDefault() {
+	case config.RetrievalKeyword:
+		return e.keywordQueryService()
+	case config.RetrievalAuto:
+		if e.embeddingReadiness.checkReady() != nil || e.vectorReadiness.checkReady() != nil {
+			return e.keywordQueryService()
+		}
+	default:
+		if err := e.embeddingReadiness.checkReady(); err != nil {
+			return nil, err
+		}
+		if err := e.vectorReadiness.checkReady(); err != nil {
+			return nil, err
+		}
 	}
 	e.fullQueryOnce.Do(func() {
-		vb, err := buildVectorBackend(e.cfg)
+		// In auto mode this also holds the keyword index, for generations
+		// built without vectors (see searchIndex.Query).
+		vb, err := buildSearchIndex(e.cfg, true)
 		if err != nil {
 			e.fullQueryErr = err
 			return
@@ -557,6 +590,20 @@ func (e *engine) fullQueryService(ctx context.Context) (*query.Service, error) {
 		e.fullQuery = query.New(e.store, e.badgerStore, vb, embedder, ns, e.cfg.Vector.Backend)
 	})
 	return e.fullQuery, e.fullQueryErr
+}
+
+// keywordQueryService returns e's memoized keyword-only query.Service.
+func (e *engine) keywordQueryService() (*query.Service, error) {
+	e.keywordQueryOnce.Do(func() {
+		idx, err := buildSearchIndex(e.cfg, false)
+		if err != nil {
+			e.keywordQueryErr = err
+			return
+		}
+		ns := backend.Namespace{Name: e.cfg.Vector.Collection}
+		e.keywordQuery = query.New(e.store, e.badgerStore, idx, nil, ns, e.cfg.Vector.Backend)
+	})
+	return e.keywordQuery, e.keywordQueryErr
 }
 
 // Status returns the `ragctl status` snapshot, including a live backend
@@ -1397,11 +1444,21 @@ func runDaemonRun(cmd *cobra.Command) error {
 	// needs an embedder (sync, search) gets an immediate, actionable
 	// "still pulling"/"unreachable" answer from embeddingReadiness
 	// instead of triggering — and blocking on — a live pull itself.
+	//
+	// retrieval.mode keyword (LOCAL-002) never uses an embedder or a
+	// vector store, so none of these probes run: no Ollama contact, no
+	// model pull, no managed container.
+	keywordOnly := !usesEmbedder(cfg)
+	if keywordOnly {
+		logf("retrieval: keyword mode (BM25 over a local index); no embedding model or vector store is used")
+	}
 	readiness := newEmbeddingReadiness()
-	if cfg.Embedding.Provider == "ollama" {
+	if cfg.Embedding.Provider == "ollama" && !keywordOnly {
 		readiness.reprobe = ollamaReprober(ctx, cfg, readiness, logf)
 	}
-	go checkEmbeddingReadiness(ctx, cfg, readiness, logf)
+	if !keywordOnly {
+		go checkEmbeddingReadiness(ctx, cfg, readiness, logf)
+	}
 
 	// Same off-request-path treatment for the vector backend (WATCH-015):
 	// a client that needs Qdrant (sync, GC, search) gets an immediate,
@@ -1409,14 +1466,18 @@ func runDaemonRun(cmd *cobra.Command) error {
 	// raw dial error, once per dependency, from deep inside
 	// generation.Replicate.
 	vecReadiness := newVectorReadiness()
-	vecReadiness.reprobe = func() error { return probeBackend(ctx, cfg) }
-	go checkVectorReadiness(ctx, cfg, vecReadiness, logf)
+	if !keywordOnly {
+		vecReadiness.reprobe = func() error { return probeBackend(ctx, cfg) }
+		go checkVectorReadiness(ctx, cfg, vecReadiness, logf)
+	}
 
 	// SAFE-001 (epic 61): warn once, at startup, if this fresh instance's
 	// configured collection already holds data it never wrote — see
 	// checkForeignCollectionData's own doc comment for why this is a
 	// warning, never a refusal.
-	go checkForeignCollectionData(ctx, cfg, store, logf)
+	if !keywordOnly {
+		go checkForeignCollectionData(ctx, cfg, store, logf)
+	}
 
 	engine, err := newEngine(store, badgerStore, cfg, controlPath, badgerPath, readiness, vecReadiness)
 	if err != nil {

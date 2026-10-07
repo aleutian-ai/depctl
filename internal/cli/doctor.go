@@ -311,7 +311,12 @@ func checkConfig(ctx context.Context, env *doctorEnv) (Severity, string) {
 	if env.cfgErr != nil {
 		return SeverityUnhealthy, env.cfgErr.Error()
 	}
-	return SeverityOK, fmt.Sprintf("vector backend %q, embedding model %q", env.cfg.Vector.Backend, env.cfg.Embedding.Model)
+	switch mode := env.cfg.Retrieval.ModeOrDefault(); mode {
+	case config.RetrievalKeyword:
+		return SeverityOK, "retrieval keyword (BM25 over a local index; no embedding model)"
+	default:
+		return SeverityOK, fmt.Sprintf("retrieval %s, vector backend %q, embedding model %q", mode, env.cfg.Vector.Backend, env.cfg.Embedding.Model)
+	}
 }
 
 func checkControlDB(ctx context.Context, env *doctorEnv) (Severity, string) {
@@ -501,7 +506,7 @@ func checkEmptyActiveGenerations(ctx context.Context, env *doctorEnv) (Severity,
 	if env.cfgErr != nil {
 		return notChecked("config")
 	}
-	vb, err := buildVectorBackend(env.cfg)
+	vb, err := buildAllIndexes(env.cfg)
 	if err != nil {
 		return SeverityUnhealthy, err.Error()
 	}
@@ -688,6 +693,12 @@ func checkBackendReachable(ctx context.Context, env *doctorEnv) (Severity, strin
 		return notChecked("config")
 	}
 	target := fmt.Sprintf("%s at %s", env.cfg.Vector.Backend, vectorLocation(env.cfg))
+	if !usesEmbedder(env.cfg) {
+		target = "keyword index"
+		if path, err := keywordIndexPath(env.cfg); err == nil {
+			target = "keyword index at " + path
+		}
+	}
 	if err := probeBackend(ctx, env.cfg); err != nil {
 		return SeverityUnhealthy, fmt.Sprintf("%s: %v", target, err)
 	}
@@ -699,12 +710,16 @@ func checkBackendReachable(ctx context.Context, env *doctorEnv) (Severity, strin
 // stored under a different model can't be searched meaningfully.
 // Generations without a replica are left to checkBackendReplicas.
 func checkEmbeddingModel(ctx context.Context, env *doctorEnv) (Severity, string) {
+	if !usesEmbedder(env.cfg) {
+		return SeverityOK, "not used (retrieval.mode: keyword)"
+	}
 	pointers, sev, detail, ok := activePointers(ctx, env)
 	if !ok {
 		return sev, detail
 	}
 	want := env.cfg.Embedding.Model
 	var mismatched []string
+	keywordOnly := 0
 	for _, p := range pointers {
 		replica, err := env.store.GetBackendReplica(ctx, p.GenerationID, env.cfg.Vector.Backend)
 		switch {
@@ -712,12 +727,19 @@ func checkEmbeddingModel(ctx context.Context, env *doctorEnv) (Severity, string)
 			continue
 		case err != nil:
 			return SeverityUnhealthy, err.Error()
+		case replica.EmbeddingModel == "":
+			// Built without vectors (auto mode, embedder unavailable):
+			// searched by keyword until a sync adds its vectors.
+			keywordOnly++
 		case replica.EmbeddingModel != want:
 			mismatched = append(mismatched, fmt.Sprintf("%s (%s)", pointerLabel(p), replica.EmbeddingModel))
 		}
 	}
 	if len(mismatched) > 0 {
 		return SeverityUnhealthy, fmt.Sprintf("%d active generation(s) were embedded with a different model than the configured %q: %s", len(mismatched), want, summarize(mismatched))
+	}
+	if keywordOnly > 0 {
+		return SeverityOK, fmt.Sprintf("the rest use %q; %d searched by keyword until the next sync with embeddings available adds their vectors", want, keywordOnly)
 	}
 	return SeverityOK, fmt.Sprintf("all active generations use %q", want)
 }
@@ -726,6 +748,9 @@ func checkEmbeddingBackend(ctx context.Context, env *doctorEnv) (Severity, strin
 	if env.cfgErr != nil {
 		return notChecked("config")
 	}
+	if !usesEmbedder(env.cfg) {
+		return SeverityOK, "not used (retrieval.mode: keyword)"
+	}
 	readiness := env.embeddingReadiness
 	if readiness == nil {
 		// No daemon = do a direct, synchronous check instead of reading a cached state.
@@ -733,7 +758,13 @@ func checkEmbeddingBackend(ctx context.Context, env *doctorEnv) (Severity, strin
 		checkEmbeddingReadiness(ctx, env.cfg, readiness, func(string, ...any) {})
 	}
 	state, detail := readiness.get()
-	return embeddingSeverityFor(state), embeddingStatusLabel(string(state), detail)
+	sev, label := embeddingSeverityFor(state), embeddingStatusLabel(string(state), detail)
+	// In auto mode an unavailable embedder is a supported state, not a
+	// fault: search and sync use keyword search meanwhile.
+	if env.cfg.Retrieval.ModeOrDefault() == config.RetrievalAuto && sev != SeverityOK {
+		return SeverityOK, "using keyword search for now (" + label + "); vectors are added on the first sync once it's ready"
+	}
+	return sev, label
 }
 
 func embeddingSeverityFor(state embeddingState) Severity {
@@ -750,6 +781,9 @@ func embeddingSeverityFor(state embeddingState) Severity {
 func checkVectorBackend(ctx context.Context, env *doctorEnv) (Severity, string) {
 	if env.cfgErr != nil {
 		return notChecked("config")
+	}
+	if !usesEmbedder(env.cfg) {
+		return SeverityOK, "not used (retrieval.mode: keyword)"
 	}
 	readiness := env.vectorReadiness
 	if readiness == nil {

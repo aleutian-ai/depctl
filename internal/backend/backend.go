@@ -78,10 +78,13 @@ type PointMetadata struct {
 // chunk ID, and a point's identity is (Metadata.Generation, ID): chunk
 // IDs are content-derived, so two generations (e.g. two versions of a
 // dependency) routinely share one, and each must keep its own point. A
-// DeleteRequest's IDs remove that chunk from every generation.
+// DeleteRequest's IDs remove that chunk from every generation. Vector is
+// nil when no embedder was used; Text is the chunk's content, which a
+// keyword backend indexes and vector backends ignore.
 type Point struct {
 	ID       string
 	Vector   []float32
+	Text     string
 	Metadata PointMetadata
 }
 
@@ -109,11 +112,13 @@ type DeleteRequest struct {
 	Filter    *Filter
 }
 
-// QueryRequest asks for the TopK nearest points to Vector within
-// Namespace, constrained by Filter (nil means unconstrained).
+// QueryRequest asks for the TopK best matches within Namespace,
+// constrained by Filter (nil means unconstrained): nearest to Vector for
+// a vector backend, best keyword matches for Text for a keyword backend.
 type QueryRequest struct {
 	Namespace string
 	Vector    []float32
+	Text      string
 	TopK      int
 	Filter    *Filter
 }

@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.3.0 — unreleased
+
+### Works without Ollama
+- **Keyword search.** ragctl can sync and search a dependency's docs with no embedding model at all, using keyword (BM25) search that's still scoped to the exact version your project uses. It's built for code docs: identifiers match whole and in parts (`pgxpool.NewWithConfig`, `NewRandom`, `snake_case`), and API docs are found by their qualified name (`pgxpool.New`).
+- **`retrieval.mode: auto | vector | keyword`.** Fresh installs get `auto`: semantic search with Ollama when it's available, keyword search when it isn't. Versions synced without Ollama get their vectors on the first sync after it's back, with no rebuild. `keyword` never contacts Ollama. `ragctl init --retrieval-mode` picks one.
+- **Upgrading:** a config without `retrieval.mode` behaves as `vector`, exactly as before.
+- `ragctl doctor` reports keyword search, and `auto` running without Ollama, as normal states rather than problems.
+
+### Fixes
+- Every vector backend treats deleting from, or counting in, a collection or table that was never created as empty instead of an error. Before, GC and `doctor` could fail on an install whose vector store had nothing in it yet.
+- Auto-start no longer spawns several daemon candidates when commands in one process start the daemon at the same moment (for example the MCP server, or concurrent scans). A late candidate could take over the store after `ragctl daemon stop` and leave an unrequested daemon running. Spawned processes are also reaped now, so a long-running `ragctl serve` doesn't accumulate zombie processes.
+- Three timing-dependent tests that failed on slower CI machines are fixed.
+
 ## v0.2.0 — 2026-10-05
 
 ### No vector service needed by default

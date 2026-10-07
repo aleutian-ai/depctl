@@ -196,6 +196,13 @@ func (a *Adapter) Delete(ctx context.Context, req backend.DeleteRequest) error {
 		return nil
 	}
 	table := tableIdent(req.Namespace)
+	var exists bool
+	if err := a.pool.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, table).Scan(&exists); err != nil {
+		return fmt.Errorf("pgvector: check table %s: %w", table, err)
+	}
+	if !exists {
+		return nil // never created: nothing to delete
+	}
 	if _, err := a.pool.Exec(ctx, fmt.Sprintf(`DELETE FROM %s WHERE %s`, table, strings.Join(conds, " OR ")), args...); err != nil {
 		return fmt.Errorf("pgvector: delete from %s: %w", table, err)
 	}
@@ -245,6 +252,13 @@ func (a *Adapter) Query(ctx context.Context, req backend.QueryRequest) (backend.
 
 // Count reports exactly how many points in namespace match filter.
 func (a *Adapter) Count(ctx context.Context, namespace string, filter *backend.Filter) (int, error) {
+	var exists bool
+	if err := a.pool.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, tableIdent(namespace)).Scan(&exists); err != nil {
+		return 0, fmt.Errorf("pgvector: check table %s: %w", namespace, err)
+	}
+	if !exists {
+		return 0, nil // never created: no points
+	}
 	where, args := filterClause(filter, 1)
 	sql := fmt.Sprintf(`SELECT count(*) FROM %s`, tableIdent(namespace))
 	if where != "" {

@@ -288,19 +288,25 @@ func (s *Service) searchAllRetained(ctx context.Context, q Query) (SearchResult,
 	return merged, nil
 }
 
-// search embeds text once and queries the backend under filter,
-// resolving each match's actual chunk content from Badger.
+// search queries the backend under filter, with text embedded once when
+// the service has an embedder (a keyword-only service has none), and
+// resolves each match's actual chunk content from Badger.
 func (s *Service) search(ctx context.Context, text string, topK int, filter *backend.Filter) (SearchResult, error) {
 	if topK <= 0 {
 		topK = defaultTopK
 	}
-	vectors, err := s.embedder.Embed(ctx, []string{text})
-	if err != nil {
-		return SearchResult{}, fmt.Errorf("query: embed query text: %w", err)
+	var vector []float32
+	if s.embedder != nil {
+		vectors, err := s.embedder.Embed(ctx, []string{text})
+		if err != nil {
+			return SearchResult{}, fmt.Errorf("query: embed query text: %w", err)
+		}
+		vector = vectors[0]
 	}
 	result, err := s.backend.Query(ctx, backend.QueryRequest{
 		Namespace: s.namespace.Name,
-		Vector:    vectors[0],
+		Vector:    vector,
+		Text:      text,
 		TopK:      topK,
 		Filter:    filter,
 	})

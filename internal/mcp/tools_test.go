@@ -822,6 +822,18 @@ func TestSyncProjectReportsProgressWhenTokenPresent(t *testing.T) {
 		t.Fatalf("CallTool: %v", err)
 	}
 
+	// The server sends every notification before its result, but the
+	// client SDK runs the handler asynchronously, so CallTool can return
+	// first (seen on CI, and locally under -race -cpu 1).
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
+		mu.Lock()
+		n := len(progresses)
+		mu.Unlock()
+		if n >= 3 {
+			break
+		}
+	}
+
 	mu.Lock()
 	defer mu.Unlock()
 	if len(progresses) != 3 {

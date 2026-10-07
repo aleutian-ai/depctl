@@ -27,6 +27,7 @@ type Config struct {
 	Storage       StorageConfig       `yaml:"storage"`
 	Embedding     EmbeddingConfig     `yaml:"embedding"`
 	Vector        VectorConfig        `yaml:"vector"`
+	Retrieval     RetrievalConfig     `yaml:"retrieval"`
 	Retention     RetentionConfig     `yaml:"retention"`
 	Watch         WatchConfig         `yaml:"watch"`
 	Sync          SyncConfig          `yaml:"sync"`
@@ -254,6 +255,32 @@ type VectorConfig struct {
 	Managed bool `yaml:"managed,omitempty"`
 }
 
+// RetrievalConfig chooses how search finds chunks (LOCAL-001/002).
+type RetrievalConfig struct {
+	// Mode is "auto", "vector" or "keyword". auto (the default for fresh
+	// installs) always builds a keyword index and adds vectors when the
+	// embedder is ready; search uses vectors when it can and keyword
+	// search otherwise. vector requires the embedder, as before; keyword
+	// never uses it. Empty, in a config written before this existed,
+	// means vector, so nothing changes for an existing install.
+	Mode string `yaml:"mode,omitempty"`
+}
+
+// Retrieval modes.
+const (
+	RetrievalAuto    = "auto"
+	RetrievalVector  = "vector"
+	RetrievalKeyword = "keyword"
+)
+
+// ModeOrDefault resolves an empty Mode to vector (see Mode).
+func (r RetrievalConfig) ModeOrDefault() string {
+	if r.Mode == "" {
+		return RetrievalVector
+	}
+	return r.Mode
+}
+
 type RetentionConfig struct {
 	GracePeriod time.Duration `yaml:"grace_period"`
 	KeepLatest  bool          `yaml:"keep_latest"`
@@ -390,6 +417,7 @@ func Default(dataDir string) Config {
 			Backend:    "embedded",
 			Collection: defaultCollectionName(),
 		},
+		Retrieval: RetrievalConfig{Mode: RetrievalAuto},
 		Retention: RetentionConfig{
 			GracePeriod: 336 * time.Hour, // 14 days
 			KeepLatest:  true,
@@ -467,6 +495,11 @@ func (c Config) Validate() error {
 	}
 	if c.Observability.OTel.Enabled && c.Observability.OTel.Endpoint == "" {
 		return errors.New("observability.otel.endpoint: must be set when observability.otel.enabled is true")
+	}
+	switch c.Retrieval.Mode {
+	case "", RetrievalAuto, RetrievalVector, RetrievalKeyword:
+	default:
+		return fmt.Errorf("retrieval.mode %q: must be auto, vector or keyword", c.Retrieval.Mode)
 	}
 	return nil
 }

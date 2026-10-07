@@ -789,6 +789,28 @@ flowchart LR
 
 **The default since 2026-10-05.** `config.Default` writes `vector.backend: embedded` with no endpoint and `managed` off, so a fresh install (`ragctl init`, or the auto-init on first use) needs no vector service and no container. `ragctl init --vector-backend qdrant` writes the previous default via `VectorConfig.QdrantDefaults`: a local Qdrant on 6333 that ragctl starts itself (WATCH-016). Existing config files keep whatever backend they name; nothing is migrated.
 
+## LOCAL-001/002 (2026-10-06): keyword search and `retrieval.mode`
+
+`retrieval.mode: auto | vector | keyword` decides how sync builds and search queries. `auto` is the default for fresh installs; a config without the key means `vector` (unchanged behavior).
+
+```mermaid
+flowchart LR
+  sync[sync: one generation] --> idx["searchIndex<br/>(name = vector.backend: the active-generation key)"]
+  idx -->|"auto, keyword"| kw[("keyword.db<br/>BM25, plain Go")]
+  idx -->|"vector; auto when embedder + store ready"| vs[("vector store<br/>embedded / Qdrant / pgvector / Weaviate")]
+  q[search] --> idx
+  idx -->|"query has a vector"| vs
+  vs -->|"no points: generation built without vectors"| kw
+  idx -->|"no vector: keyword mode, or auto with Ollama down"| kw
+```
+
+- **One `VectorBackend` for every mode.** `searchIndex` (`internal/cli/retrieval.go`) wraps the indexes a mode writes. Upsert and Delete reach all of them, and Count is the largest across them. Its name is the existing active-generation key, so planning, validation, promotion and GC are unchanged, and a generation's lifecycle is the same however it's searched. Points carry `Text` as well as `Vector`, and with no embedder `Replicate`, the version-correctness check and `query.Service` all use text.
+- **Keyword index.** `internal/backend/keyword` is BM25 computed at query time over the one dependency version a search is filtered to: keys are `ecosystem\0dependency\0version\0generation\0id`, so that's a prefix scan, and no inverted index is kept. The tokenizer keeps identifiers whole and split (`pgxpool.newwithconfig`, `pgxpool`, `new`, `with`, `config`). API-doc chunks are indexed under their qualified symbol (`pgxpool.New`).
+- **Readiness.** `keyword` mode starts no Ollama probe, no model pull and no managed container. `auto` decides per build and per search: vectors only when the embedder and the vector store are both ready, waiting up to 10 s for a probe that's still running.
+- **Backfill.** At the start of every sync, active generations missing from the keyword index get keyword entries (local, no model). Generations built without vectors (their replica records no embedding model) get vectors once the embedder is ready. `generation.AddToIndex` never changes a serving generation's state, and on failure removes what it wrote.
+- **Conformance**, now 17 checks: a backend may support keyword search instead of vector search, every point has text, and deleting from or counting in a namespace that was never created is a no-op or 0.
+- **Index files** (`keyword.db`, and `vectors.db` by default) sit next to the configured `control.db`.
+
 ## Testing notes
 
 Tests that spawn a real `go` subprocess under an isolated `$HOME` (`internal/cli`'s `requireGo`-gated tests, `internal/resolver/golang`) run fully offline (`GOFLAGS=-mod=mod`, `GOPROXY=off`) and point `GOCACHE`/`GOPATH`/`GOTELEMETRYDIR` at a shared directory outside any per-test temp dir. Without this, Go's build cache and telemetry uploader raced `t.TempDir()` cleanup under the Alpine/Podman container specifically (never observed natively on macOS), intermittently failing with `directory not empty`. `internal/cli/init_test.go`'s `isolateEnv` also retries its own cleanup a few times before giving up, as a second line of defense against the same class of race.

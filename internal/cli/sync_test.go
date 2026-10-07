@@ -369,7 +369,8 @@ func TestSyncReportsStructuredErrorForUnreachableEmbeddingBackend(t *testing.T) 
 	requireGo(t)
 	runInitForTest(t)
 	useRealRagctlBinary(t)
-	deadEndpointsConfig(t, nil)
+	// vector mode: auto would build keyword-only instead of failing.
+	deadEndpointsConfig(t, func(c *config.Config) { c.Retrieval.Mode = config.RetrievalVector })
 	scanDepFixture(t)
 
 	c, err := ensureDaemon(context.Background())
@@ -417,6 +418,7 @@ func TestSyncReportsStructuredErrorForUnreachableVectorBackend(t *testing.T) {
 	t.Cleanup(ollama.Close)
 	deadVector := deadBackendURL(t)
 	writeTestConfig(t, func(c *config.Config) {
+		c.Retrieval.Mode = config.RetrievalVector // auto would build keyword-only instead of failing
 		c.Embedding.Endpoint = ollama.URL
 		c.Vector.QdrantDefaults()
 		c.Vector.Endpoint = deadVector

@@ -1,7 +1,7 @@
-# LOCAL-001: Bleve lexical adapter
+# LOCAL-001: Keyword (BM25) adapter (shipped as plain Go, not Bleve)
 
 **Epic:** Local-only retrieval mode
-**Status:** planned
+**Status:** done (2026-10-06)
 **Depends on:** VEC-001 (VectorBackend interface / Capabilities type)
 **Estimated size:** medium
 
@@ -69,6 +69,25 @@ Index corruption on open is a fatal `doctor`-visible error, not a silent empty i
 - Health check reports index open/closed correctly.
 
 ## Acceptance criteria
-- [ ] `BleveBackend` implements the full `VectorBackend` interface.
-- [ ] Generation/version metadata filtering works identically in spirit to the Qdrant adapter's conformance expectations.
-- [ ] Unit tests cover upsert/query/delete/health.
+- [x] `BleveBackend` implements the full `VectorBackend` interface. (Reconciled: `keyword.Store`, see below.)
+- [x] Generation/version metadata filtering works identically in spirit to the Qdrant adapter's conformance expectations.
+- [x] Unit tests cover upsert/query/delete/health.
+
+## Done (2026-10-06)
+
+`internal/backend/keyword`, a plain-Go BM25 keyword index in one bbolt file (`keyword.db`, next to `control.db`). It implements the full `VectorBackend` interface and passes the shared conformance suite (17 checks). The suite now gives every point text as well as a vector, so one set of expectations covers both kinds of backend.
+
+Reconciled against the sketch above:
+- **Plain Go instead of Bleve (the user's decision).** Bleve would have added about 30 modules and a second on-disk index format. As with the embedded vector store, ragctl scopes first and ranks second: every search is filtered to one dependency version (hundreds to a few thousand chunks), so BM25 is computed at query time over just those chunks, and no inverted index is kept. Keys are `ecosystem\0dependency\0version\0generation\0id`, so that filter is a prefix scan.
+- **The tokenizer keeps identifiers intact.** `pgxpool.NewWithConfig()` yields `pgxpool.newwithconfig`, `pgxpool`, `newwithconfig`, `new`, `with`, `config`. camelCase, snake_case, kebab-case and module paths are split, and the whole identifier is kept as well. Stopwords are dropped only as plain words, never as identifier parts (`Client.Do` keeps `do`).
+- **API docs lead with their qualified symbol.** Godoc chunks are indexed as `pgxpool.New` plus their content. The doc "New creates a new Pool" never spells out the name someone searches for. The signature is left out: its generic terms (`ctx`, `error`) lengthened every doc and cost two hits in the comparison below.
+- **The prerequisite gap this ticket found is closed.** `backend.Point` and `backend.QueryRequest` carry `Text`. `query.Service`, `generation.Replicate` and validation's version-correctness check all work with no embedder.
+- **Two conformance rules came from end-to-end runs:** deleting from, or counting in, a namespace that was never created is a no-op, or 0. In auto mode the vector store has no namespace until something is embedded, so GC and doctor failed there. Embedded, keyword, pgvector, Qdrant and Weaviate all failed the new checks until they were fixed.
+
+**Measured against embedding search:** uuid v1.6.0 plus pgx v5.11.0, ten questions, a hit being the right doc in the top 3. Keyword search found 5 or 6 depending on tokenizer details, and `nomic-embed-text-v2-moe` vectors found 5.
+- Both find exact names (`NewRandom`, `NewWithConfig`).
+- Keyword wins when the question uses the docs' own words: "parse a UUID from a string" finds `Parse`/`MustParse`, and "get a connection from the pool" found `Acquire` in one variant.
+- Vectors win on paraphrase: "run a function inside a transaction" finds `BeginFunc`.
+- Both miss some: `NewV7` for "an id that sorts by creation time", and `MaxConns`.
+
+With the qualified-symbol header, keyword search puts `pgxpool.New` first; without it, neither mode found it. Ten questions is a sanity check, not a benchmark: epic 26's evaluation framework is where retrieval quality gets measured properly.

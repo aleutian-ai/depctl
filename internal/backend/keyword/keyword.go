@@ -1,10 +1,10 @@
-// Package embedded implements backend.VectorBackend in a single bbolt
-// file inside ragctl's data directory (VEC-015), so no vector service has
-// to run. Search is exact: brute-force cosine similarity over the points
-// a filter selects. ragctl's searches are always scoped to one
-// dependency version (hundreds of chunks), so no approximate index is
-// needed.
-package embedded
+// Package keyword implements backend.VectorBackend as keyword search
+// (BM25) in a single bbolt file, so search needs no embedding model
+// (LOCAL-001). Like the embedded vector store it scopes first and ranks
+// second: a search is filtered to one dependency version (hundreds to a
+// few thousand chunks), so BM25 is computed over exactly those chunks at
+// query time and no inverted index is kept.
+package keyword
 
 import (
 	"bytes"
@@ -25,34 +25,30 @@ import (
 	"aleutian-ai/ragctl/internal/backend"
 )
 
-// ErrDimensionMismatch means a namespace exists with a different vector
-// dimension than requested (e.g. the embedding model changed).
-var ErrDimensionMismatch = errors.New("embedded: dimension mismatch")
-
 const (
 	defaultTopK = 10
-	// openTimeout bounds waiting for the file lock. bbolt locks the file
-	// per open handle, so a second process (or a second handle in this
-	// one) would otherwise wait forever.
+	// BM25's standard parameters: term-frequency saturation and
+	// document-length normalization.
+	k1 = 1.2
+	b  = 0.75
+	// openTimeout bounds waiting for the file lock (see embedded).
 	openTimeout = 2 * time.Second
 )
 
-// Within a namespace's bucket: the dimension, all points, and an index
-// from a point's identity (generation, chunk ID) to its points key.
+// Within a namespace's bucket: all points, and an index from a point's
+// identity (generation, chunk ID) to its points key.
 var (
-	dimsKey   = []byte("dims")
 	pointsKey = []byte("points")
 	idsKey    = []byte("ids")
 )
 
-// dbs holds one open handle per file per process: every backend built
-// for the same path shares it.
+// dbs holds one open handle per file per process.
 var (
 	dbsMu sync.Mutex
 	dbs   = map[string]*bolt.DB{}
 )
 
-// Store is a VectorBackend backed by one bbolt file.
+// Store is a keyword-search backend backed by one bbolt file.
 type Store struct {
 	path string
 }
@@ -63,12 +59,12 @@ func New(path string) *Store {
 }
 
 // Name identifies this backend.
-func (s *Store) Name() string { return "embedded" }
+func (s *Store) Name() string { return "keyword" }
 
-// Capabilities reports vector search, metadata filtering, and
-// delete-by-filter.
+// Capabilities reports keyword search, metadata filtering and
+// delete-by-filter; no vector search.
 func (s *Store) Capabilities(ctx context.Context) (backend.Capabilities, error) {
-	return backend.Capabilities{VectorSearch: true, MetadataFilter: true, DeleteByFilter: true}, nil
+	return backend.Capabilities{KeywordSearch: true, MetadataFilter: true, DeleteByFilter: true}, nil
 }
 
 // Health checks the file can be opened and read.
@@ -80,59 +76,39 @@ func (s *Store) Health(ctx context.Context) error {
 	return db.View(func(tx *bolt.Tx) error { return nil })
 }
 
-// EnsureNamespace creates ns's bucket if missing. Idempotent; an existing
-// namespace with a different dimension is ErrDimensionMismatch.
+// EnsureNamespace creates ns's bucket if missing. Idempotent. Dimensions
+// and distance are ignored: nothing here is a vector.
 func (s *Store) EnsureNamespace(ctx context.Context, ns backend.Namespace) error {
-	if ns.Distance != "" && !strings.EqualFold(ns.Distance, "cosine") {
-		return fmt.Errorf("embedded: unsupported distance %q (only cosine)", ns.Distance)
-	}
-	if ns.Dimensions <= 0 {
-		return fmt.Errorf("embedded: namespace %q needs a positive dimension", ns.Name)
-	}
 	db, err := s.db()
 	if err != nil {
 		return err
 	}
 	return db.Update(func(tx *bolt.Tx) error {
-		b, err := tx.CreateBucketIfNotExists([]byte(ns.Name))
+		bk, err := tx.CreateBucketIfNotExists([]byte(ns.Name))
 		if err != nil {
-			return fmt.Errorf("embedded: create namespace %s: %w", ns.Name, err)
+			return fmt.Errorf("keyword: create namespace %s: %w", ns.Name, err)
 		}
-		if raw := b.Get(dimsKey); raw != nil {
-			if have := int(binary.LittleEndian.Uint32(raw)); have != ns.Dimensions {
-				return fmt.Errorf("%w: namespace %s has %d dimensions, want %d", ErrDimensionMismatch, ns.Name, have, ns.Dimensions)
-			}
-			return nil
-		}
-		if err := b.Put(dimsKey, binary.LittleEndian.AppendUint32(nil, uint32(ns.Dimensions))); err != nil {
+		if _, err := bk.CreateBucketIfNotExists(pointsKey); err != nil {
 			return err
 		}
-		if _, err := b.CreateBucketIfNotExists(pointsKey); err != nil {
-			return err
-		}
-		_, err = b.CreateBucketIfNotExists(idsKey)
+		_, err = bk.CreateBucketIfNotExists(idsKey)
 		return err
 	})
 }
 
-// Upsert writes or overwrites req.Points in one transaction: a bad point
-// (e.g. the wrong dimension) means nothing in the request is written.
+// Upsert indexes req.Points' Text in one transaction.
 func (s *Store) Upsert(ctx context.Context, req backend.UpsertRequest) error {
 	db, err := s.db()
 	if err != nil {
 		return err
 	}
 	return db.Update(func(tx *bolt.Tx) error {
-		b, err := namespace(tx, req.Namespace)
+		bk, err := namespace(tx, req.Namespace)
 		if err != nil {
 			return err
 		}
-		dims := int(binary.LittleEndian.Uint32(b.Get(dimsKey)))
-		points, ids := b.Bucket(pointsKey), b.Bucket(idsKey)
+		points, ids := bk.Bucket(pointsKey), bk.Bucket(idsKey)
 		for _, p := range req.Points {
-			if len(p.Vector) != dims {
-				return fmt.Errorf("%w: point %s has %d dimensions, namespace %s has %d", ErrDimensionMismatch, p.ID, len(p.Vector), req.Namespace, dims)
-			}
 			m := p.Metadata
 			key, err := joinKey(m.Ecosystem, m.Dependency, m.Version, m.Generation, p.ID)
 			if err != nil {
@@ -146,7 +122,7 @@ func (s *Store) Upsert(ctx context.Context, req backend.UpsertRequest) error {
 					return err
 				}
 			}
-			if err := points.Put(key, encodeValue(m, p.Vector)); err != nil {
+			if err := points.Put(key, encodeValue(m, Tokenize(p.Text))); err != nil {
 				return err
 			}
 			if err := ids.Put(identity, key); err != nil {
@@ -174,11 +150,11 @@ func (s *Store) Delete(ctx context.Context, req backend.DeleteRequest) error {
 		wanted[id] = true
 	}
 	return db.Update(func(tx *bolt.Tx) error {
-		b := tx.Bucket([]byte(req.Namespace))
-		if b == nil {
+		bk := tx.Bucket([]byte(req.Namespace))
+		if bk == nil {
 			return nil // never created: nothing to delete
 		}
-		points, ids := b.Bucket(pointsKey), b.Bucket(idsKey)
+		points, ids := bk.Bucket(pointsKey), bk.Bucket(idsKey)
 		// Collect first: bbolt cursors don't survive deletes mid-scan.
 		var doomed [][]byte
 		c := points.Cursor()
@@ -201,8 +177,10 @@ func (s *Store) Delete(ctx context.Context, req backend.DeleteRequest) error {
 	})
 }
 
-// Query returns the TopK points most cosine-similar to req.Vector among
-// those req.Filter selects. Score is cosine similarity, higher is better.
+// Query returns the TopK points that best match req.Text by BM25, among
+// those req.Filter selects. Points matching no query term aren't
+// returned. With no searchable terms in Text, it returns the selected
+// points unranked (score 0) in key order.
 func (s *Store) Query(ctx context.Context, req backend.QueryRequest) (backend.QueryResult, error) {
 	topK := req.TopK
 	if topK <= 0 {
@@ -212,37 +190,77 @@ func (s *Store) Query(ctx context.Context, req backend.QueryRequest) (backend.Qu
 	if err != nil {
 		return backend.QueryResult{}, err
 	}
-	qNorm := norm(req.Vector)
-	var hits []backend.ScoredPoint
+	queryTerms := map[string]bool{}
+	for _, t := range Tokenize(req.Text) {
+		queryTerms[t] = true
+	}
+
+	type doc struct {
+		point  backend.ScoredPoint
+		length int
+		tf     map[string]int // only the query's terms
+	}
+	var docs []doc
 	err = db.View(func(tx *bolt.Tx) error {
-		b, err := namespace(tx, req.Namespace)
-		if err != nil {
-			return err
+		bk := tx.Bucket([]byte(req.Namespace))
+		if bk == nil {
+			return nil // nothing indexed yet: no matches
 		}
-		if dims := int(binary.LittleEndian.Uint32(b.Get(dimsKey))); len(req.Vector) != dims {
-			return fmt.Errorf("%w: query vector has %d dimensions, namespace %s has %d", ErrDimensionMismatch, len(req.Vector), req.Namespace, dims)
-		}
-		return scan(b.Bucket(pointsKey), req.Filter, func(f []string, v []byte) {
-			m, vec := decodeValue(v)
+		return scan(bk.Bucket(pointsKey), req.Filter, func(f []string, v []byte) {
+			m, length, tf := decodeValue(v, queryTerms)
 			m.Ecosystem, m.Dependency, m.Version, m.Generation = f[0], f[1], f[2], f[3]
-			var score float32
-			if n := qNorm * norm(vec); n > 0 {
-				score = dot(req.Vector, vec) / n
-			}
-			hits = append(hits, backend.ScoredPoint{ID: f[4], Score: score, Metadata: m})
+			docs = append(docs, doc{point: backend.ScoredPoint{ID: f[4], Metadata: m}, length: length, tf: tf})
 		})
 	})
 	if err != nil {
 		return backend.QueryResult{}, err
 	}
-	sort.Slice(hits, func(i, j int) bool { return hits[i].Score > hits[j].Score })
+
+	if len(queryTerms) == 0 {
+		var res backend.QueryResult
+		for i := 0; i < len(docs) && i < topK; i++ {
+			res.Points = append(res.Points, docs[i].point)
+		}
+		return res, nil
+	}
+
+	// BM25 statistics come from the selected points only: the corpus is
+	// the dependency version being searched, not everything in the file.
+	n := float64(len(docs))
+	df := map[string]int{}
+	total := 0
+	for _, d := range docs {
+		total += d.length
+		for t := range d.tf {
+			df[t]++
+		}
+	}
+	avgLen := 1.0
+	if len(docs) > 0 && total > 0 {
+		avgLen = float64(total) / n
+	}
+	var hits []backend.ScoredPoint
+	for _, d := range docs {
+		var score float64
+		for t, tf := range d.tf {
+			idf := math.Log(1 + (n-float64(df[t])+0.5)/(float64(df[t])+0.5))
+			f := float64(tf)
+			score += idf * f * (k1 + 1) / (f + k1*(1-b+b*float64(d.length)/avgLen))
+		}
+		if score > 0 {
+			d.point.Score = float32(score)
+			hits = append(hits, d.point)
+		}
+	}
+	sort.SliceStable(hits, func(i, j int) bool { return hits[i].Score > hits[j].Score })
 	if len(hits) > topK {
 		hits = hits[:topK]
 	}
 	return backend.QueryResult{Points: hits}, nil
 }
 
-// Count reports exactly how many points in namespace match filter.
+// Count reports exactly how many points in namespace match filter; a
+// namespace nothing was ever indexed into has none.
 func (s *Store) Count(ctx context.Context, ns string, filter *backend.Filter) (int, error) {
 	db, err := s.db()
 	if err != nil {
@@ -250,11 +268,11 @@ func (s *Store) Count(ctx context.Context, ns string, filter *backend.Filter) (i
 	}
 	n := 0
 	err = db.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket([]byte(ns))
-		if b == nil {
-			return nil // never created: no points
+		bk := tx.Bucket([]byte(ns))
+		if bk == nil {
+			return nil
 		}
-		return scan(b.Bucket(pointsKey), filter, func([]string, []byte) { n++ })
+		return scan(bk.Bucket(pointsKey), filter, func([]string, []byte) { n++ })
 	})
 	return n, err
 }
@@ -267,31 +285,31 @@ func (s *Store) db() (*bolt.DB, error) {
 		return db, nil
 	}
 	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
-		return nil, fmt.Errorf("embedded: create directory for %s: %w", s.path, err)
+		return nil, fmt.Errorf("keyword: create directory for %s: %w", s.path, err)
 	}
 	db, err := bolt.Open(s.path, 0o600, &bolt.Options{Timeout: openTimeout})
 	if errors.Is(err, bolt.ErrTimeout) {
-		return nil, fmt.Errorf("embedded: %s is in use by another ragctl process (normally the daemon)", s.path)
+		return nil, fmt.Errorf("keyword: %s is in use by another ragctl process (normally the daemon)", s.path)
 	}
 	if err != nil {
-		return nil, fmt.Errorf("embedded: open %s: %w", s.path, err)
+		return nil, fmt.Errorf("keyword: open %s: %w", s.path, err)
 	}
 	dbs[s.path] = db
 	return db, nil
 }
 
 func namespace(tx *bolt.Tx, name string) (*bolt.Bucket, error) {
-	b := tx.Bucket([]byte(name))
-	if b == nil {
-		return nil, fmt.Errorf("embedded: namespace %s doesn't exist", name)
+	bk := tx.Bucket([]byte(name))
+	if bk == nil {
+		return nil, fmt.Errorf("keyword: namespace %s doesn't exist", name)
 	}
-	return b, nil
+	return bk, nil
 }
 
 // scan calls fn with the key fields and value of every point f selects.
 // Keys are ecosystem\0dependency\0version\0generation\0id, so the leading
 // filter fields that are set become a prefix and the scan touches only
-// those points (normally one dependency version).
+// those points.
 func scan(points *bolt.Bucket, f *backend.Filter, fn func(fields []string, v []byte)) error {
 	var prefix []byte
 	if f != nil {
@@ -325,45 +343,51 @@ func matches(fields []string, f *backend.Filter) bool {
 func joinKey(parts ...string) ([]byte, error) {
 	for _, p := range parts {
 		if strings.Contains(p, "\x00") {
-			return nil, fmt.Errorf("embedded: metadata value %q contains a NUL byte", p)
+			return nil, fmt.Errorf("keyword: metadata value %q contains a NUL byte", p)
 		}
 	}
 	return []byte(strings.Join(parts, "\x00")), nil
 }
 
-// encodeValue stores what the key doesn't: source type, authority, and
-// the vector, as little-endian binary.
-func encodeValue(m backend.PointMetadata, vec []float32) []byte {
+// encodeValue stores source type, authority, the document's length in
+// terms, and each distinct term with its count.
+func encodeValue(m backend.PointMetadata, terms []string) []byte {
+	tf := map[string]int{}
+	for _, t := range terms {
+		tf[t]++
+	}
 	out := binary.LittleEndian.AppendUint32(nil, uint32(len(m.SourceType)))
 	out = append(out, m.SourceType...)
 	out = binary.LittleEndian.AppendUint64(out, uint64(int64(m.Authority)))
-	for _, x := range vec {
-		out = binary.LittleEndian.AppendUint32(out, math.Float32bits(x))
+	out = binary.LittleEndian.AppendUint32(out, uint32(len(terms)))
+	out = binary.LittleEndian.AppendUint32(out, uint32(len(tf)))
+	for t, n := range tf {
+		out = binary.LittleEndian.AppendUint16(out, uint16(len(t)))
+		out = append(out, t...)
+		out = binary.LittleEndian.AppendUint32(out, uint32(n))
 	}
 	return out
 }
 
-func decodeValue(v []byte) (backend.PointMetadata, []float32) {
+// decodeValue returns the metadata, document length, and the counts of
+// just the terms in want (all a query needs).
+func decodeValue(v []byte, want map[string]bool) (backend.PointMetadata, int, map[string]int) {
 	n := int(binary.LittleEndian.Uint32(v))
 	m := backend.PointMetadata{SourceType: string(v[4 : 4+n])}
 	v = v[4+n:]
 	m.Authority = int(int64(binary.LittleEndian.Uint64(v)))
-	v = v[8:]
-	vec := make([]float32, len(v)/4)
-	for i := range vec {
-		vec[i] = math.Float32frombits(binary.LittleEndian.Uint32(v[4*i:]))
+	length := int(binary.LittleEndian.Uint32(v[8:]))
+	distinct := int(binary.LittleEndian.Uint32(v[12:]))
+	v = v[16:]
+	tf := map[string]int{}
+	for range distinct {
+		l := int(binary.LittleEndian.Uint16(v))
+		term := v[2 : 2+l]
+		count := int(binary.LittleEndian.Uint32(v[2+l:]))
+		if want[string(term)] {
+			tf[string(term)] = count
+		}
+		v = v[6+l:]
 	}
-	return m, vec
-}
-
-func dot(a, b []float32) float32 {
-	var s float32
-	for i := range min(len(a), len(b)) {
-		s += a[i] * b[i]
-	}
-	return s
-}
-
-func norm(a []float32) float32 {
-	return float32(math.Sqrt(float64(dot(a, a))))
+	return m, length, tf
 }

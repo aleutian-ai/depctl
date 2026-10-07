@@ -3,10 +3,12 @@ package generation
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"testing"
 
 	"aleutian-ai/ragctl/internal/backend"
 	"aleutian-ai/ragctl/internal/backend/backendtest"
+	"aleutian-ai/ragctl/internal/backend/keyword"
 	"aleutian-ai/ragctl/internal/domain"
 	"aleutian-ai/ragctl/internal/registry"
 	"aleutian-ai/ragctl/internal/source/git"
@@ -350,5 +352,98 @@ func TestReplicatePointsUseCurrentSourceAuthorityNotStaleObjectAuthority(t *test
 		if p.Metadata.SourceType != "git" {
 			t.Errorf("point %s has source_type %q, want git", p.ID, p.Metadata.SourceType)
 		}
+	}
+}
+
+// TestReplicateWithoutEmbedderBuildsKeywordOnly is LOCAL-002's keyword
+// path: no embedder, so points carry text and no vector, the replica
+// records no embedding model, and a keyword index can search them.
+func TestReplicateWithoutEmbedderBuildsKeywordOnly(t *testing.T) {
+	requireGit(t)
+	ctx := context.Background()
+	store, badgerStore := testStores(t)
+	repoDir := newFixtureRepo(t)
+	gen, err := Create(ctx, store, badgerStore, testDependency())
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	sources := []registry.Source{{ID: "repository", Type: "git", URL: repoDir, Ref: "v${version}", Authority: 100}}
+	if err := Build(ctx, gen, sources, git.NewCache(t.TempDir()), store, badgerStore, ""); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	kw := keyword.New(filepath.Join(t.TempDir(), "keyword.db"))
+	ns := backend.Namespace{Name: "ragctl"}
+
+	if err := Replicate(ctx, gen, sources, nil, kw, ns, store, badgerStore); err != nil {
+		t.Fatalf("Replicate without an embedder: %v", err)
+	}
+	replica, err := store.GetBackendReplica(ctx, gen.ID, kw.Name())
+	if err != nil {
+		t.Fatalf("GetBackendReplica: %v", err)
+	}
+	if replica.Status != "complete" || replica.EmbeddingModel != "" {
+		t.Errorf("replica = %+v, want complete with no embedding model", replica)
+	}
+	chunks, err := badgerStore.ListGenerationChunks(ctx, gen.ID)
+	if err != nil || len(chunks) == 0 {
+		t.Fatalf("ListGenerationChunks = %d chunks, %v", len(chunks), err)
+	}
+	res, err := kw.Query(ctx, backend.QueryRequest{Namespace: ns.Name, Text: string(chunks[0].Content), TopK: 3, Filter: &backend.Filter{Generation: gen.ID}})
+	if err != nil {
+		t.Fatalf("Query: %v", err)
+	}
+	if len(res.Points) == 0 {
+		t.Error("keyword query for a chunk's own text found nothing")
+	}
+}
+
+// partialUpsert writes the batch, then reports failure: a vector store
+// that failed partway through.
+type partialUpsert struct{ backend.VectorBackend }
+
+func (p partialUpsert) Upsert(ctx context.Context, req backend.UpsertRequest) error {
+	if err := p.VectorBackend.Upsert(ctx, req); err != nil {
+		return err
+	}
+	return errors.New("simulated failure after a partial write")
+}
+
+// TestAddToIndexFailureLeavesNothingAndNeverTouchesTheGeneration: the
+// generation being backfilled is typically ACTIVE and serving, so a
+// failure must neither change its state (as Replicate's failure path
+// does) nor leave a partial set of entries behind.
+func TestAddToIndexFailureLeavesNothingAndNeverTouchesTheGeneration(t *testing.T) {
+	requireGit(t)
+	ctx := context.Background()
+	store, badgerStore := testStores(t)
+	repoDir := newFixtureRepo(t)
+	gen, err := Create(ctx, store, badgerStore, testDependency())
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	sources := []registry.Source{{ID: "repository", Type: "git", URL: repoDir, Ref: "v${version}", Authority: 100}}
+	if err := Build(ctx, gen, sources, git.NewCache(t.TempDir()), store, badgerStore, ""); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	before, err := store.GetGeneration(ctx, gen.ID)
+	if err != nil {
+		t.Fatalf("GetGeneration: %v", err)
+	}
+	inner := backendtest.New()
+	ns := backend.Namespace{Name: "ragctl", Dimensions: 4, Distance: "cosine"}
+
+	err = AddToIndex(ctx, before, sources, &fakeEmbedder{dims: 4}, partialUpsert{inner}, ns, badgerStore)
+	if err == nil {
+		t.Fatal("AddToIndex succeeded, want the simulated failure")
+	}
+	if n, err := inner.Count(ctx, ns.Name, &backend.Filter{Generation: gen.ID}); err != nil || n != 0 {
+		t.Errorf("points left after the failed AddToIndex = %d (err %v), want 0", n, err)
+	}
+	after, err := store.GetGeneration(ctx, gen.ID)
+	if err != nil {
+		t.Fatalf("GetGeneration: %v", err)
+	}
+	if after.State != before.State || after.Error != "" {
+		t.Errorf("generation after a failed AddToIndex = %s (%q), want unchanged %s", after.State, after.Error, before.State)
 	}
 }

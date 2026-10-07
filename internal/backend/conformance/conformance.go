@@ -7,7 +7,9 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"math"
 	"sort"
+	"strings"
 	"testing"
 
 	"aleutian-ai/ragctl/internal/backend"
@@ -31,9 +33,10 @@ func Run(t *testing.T, newBackend func(t *testing.T) backend.VectorBackend) {
 		if err != nil {
 			t.Fatalf("Capabilities: %v", err)
 		}
-		// Version-correct retrieval is impossible without both.
-		if !caps.VectorSearch || !caps.MetadataFilter {
-			t.Errorf("Capabilities = %+v; ragctl requires VectorSearch and MetadataFilter", caps)
+		// Version-correct retrieval is impossible without a way to search
+		// and a way to filter.
+		if (!caps.VectorSearch && !caps.KeywordSearch) || !caps.MetadataFilter {
+			t.Errorf("Capabilities = %+v; ragctl requires VectorSearch or KeywordSearch, and MetadataFilter", caps)
 		}
 	})
 
@@ -236,6 +239,31 @@ func Run(t *testing.T, newBackend func(t *testing.T) backend.VectorBackend) {
 		}
 	})
 
+	// GC deletes from every index an install might have written. In auto
+	// retrieval mode the vector store's namespace doesn't exist until
+	// something is embedded, and that must not fail the cleanup.
+	t.Run("DeleteFromANamespaceThatNeverExistedIsANoOp", func(t *testing.T) {
+		b := newBackend(t)
+		missing := newNamespace(t).Name
+		if err := b.Delete(context.Background(), backend.DeleteRequest{Namespace: missing, IDs: []string{"x"}}); err != nil {
+			t.Errorf("Delete by ID in a namespace that was never created = %v, want nil", err)
+		}
+		if deleteByFilterCap(t, b) {
+			if err := b.Delete(context.Background(), backend.DeleteRequest{Namespace: missing, Filter: &backend.Filter{Version: "v1"}}); err != nil {
+				t.Errorf("Delete by filter in a namespace that was never created = %v, want nil", err)
+			}
+		}
+	})
+
+	// Likewise doctor counts in every index; a vector store nothing was
+	// ever embedded into has no namespace yet, and holds no points.
+	t.Run("CountInANamespaceThatNeverExistedIsZero", func(t *testing.T) {
+		b := newBackend(t)
+		if n, err := b.Count(context.Background(), newNamespace(t).Name, &backend.Filter{Version: "v1"}); err != nil || n != 0 {
+			t.Errorf("Count in a namespace that was never created = %d, %v; want 0, nil", n, err)
+		}
+	})
+
 	t.Run("NamespacesAreIsolated", func(t *testing.T) {
 		b, nsA := setup(t, newBackend)
 		nsB := newNamespace(t)
@@ -280,6 +308,7 @@ func point(id string, vec [4]float32, version, generation string) backend.Point 
 	return backend.Point{
 		ID:     id,
 		Vector: vec[:],
+		Text:   textFor(vec),
 		Metadata: backend.PointMetadata{
 			Ecosystem: "go", Dependency: "example.com/dep", Version: version,
 			Generation: generation, SourceType: "git", Authority: 100,
@@ -296,11 +325,27 @@ func upsert(t *testing.T, b backend.VectorBackend, ns backend.Namespace, points 
 
 func query(t *testing.T, b backend.VectorBackend, ns backend.Namespace, vec [4]float32, topK int, f *backend.Filter) []backend.ScoredPoint {
 	t.Helper()
-	res, err := b.Query(context.Background(), backend.QueryRequest{Namespace: ns.Name, Vector: vec[:], TopK: topK, Filter: f})
+	res, err := b.Query(context.Background(), backend.QueryRequest{Namespace: ns.Name, Vector: vec[:], Text: textFor(vec), TopK: topK, Filter: f})
 	if err != nil {
 		t.Fatalf("Query: %v", err)
 	}
 	return res.Points
+}
+
+// textFor gives a test vector a text equivalent, so one set of
+// expectations covers vector and keyword backends: each dimension is a
+// word, repeated in proportion to its weight. [1, 0.1, 0, 0] is "alpha"
+// ten times and "beta" once, which ranks for the query "alpha" the way
+// the vector ranks by cosine.
+func textFor(vec [4]float32) string {
+	words := [4]string{"alpha", "beta", "gamma", "delta"}
+	var parts []string
+	for i, v := range vec {
+		for range int(math.Round(float64(v) * 10)) {
+			parts = append(parts, words[i])
+		}
+	}
+	return strings.Join(parts, " ")
 }
 
 func count(t *testing.T, b backend.VectorBackend, ns backend.Namespace, f *backend.Filter) int {

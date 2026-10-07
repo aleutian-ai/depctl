@@ -14,14 +14,16 @@ import (
 )
 
 func newInitCmd() *cobra.Command {
-	var vectorBackend string
+	var vectorBackend, retrievalMode string
 	cmd := &cobra.Command{
 		Use:   "init",
 		Short: "Initialize ragctl's local config and storage directories",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runInit(cmd, vectorBackend)
+			return runInit(cmd, vectorBackend, retrievalMode)
 		},
 	}
+	cmd.Flags().StringVar(&retrievalMode, "retrieval-mode", "",
+		`how search works, for a new config: "auto" (default; semantic search with Ollama embeddings when Ollama is available, keyword search otherwise), "vector" (always require Ollama), or "keyword" (never use an embedding model)`)
 	cmd.Flags().StringVar(&vectorBackend, "vector-backend", "",
 		`vector store for a new config: "embedded" (default; a file in the data dir, no service or container) or "qdrant" (a local Qdrant, which ragctl starts in a container if none is running). To use your own Qdrant, pgvector or Weaviate, edit the vector section of the config.`)
 	return cmd
@@ -30,18 +32,23 @@ func newInitCmd() *cobra.Command {
 // runInit creates everything ragctl needs to operate, if not already
 // present. It is safe to run repeatedly: existing files/dirs are left
 // untouched, and the summary distinguishes "created" from "already present".
-func runInit(cmd *cobra.Command, vectorBackend string) error {
+func runInit(cmd *cobra.Command, vectorBackend, retrievalMode string) error {
 	switch vectorBackend {
 	case "", "qdrant", "embedded":
 	default:
 		return fmt.Errorf("--vector-backend %q: use \"qdrant\" or \"embedded\" (for your own Qdrant, pgvector or Weaviate, edit the vector section of the config)", vectorBackend)
+	}
+	switch retrievalMode {
+	case "", config.RetrievalAuto, config.RetrievalVector, config.RetrievalKeyword:
+	default:
+		return fmt.Errorf("--retrieval-mode %q: use auto, vector or keyword", retrievalMode)
 	}
 	// init is one of the only commands that opens the stores itself, so
 	// it has to refuse while the daemon owns them (ADR-011).
 	if err := requireNoDaemon(cmd.Context()); err != nil {
 		return err
 	}
-	return initStores(cmd.OutOrStdout(), vectorBackend)
+	return initStores(cmd.OutOrStdout(), vectorBackend, retrievalMode)
 }
 
 // initStores is runInit's actual work, factored out so ensureInitialized
@@ -52,7 +59,7 @@ func runInit(cmd *cobra.Command, vectorBackend string) error {
 // racing itself: every step here is idempotent). vectorBackend, when
 // set, chooses the vector store for a newly written config; an existing
 // config is never rewritten, so asking for a different one is an error.
-func initStores(out io.Writer, vectorBackend string) error {
+func initStores(out io.Writer, vectorBackend, retrievalMode string) error {
 	dataDir, err := config.DefaultDataDir()
 	if err != nil {
 		return fmt.Errorf("resolve data dir: %w", err)
@@ -90,6 +97,9 @@ func initStores(out io.Writer, vectorBackend string) error {
 		if vectorBackend == "qdrant" {
 			cfg.Vector.QdrantDefaults()
 		}
+		if retrievalMode != "" {
+			cfg.Retrieval.Mode = retrievalMode
+		}
 		if err := cfg.Save(configPath); err != nil {
 			return fmt.Errorf("write config: %w", err)
 		}
@@ -104,6 +114,15 @@ func initStores(out io.Writer, vectorBackend string) error {
 			}
 			if existing.Vector.Backend != vectorBackend {
 				return fmt.Errorf("%s already exists with vector.backend %q; init never rewrites it, so edit vector.backend there to switch to %q", configPath, existing.Vector.Backend, vectorBackend)
+			}
+		}
+		if retrievalMode != "" {
+			existing, err := config.Load(configPath)
+			if err != nil {
+				return fmt.Errorf("read config %s: %w", configPath, err)
+			}
+			if have := existing.Retrieval.ModeOrDefault(); have != retrievalMode {
+				return fmt.Errorf("%s already exists with retrieval.mode %q; init never rewrites it, so edit retrieval.mode there to switch to %q", configPath, have, retrievalMode)
 			}
 		}
 		reportStatus(out, configPath, true)

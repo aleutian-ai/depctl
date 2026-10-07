@@ -49,6 +49,9 @@ const defaultReplicateBatchSize = 64
 // between syncs). A source present in the object but absent from
 // sources (e.g. removed from config since acquisition) falls back to
 // the object's own stored fields rather than losing that metadata.
+//
+// embedder may be nil (keyword-only search, LOCAL-001): points then
+// carry text and no vector, and the replica records no embedding model.
 func Replicate(ctx context.Context, gen domain.Generation, sources []registry.Source, embedder embedding.Embedder, vb backend.VectorBackend, ns backend.Namespace, store *bbolt.Store, badgerStore *badger.Store) error {
 	ctx, replicateSpanEnd := trace.StartSpan(ctx, "replicate")
 	defer replicateSpanEnd()
@@ -66,10 +69,14 @@ func Replicate(ctx context.Context, gen domain.Generation, sources []registry.So
 	for _, s := range sources {
 		sourcesByID[s.ID] = s
 	}
+	model := ""
+	if embedder != nil {
+		model = embedder.ModelID()
+	}
 	replica := domain.BackendReplica{
 		GenerationID:   gen.ID,
 		BackendName:    vb.Name(),
-		EmbeddingModel: embedder.ModelID(),
+		EmbeddingModel: model,
 		Dimensions:     ns.Dimensions,
 		Status:         "replicating",
 		UpdatedAt:      time.Now(),
@@ -102,7 +109,7 @@ func Replicate(ctx context.Context, gen domain.Generation, sources []registry.So
 		if err != nil {
 			trace.RecordError(embedCtx, err)
 			embedEnd()
-			logger.Error("embed failed", observability.KeyStage, "embed", observability.KeyGenAIOperationName, "embeddings", observability.KeyEmbeddingModelName, embedder.ModelID(), "error", err)
+			logger.Error("embed failed", observability.KeyStage, "embed", observability.KeyGenAIOperationName, "embeddings", observability.KeyEmbeddingModelName, model, "error", err)
 			return failReplica(ctx, store, &replica, &gen, err)
 		}
 		embedEnd()
@@ -128,13 +135,15 @@ func Replicate(ctx context.Context, gen domain.Generation, sources []registry.So
 		return fmt.Errorf("%w: persist final replica state: %v", ErrReplication, err)
 	}
 
-	logger.Info("embed completed",
-		observability.KeyStage, "embed",
-		observability.KeyGenAIOperationName, "embeddings",
-		observability.KeyEmbeddingModelName, embedder.ModelID(),
-		observability.KeyDurationMS, embedDuration.Milliseconds(),
-		"chunks", embeddedChunks,
-	)
+	if embedder != nil {
+		logger.Info("embed completed",
+			observability.KeyStage, "embed",
+			observability.KeyGenAIOperationName, "embeddings",
+			observability.KeyEmbeddingModelName, model,
+			observability.KeyDurationMS, embedDuration.Milliseconds(),
+			"chunks", embeddedChunks,
+		)
+	}
 	logger.Info("replicate completed",
 		observability.KeyStage, "replicate",
 		observability.KeyDurationMS, time.Since(replicateStart).Milliseconds(),
@@ -161,18 +170,23 @@ func embedBatch(ctx context.Context, embedder embedding.Embedder, badgerStore *b
 		texts[i] = string(c.Content)
 	}
 
-	vectors, err := embedder.Embed(ctx, texts)
-	if err != nil {
-		return nil, fmt.Errorf("%w: embed batch: %v", ErrReplication, err)
-	}
-	if len(vectors) != len(chunks) {
-		return nil, fmt.Errorf("%w: embedder returned %d vectors for %d chunks", ErrReplication, len(vectors), len(chunks))
+	vectors := make([][]float32, len(chunks))
+	if embedder != nil {
+		var err error
+		vectors, err = embedder.Embed(ctx, texts)
+		if err != nil {
+			return nil, fmt.Errorf("%w: embed batch: %v", ErrReplication, err)
+		}
+		if len(vectors) != len(chunks) {
+			return nil, fmt.Errorf("%w: embedder returned %d vectors for %d chunks", ErrReplication, len(vectors), len(chunks))
+		}
 	}
 
 	points := make([]backend.Point, len(chunks))
 	for i, c := range chunks {
 		obj, ok := objectCache[c.ObjectID]
 		if !ok {
+			var err error
 			obj, err = badgerStore.GetKnowledgeObject(ctx, c.ObjectID)
 			if err != nil {
 				return nil, fmt.Errorf("%w: load object %s for chunk %s: %v", ErrReplication, c.ObjectID, c.ID, err)
@@ -188,6 +202,7 @@ func embedBatch(ctx context.Context, embedder embedding.Embedder, badgerStore *b
 		points[i] = backend.Point{
 			ID:     c.ID,
 			Vector: vectors[i],
+			Text:   keywordText(c),
 			Metadata: backend.PointMetadata{
 				Ecosystem:  string(gen.Dependency.Dependency.Ecosystem),
 				Dependency: gen.Dependency.Dependency.Name,
@@ -225,4 +240,58 @@ func failReplica(ctx context.Context, store *bbolt.Store, replica *domain.Backen
 	}
 	fail(ctx, store, gen, err.Error())
 	return err
+}
+
+// keywordText is what a keyword index searches for c: its content, led
+// by the qualified symbol when the chunk is an API doc (godoc chunks
+// carry it as metadata). A doc like "New creates a new Pool" never
+// spells out "pgxpool.New" itself, which is exactly what someone
+// searching by name types. The signature is left out: its generic terms
+// (ctx, context, error) lengthen every doc and dilute the words that
+// distinguish it.
+func keywordText(c domain.Chunk) string {
+	sym := c.Metadata["symbol"]
+	if sym == "" {
+		return string(c.Content)
+	}
+	if pkg := c.Metadata["package"]; pkg != "" {
+		sym = pkg + "." + sym
+	}
+	return sym + "\n" + string(c.Content)
+}
+
+// AddToIndex writes an already-replicated generation's chunks to one
+// more index, for LOCAL-002's backfill: vectors (with embedder) for a
+// generation first built keyword-only, or keyword entries (nil embedder)
+// for one built before the install used keyword search. Unlike Replicate
+// it never changes the generation's state, which is typically ACTIVE and
+// serving: on failure it removes whatever it wrote for the generation,
+// so searches never match a partial set.
+func AddToIndex(ctx context.Context, gen domain.Generation, sources []registry.Source, embedder embedding.Embedder, vb backend.VectorBackend, ns backend.Namespace, badgerStore *badger.Store) error {
+	if err := vb.EnsureNamespace(ctx, ns); err != nil {
+		return fmt.Errorf("%w: ensure namespace %s: %v", ErrReplication, ns.Name, err)
+	}
+	chunks, err := badgerStore.ListGenerationChunks(ctx, gen.ID)
+	if err != nil {
+		return fmt.Errorf("%w: list chunks for %s: %v", ErrReplication, gen.ID, err)
+	}
+	sourcesByID := make(map[string]registry.Source, len(sources))
+	for _, s := range sources {
+		sourcesByID[s.ID] = s
+	}
+	objectCache := map[string]domain.KnowledgeObject{}
+	for start := 0; start < len(chunks); start += defaultReplicateBatchSize {
+		end := min(start+defaultReplicateBatchSize, len(chunks))
+		points, err := embedBatch(ctx, embedder, badgerStore, objectCache, gen, sourcesByID, chunks[start:end])
+		if err == nil {
+			err = vb.Upsert(ctx, backend.UpsertRequest{Namespace: ns.Name, Points: points})
+		}
+		if err != nil {
+			if cleanupErr := vb.Delete(ctx, backend.DeleteRequest{Namespace: ns.Name, Filter: &backend.Filter{Generation: gen.ID}}); cleanupErr != nil {
+				return fmt.Errorf("%w: add to index: %v (and removing the partial entries failed: %v)", ErrReplication, err, cleanupErr)
+			}
+			return fmt.Errorf("%w: add to index: %v", ErrReplication, err)
+		}
+	}
+	return nil
 }

@@ -94,15 +94,15 @@ func TestRedactDSNHidesPasswords(t *testing.T) {
 
 func TestBuildVectorBackendEmbeddedDefaultsToTheDataDir(t *testing.T) {
 	isolateEnv(t)
-	path, err := embeddedVectorPath(config.Config{Vector: config.VectorConfig{Backend: "embedded"}})
+	dataDir, _ := config.DefaultDataDir()
+	path, err := embeddedVectorPath(config.Default(dataDir))
 	if err != nil {
 		t.Fatalf("embeddedVectorPath: %v", err)
 	}
-	dataDir, _ := config.DefaultDataDir()
 	if path != filepath.Join(dataDir, "vectors.db") {
 		t.Errorf("path = %q, want <data-dir>/vectors.db", path)
 	}
-	vb, err := buildVectorBackend(config.Config{Vector: config.VectorConfig{Backend: "embedded"}})
+	vb, err := buildVectorBackend(config.Default(dataDir))
 	if err != nil || vb.Name() != "embedded" {
 		t.Fatalf("buildVectorBackend(embedded) = %v, %v", vb, err)
 	}

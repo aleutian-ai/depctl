@@ -108,14 +108,11 @@ func buildVectorBackend(cfg config.Config) (backend.VectorBackend, error) {
 }
 
 // embeddedVectorPath is where the embedded backend keeps its file:
-// vector.endpoint if set (a file path), else <data-dir>/vectors.db.
+// vector.endpoint if set (a file path), else vectors.db next to the
+// configured control.db (the data dir, by default).
 func embeddedVectorPath(cfg config.Config) (string, error) {
 	if cfg.Vector.Endpoint == "" {
-		dataDir, err := config.DefaultDataDir()
-		if err != nil {
-			return "", fmt.Errorf("resolve data dir: %w", err)
-		}
-		return filepath.Join(dataDir, "vectors.db"), nil
+		return filepath.Join(filepath.Dir(cfg.Storage.Control.Path), "vectors.db"), nil
 	}
 	if strings.Contains(cfg.Vector.Endpoint, "://") {
 		return "", fmt.Errorf("vector.endpoint is %q, but the embedded backend takes a file path; remove vector.endpoint to use the default <data-dir>/vectors.db", cfg.Vector.Endpoint)

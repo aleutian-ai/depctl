@@ -24,7 +24,7 @@ Same ticket format as `planned/`: each epic has an `INDEX.md`, each ticket is se
 27. Observability — done, moved to [../completed/27-observability](../completed/27-observability/INDEX.md).
 28. [28-external-eval-integrations](28-external-eval-integrations/INDEX.md) — Ragas/DeepEval/Promptfoo exports, Phoenix/Langfuse docs
 29. Security hardening — done, moved to [../completed/29-security-hardening](../completed/29-security-hardening/INDEX.md).
-30. [30-local-retrieval-mode](30-local-retrieval-mode/INDEX.md) — Bleve lexical adapter, local query fallback
+30. Local retrieval mode — moved to [../completed/30-local-retrieval-mode](../completed/30-local-retrieval-mode/INDEX.md) (2026-10-06): `retrieval.mode` auto/vector/keyword; keyword search (plain-Go BM25) whenever Ollama isn't available.
 31. [31-llamaindex-adapter](31-llamaindex-adapter/INDEX.md) — external normalizer protocol, example sidecar
 32. [32-client-integration-examples](32-client-integration-examples/INDEX.md) — LibreChat, Goose, generic MCP client docs
 65. Cross-agent memory connectors — moved to [../planned/65-cross-agent-memory-connectors](../planned/65-cross-agent-memory-connectors/INDEX.md) (2026-09-30), picked up for active implementation.

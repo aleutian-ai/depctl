@@ -267,6 +267,10 @@ func TestCountWithNilFilterCountsWholeNamespace(t *testing.T) {
 func TestDeleteByIDsAndFilterSendsTwoSeparateRequests(t *testing.T) {
 	var got []pointsSelector
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet { // the collection-exists check
+			w.WriteHeader(http.StatusOK)
+			return
+		}
 		var sel pointsSelector
 		json.NewDecoder(r.Body).Decode(&sel)
 		got = append(got, sel)
@@ -297,7 +301,9 @@ func TestDeleteByIDsAndFilterSendsTwoSeparateRequests(t *testing.T) {
 func TestDeleteWithOnlyIDsSendsOneRequest(t *testing.T) {
 	var calls int
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls++
+		if r.Method != http.MethodGet { // not the collection-exists check
+			calls++
+		}
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer srv.Close()

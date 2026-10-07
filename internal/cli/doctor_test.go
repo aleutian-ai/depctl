@@ -64,6 +64,7 @@ func healthyDoctorEnv(t *testing.T) *doctorEnv {
 	}
 
 	cfg := config.Default(t.TempDir())
+	cfg.Retrieval.Mode = config.RetrievalVector // a vector-only install: its points live in the (fake) Qdrant
 	cfg.Vector.QdrantDefaults()
 	cfg.Vector.Endpoint = healthyBackendURL(t)
 	cfg.Embedding.Model = testEmbeddingModel
@@ -479,6 +480,39 @@ func TestDoctorEmbeddingBackendNoDaemonProbesDirectly(t *testing.T) {
 	r := resultNamed(t, runChecks(context.Background(), env), "embedding backend")
 	if r.Severity != SeverityUnhealthy || !strings.Contains(r.Detail, "unreachable") {
 		t.Errorf("embedding backend check = %s (%s), want UNHEALTHY mentioning unreachable", r.Severity, r.Detail)
+	}
+}
+
+// In auto mode an unreachable Ollama is a supported state: doctor says
+// keyword search is in use, without calling it unhealthy.
+func TestDoctorEmbeddingBackendUnreachableIsOKInAutoMode(t *testing.T) {
+	env := healthyDoctorEnv(t)
+	env.cfg.Retrieval.Mode = config.RetrievalAuto
+	env.embeddingReadiness = newEmbeddingReadiness()
+	env.embeddingReadiness.set(embeddingStateUnreachable, "Ollama not reachable at http://127.0.0.1:1")
+
+	r := resultNamed(t, runChecks(context.Background(), env), "embedding backend")
+	if r.Severity != SeverityOK || !strings.Contains(r.Detail, "keyword search") {
+		t.Errorf("embedding backend check = %s (%s), want OK saying keyword search is in use", r.Severity, r.Detail)
+	}
+}
+
+// Keyword mode never uses an embedder or vector store: doctor says so
+// rather than probing them (or calling them down).
+func TestDoctorKeywordModeReportsEmbedderAndVectorStoreAsNotUsed(t *testing.T) {
+	env := healthyDoctorEnv(t)
+	env.cfg.Retrieval.Mode = config.RetrievalKeyword
+	env.cfg.Embedding.Endpoint = deadBackendURL(t)
+
+	results := runChecks(context.Background(), env)
+	for _, name := range []string{"embedding backend", "vector backend", "embedding model compatibility"} {
+		r := resultNamed(t, results, name)
+		if r.Severity != SeverityOK || !strings.Contains(r.Detail, "not used") {
+			t.Errorf("%s = %s (%s), want OK and \"not used\"", name, r.Severity, r.Detail)
+		}
+	}
+	if r := resultNamed(t, results, "config"); !strings.Contains(r.Detail, "retrieval keyword") {
+		t.Errorf("config = %q, want it to name keyword retrieval", r.Detail)
 	}
 }
 

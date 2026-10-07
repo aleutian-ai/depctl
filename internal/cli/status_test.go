@@ -57,6 +57,8 @@ func healthyBackendURL(t *testing.T) string {
 		switch {
 		case r.URL.Path == "/healthz":
 			return
+		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/collections/"):
+			return // the collection exists
 		case strings.HasSuffix(r.URL.Path, "/points/count"):
 			// A nonzero count for any filter — POINT-003's own check
 			// (checkEmptyActiveGenerations) needs this endpoint to look

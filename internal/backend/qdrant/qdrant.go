@@ -209,6 +209,12 @@ func (c *Client) upsertBatch(ctx context.Context, collection string, points []ba
 // request's JSON shape and never checked against a live server what
 // that shape actually does.
 func (c *Client) Delete(ctx context.Context, req backend.DeleteRequest) error {
+	// A collection that was never created has nothing to delete (Qdrant
+	// answers 404); GC deletes from it in auto retrieval mode before
+	// anything was ever embedded.
+	if exists, err := c.collectionExists(ctx, "Delete", req.Namespace); err != nil || !exists {
+		return err
+	}
 	// req.IDs are ragctl chunk IDs. A point's own ID also depends on its
 	// generation now (see pointID), which an ID-only delete doesn't know,
 	// so each chunk is deleted by its "_id" payload instead — removing it
@@ -233,6 +239,29 @@ func (c *Client) Delete(ctx context.Context, req backend.DeleteRequest) error {
 		}
 	}
 	return nil
+}
+
+// collectionExists reports whether collection exists (200) or not (404),
+// for op's error messages.
+func (c *Client) collectionExists(ctx context.Context, op, collection string) (bool, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.endpoint+"/collections/"+collection, nil)
+	if err != nil {
+		return false, &Error{Op: op, Kind: ErrBackendRequest, Cause: err}
+	}
+	c.authorize(req)
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return false, &Error{Op: op, Kind: ErrBackendUnavailable, Cause: err}
+	}
+	resp.Body.Close()
+	switch resp.StatusCode {
+	case http.StatusOK:
+		return true, nil
+	case http.StatusNotFound:
+		return false, nil
+	default:
+		return false, &Error{Op: op, Kind: classify(resp.StatusCode), Cause: fmt.Errorf("HTTP %d", resp.StatusCode)}
+	}
 }
 
 // Query returns the TopK nearest points to req.Vector, constrained by
@@ -272,6 +301,9 @@ func (c *Client) Query(ctx context.Context, req backend.QueryRequest) (backend.Q
 // approximate count would defeat the point: POINT-003 needs to tell
 // "zero points" apart from "a few points," not a ballpark).
 func (c *Client) Count(ctx context.Context, namespace string, filter *backend.Filter) (int, error) {
+	if exists, err := c.collectionExists(ctx, "Count", namespace); err != nil || !exists {
+		return 0, err // never created: no points
+	}
 	cr := countRequest{Exact: true}
 	if filter != nil {
 		cr.Filter = filterFrom(filter)

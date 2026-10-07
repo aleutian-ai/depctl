@@ -99,10 +99,12 @@ func RunGC(ctx context.Context, store *bboltstore.Store, badgerStore *badgerstor
 		return result, nil
 	}
 
-	if err := vecReadiness.checkReady(); err != nil {
-		return result, err
+	if usesEmbedder(cfg) {
+		if err := vecReadiness.checkReady(); err != nil {
+			return result, err
+		}
 	}
-	vb, err := buildVectorBackend(cfg)
+	vb, err := buildAllIndexes(cfg)
 	if err != nil {
 		return result, err
 	}
@@ -153,10 +155,12 @@ func RunSupersededDuplicatesGC(ctx context.Context, store *bboltstore.Store, bad
 		return result, nil
 	}
 
-	if err := vecReadiness.checkReady(); err != nil {
-		return result, err
+	if usesEmbedder(cfg) {
+		if err := vecReadiness.checkReady(); err != nil {
+			return result, err
+		}
 	}
-	vb, err := buildVectorBackend(cfg)
+	vb, err := buildAllIndexes(cfg)
 	if err != nil {
 		return result, err
 	}
@@ -205,10 +209,12 @@ func RunOrphanGC(ctx context.Context, store *bboltstore.Store, badgerStore *badg
 		return result, nil
 	}
 
-	if err := vecReadiness.checkReady(); err != nil {
-		return result, err
+	if usesEmbedder(cfg) {
+		if err := vecReadiness.checkReady(); err != nil {
+			return result, err
+		}
 	}
-	vb, err := buildVectorBackend(cfg)
+	vb, err := buildAllIndexes(cfg)
 	if err != nil {
 		return result, err
 	}

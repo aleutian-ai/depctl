@@ -167,6 +167,9 @@ func (c *Client) Delete(ctx context.Context, req backend.DeleteRequest) error {
 	if err != nil {
 		return err
 	}
+	if exists, err := c.classExists(ctx, class); err != nil || !exists {
+		return err // a collection never created has nothing to delete
+	}
 	for start := 0; start < len(req.IDs); start += batchSize {
 		end := min(start+batchSize, len(req.IDs))
 		where := map[string]any{"path": []string{"chunk_id"}, "operator": "ContainsAny", "valueTextArray": req.IDs[start:end]}
@@ -235,6 +238,9 @@ func (c *Client) Count(ctx context.Context, namespace string, filter *backend.Fi
 	class, err := className(namespace)
 	if err != nil {
 		return 0, err
+	}
+	if exists, err := c.classExists(ctx, class); err != nil || !exists {
+		return 0, err // never created: no points
 	}
 	target := class
 	if where := whereFilter(filter); where != nil {

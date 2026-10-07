@@ -199,3 +199,19 @@ func checkEmbeddingReadiness(ctx context.Context, cfg config.Config, readiness *
 	readiness.set(embeddingStateReady, "")
 	logf("embedding readiness: %s ready", cfg.Embedding.Model)
 }
+
+// readyWithin reports whether the embedder is ready, first waiting up to
+// timeout for a probe still in progress to finish (auto mode decides on
+// the probe's real answer rather than racing it). nil counts as ready,
+// as in checkReady.
+func (r *embeddingReadiness) readyWithin(timeout time.Duration) bool {
+	if r == nil {
+		return true
+	}
+	for deadline := time.Now().Add(timeout); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+		if state, _ := r.get(); state != embeddingStateChecking {
+			break
+		}
+	}
+	return r.checkReady() == nil
+}
