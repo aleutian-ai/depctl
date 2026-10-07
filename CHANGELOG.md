@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+### Retrieval eval
+- `hack/retrieval-eval` measures keyword, vector and hybrid search on a real synced install, using 48 hand-written and 275 generated questions. On 12 Go dependencies, keyword and vector search performed the same within noise (MRR 0.527 against 0.496), and a hybrid of the two was measurably better (0.556). See `docs/retrieval-eval.md`.
+
 ## v0.3.1 — 2026-10-07
 
 ### Smaller index files

@@ -1,0 +1,630 @@
+[
+  {
+    "id": "hand-01",
+    "source": "hand",
+    "kind": "identifier",
+    "dependency": "github.com/google/uuid",
+    "question": "NewRandom",
+    "gold": {
+      "symbols": [
+        "uuid.NewRandom"
+      ]
+    }
+  },
+  {
+    "id": "hand-02",
+    "source": "hand",
+    "kind": "description",
+    "dependency": "github.com/google/uuid",
+    "question": "parse a UUID from a string",
+    "gold": {
+      "symbols": [
+        "uuid.Parse",
+        "uuid.MustParse",
+        "uuid.ParseBytes"
+      ]
+    }
+  },
+  {
+    "id": "hand-03",
+    "source": "hand",
+    "kind": "paraphrase",
+    "dependency": "github.com/google/uuid",
+    "question": "create an id that sorts by when it was created",
+    "gold": {
+      "symbols": [
+        "uuid.NewV7",
+        "uuid.NewV7FromReader",
+        "uuid.NewV6"
+      ]
+    }
+  },
+  {
+    "id": "hand-04",
+    "source": "hand",
+    "kind": "paraphrase",
+    "dependency": "github.com/google/uuid",
+    "question": "use my own source of randomness for generated ids, for deterministic tests",
+    "gold": {
+      "symbols": [
+        "uuid.SetRand",
+        "uuid.NewRandomFromReader"
+      ]
+    }
+  },
+  {
+    "id": "hand-05",
+    "source": "hand",
+    "kind": "identifier",
+    "dependency": "github.com/spf13/cobra",
+    "question": "MarkFlagRequired",
+    "gold": {
+      "symbols": [
+        "cobra.MarkFlagRequired"
+      ]
+    }
+  },
+  {
+    "id": "hand-06",
+    "source": "hand",
+    "kind": "description",
+    "dependency": "github.com/spf13/cobra",
+    "question": "add a subcommand to a command",
+    "gold": {
+      "symbols": [
+        "cobra.AddCommand"
+      ]
+    }
+  },
+  {
+    "id": "hand-07",
+    "source": "hand",
+    "kind": "paraphrase",
+    "dependency": "github.com/spf13/cobra",
+    "question": "make my CLI refuse to run unless it gets exactly two arguments",
+    "gold": {
+      "symbols": [
+        "cobra.ExactArgs"
+      ]
+    }
+  },
+  {
+    "id": "hand-08",
+    "source": "hand",
+    "kind": "description",
+    "dependency": "github.com/spf13/cobra",
+    "question": "generate a bash completion script",
+    "gold": {
+      "symbols": [
+        "cobra.GenBashCompletion",
+        "cobra.GenBashCompletionV2",
+        "cobra.GenBashCompletionFile",
+        "cobra.GenBashCompletionFileV2"
+      ]
+    }
+  },
+  {
+    "id": "hand-09",
+    "source": "hand",
+    "kind": "paraphrase",
+    "dependency": "github.com/spf13/cobra",
+    "question": "run setup code before every command in my tool, including subcommands",
+    "gold": {
+      "contains": [
+        "PersistentPreRun"
+      ]
+    }
+  },
+  {
+    "id": "hand-10",
+    "source": "hand",
+    "kind": "identifier",
+    "dependency": "github.com/spf13/cobra",
+    "question": "cobra.ArbitraryArgs",
+    "gold": {
+      "symbols": [
+        "cobra.ArbitraryArgs"
+      ]
+    }
+  },
+  {
+    "id": "hand-11",
+    "source": "hand",
+    "kind": "identifier",
+    "dependency": "go.etcd.io/bbolt",
+    "question": "CreateBucketIfNotExists",
+    "gold": {
+      "symbols": [
+        "bbolt.CreateBucketIfNotExists"
+      ]
+    }
+  },
+  {
+    "id": "hand-12",
+    "source": "hand",
+    "kind": "description",
+    "dependency": "go.etcd.io/bbolt",
+    "question": "open the database with a timeout",
+    "gold": {
+      "symbols": [
+        "bbolt.Open",
+        "bbolt.Options"
+      ],
+      "contains": [
+        "Timeout"
+      ]
+    }
+  },
+  {
+    "id": "hand-13",
+    "source": "hand",
+    "kind": "paraphrase",
+    "dependency": "go.etcd.io/bbolt",
+    "question": "jump to the first key at or after a given key while iterating",
+    "gold": {
+      "symbols": [
+        "bbolt.Seek"
+      ]
+    }
+  },
+  {
+    "id": "hand-14",
+    "source": "hand",
+    "kind": "description",
+    "dependency": "go.etcd.io/bbolt",
+    "question": "back up the database while it's in use",
+    "gold": {
+      "symbols": [
+        "bbolt.WriteTo",
+        "bbolt.CopyFile"
+      ]
+    }
+  },
+  {
+    "id": "hand-15",
+    "source": "hand",
+    "kind": "paraphrase",
+    "dependency": "go.etcd.io/bbolt",
+    "question": "speed up writes by not flushing to disk on every commit",
+    "gold": {
+      "contains": [
+        "NoSync"
+      ]
+    }
+  },
+  {
+    "id": "hand-16",
+    "source": "hand",
+    "kind": "identifier",
+    "dependency": "github.com/dgraph-io/badger/v4",
+    "question": "RunValueLogGC",
+    "gold": {
+      "symbols": [
+        "badger.RunValueLogGC"
+      ]
+    }
+  },
+  {
+    "id": "hand-17",
+    "source": "hand",
+    "kind": "description",
+    "dependency": "github.com/dgraph-io/badger/v4",
+    "question": "set an expiry time on a key",
+    "gold": {
+      "symbols": [
+        "badger.WithTTL",
+        "badger.SetEntry",
+        "badger.NewEntry"
+      ],
+      "contains": [
+        "TTL"
+      ]
+    }
+  },
+  {
+    "id": "hand-18",
+    "source": "hand",
+    "kind": "paraphrase",
+    "dependency": "github.com/dgraph-io/badger/v4",
+    "question": "walk over only the keys that begin with certain bytes",
+    "gold": {
+      "symbols": [
+        "badger.ValidForPrefix"
+      ],
+      "contains": [
+        "Prefix"
+      ]
+    }
+  },
+  {
+    "id": "hand-19",
+    "source": "hand",
+    "kind": "description",
+    "dependency": "github.com/dgraph-io/badger/v4",
+    "question": "run badger entirely in memory without touching disk",
+    "gold": {
+      "symbols": [
+        "badger.WithInMemory"
+      ],
+      "contains": [
+        "InMemory"
+      ]
+    }
+  },
+  {
+    "id": "hand-20",
+    "source": "hand",
+    "kind": "description",
+    "dependency": "github.com/dgraph-io/badger/v4",
+    "question": "write many keys efficiently in batches",
+    "gold": {
+      "symbols": [
+        "badger.NewWriteBatch",
+        "badger.WriteBatch"
+      ]
+    }
+  },
+  {
+    "id": "hand-21",
+    "source": "hand",
+    "kind": "identifier",
+    "dependency": "github.com/jackc/pgx/v5",
+    "question": "pgxpool.NewWithConfig",
+    "gold": {
+      "symbols": [
+        "pgxpool.NewWithConfig"
+      ]
+    }
+  },
+  {
+    "id": "hand-22",
+    "source": "hand",
+    "kind": "identifier",
+    "dependency": "github.com/jackc/pgx/v5",
+    "question": "pgxpool.New",
+    "gold": {
+      "symbols": [
+        "pgxpool.New"
+      ]
+    }
+  },
+  {
+    "id": "hand-23",
+    "source": "hand",
+    "kind": "paraphrase",
+    "dependency": "github.com/jackc/pgx/v5",
+    "question": "how do I get a connection from the pool",
+    "gold": {
+      "symbols": [
+        "pgxpool.Acquire",
+        "pgxpool.AcquireFunc"
+      ]
+    }
+  },
+  {
+    "id": "hand-24",
+    "source": "hand",
+    "kind": "paraphrase",
+    "dependency": "github.com/jackc/pgx/v5",
+    "question": "limit the maximum number of database connections",
+    "gold": {
+      "contains": [
+        "MaxConns"
+      ]
+    }
+  },
+  {
+    "id": "hand-25",
+    "source": "hand",
+    "kind": "description",
+    "dependency": "github.com/jackc/pgx/v5",
+    "question": "run a function inside a transaction",
+    "gold": {
+      "symbols": [
+        "pgx.BeginFunc",
+        "pgx.BeginTxFunc",
+        "pgxpool.BeginFunc",
+        "pgxpool.BeginTxFunc"
+      ]
+    }
+  },
+  {
+    "id": "hand-26",
+    "source": "hand",
+    "kind": "description",
+    "dependency": "github.com/jackc/pgx/v5",
+    "question": "copy many rows into a table quickly",
+    "gold": {
+      "symbols": [
+        "pgx.CopyFrom",
+        "pgxpool.CopyFrom"
+      ]
+    }
+  },
+  {
+    "id": "hand-27",
+    "source": "hand",
+    "kind": "paraphrase",
+    "dependency": "github.com/jackc/pgx/v5",
+    "question": "read query results straight into a slice of my structs",
+    "gold": {
+      "symbols": [
+        "pgx.CollectRows",
+        "pgx.RowToStructByName",
+        "pgx.RowToStructByPos"
+      ]
+    }
+  },
+  {
+    "id": "hand-28",
+    "source": "hand",
+    "kind": "description",
+    "dependency": "github.com/modelcontextprotocol/go-sdk",
+    "question": "add a tool to the server",
+    "gold": {
+      "symbols": [
+        "mcp.AddTool"
+      ]
+    }
+  },
+  {
+    "id": "hand-29",
+    "source": "hand",
+    "kind": "description",
+    "dependency": "github.com/modelcontextprotocol/go-sdk",
+    "question": "connect a client to a server over stdio",
+    "gold": {
+      "symbols": [
+        "mcp.StdioTransport",
+        "mcp.CommandTransport"
+      ]
+    }
+  },
+  {
+    "id": "hand-30",
+    "source": "hand",
+    "kind": "paraphrase",
+    "dependency": "github.com/modelcontextprotocol/go-sdk",
+    "question": "tell the caller how far along a long-running operation is",
+    "gold": {
+      "symbols": [
+        "mcp.NotifyProgress"
+      ],
+      "contains": [
+        "ProgressNotification"
+      ]
+    }
+  },
+  {
+    "id": "hand-31",
+    "source": "hand",
+    "kind": "identifier",
+    "dependency": "gopkg.in/yaml.v3",
+    "question": "yaml.Unmarshal",
+    "gold": {
+      "symbols": [
+        "yaml.Unmarshal"
+      ]
+    }
+  },
+  {
+    "id": "hand-32",
+    "source": "hand",
+    "kind": "description",
+    "dependency": "gopkg.in/yaml.v3",
+    "question": "decode YAML from a reader stream",
+    "gold": {
+      "symbols": [
+        "yaml.NewDecoder",
+        "yaml.Decode"
+      ]
+    }
+  },
+  {
+    "id": "hand-33",
+    "source": "hand",
+    "kind": "paraphrase",
+    "dependency": "gopkg.in/yaml.v3",
+    "question": "keep the comments when I change a YAML document and write it back",
+    "gold": {
+      "symbols": [
+        "yaml.Node"
+      ]
+    }
+  },
+  {
+    "id": "hand-34",
+    "source": "hand",
+    "kind": "description",
+    "dependency": "github.com/BurntSushi/toml",
+    "question": "decode a TOML file into a struct",
+    "gold": {
+      "symbols": [
+        "toml.DecodeFile",
+        "toml.Decode"
+      ]
+    }
+  },
+  {
+    "id": "hand-35",
+    "source": "hand",
+    "kind": "paraphrase",
+    "dependency": "github.com/BurntSushi/toml",
+    "question": "find out which keys in the file my struct didn't use",
+    "gold": {
+      "symbols": [
+        "toml.Undecoded"
+      ]
+    }
+  },
+  {
+    "id": "hand-36",
+    "source": "hand",
+    "kind": "description",
+    "dependency": "github.com/fsnotify/fsnotify",
+    "question": "watch a directory for file changes",
+    "gold": {
+      "symbols": [
+        "fsnotify.NewWatcher",
+        "fsnotify.Add"
+      ]
+    }
+  },
+  {
+    "id": "hand-37",
+    "source": "hand",
+    "kind": "paraphrase",
+    "dependency": "github.com/fsnotify/fsnotify",
+    "question": "tell whether an event means a file was renamed",
+    "gold": {
+      "symbols": [
+        "fsnotify.Has",
+        "fsnotify.Op"
+      ],
+      "contains": [
+        "Rename"
+      ]
+    }
+  },
+  {
+    "id": "hand-38",
+    "source": "hand",
+    "kind": "identifier",
+    "dependency": "github.com/oklog/ulid/v2",
+    "question": "ulid.Make",
+    "gold": {
+      "symbols": [
+        "ulid.Make"
+      ]
+    }
+  },
+  {
+    "id": "hand-39",
+    "source": "hand",
+    "kind": "description",
+    "dependency": "github.com/oklog/ulid/v2",
+    "question": "parse a ULID string",
+    "gold": {
+      "symbols": [
+        "ulid.Parse",
+        "ulid.ParseStrict",
+        "ulid.MustParse"
+      ]
+    }
+  },
+  {
+    "id": "hand-40",
+    "source": "hand",
+    "kind": "paraphrase",
+    "dependency": "github.com/oklog/ulid/v2",
+    "question": "get the creation time back out of an id",
+    "gold": {
+      "symbols": [
+        "ulid.Time",
+        "ulid.Timestamp"
+      ]
+    }
+  },
+  {
+    "id": "hand-41",
+    "source": "hand",
+    "kind": "description",
+    "dependency": "github.com/prometheus/client_golang",
+    "question": "create a counter metric",
+    "gold": {
+      "symbols": [
+        "prometheus.NewCounter",
+        "prometheus.NewCounterVec"
+      ]
+    }
+  },
+  {
+    "id": "hand-42",
+    "source": "hand",
+    "kind": "description",
+    "dependency": "github.com/prometheus/client_golang",
+    "question": "expose metrics over HTTP",
+    "gold": {
+      "symbols": [
+        "promhttp.Handler",
+        "promhttp.HandlerFor"
+      ]
+    }
+  },
+  {
+    "id": "hand-43",
+    "source": "hand",
+    "kind": "paraphrase",
+    "dependency": "github.com/prometheus/client_golang",
+    "question": "record how long requests take as a distribution",
+    "gold": {
+      "symbols": [
+        "prometheus.NewHistogram",
+        "prometheus.NewHistogramVec"
+      ]
+    }
+  },
+  {
+    "id": "hand-44",
+    "source": "hand",
+    "kind": "identifier",
+    "dependency": "go.opentelemetry.io/otel",
+    "question": "otel.SetTracerProvider",
+    "gold": {
+      "symbols": [
+        "otel.SetTracerProvider"
+      ]
+    }
+  },
+  {
+    "id": "hand-45",
+    "source": "hand",
+    "kind": "description",
+    "dependency": "go.opentelemetry.io/otel",
+    "question": "get a tracer to start creating spans",
+    "gold": {
+      "symbols": [
+        "otel.Tracer"
+      ]
+    }
+  },
+  {
+    "id": "hand-46",
+    "source": "hand",
+    "kind": "paraphrase",
+    "dependency": "go.opentelemetry.io/otel",
+    "question": "create a key-value detail to attach to telemetry",
+    "gold": {
+      "symbols": [
+        "attribute.String",
+        "attribute.Int"
+      ]
+    }
+  },
+  {
+    "id": "hand-47",
+    "source": "hand",
+    "kind": "description",
+    "dependency": "go.opentelemetry.io/otel",
+    "question": "propagate trace context in HTTP headers",
+    "gold": {
+      "symbols": [
+        "propagation.TraceContext"
+      ]
+    }
+  },
+  {
+    "id": "hand-48",
+    "source": "hand",
+    "kind": "paraphrase",
+    "dependency": "go.opentelemetry.io/otel",
+    "question": "carry user-defined key-value data along with a request across services",
+    "gold": {
+      "symbols": [
+        "baggage.New",
+        "baggage.NewMember",
+        "propagation.Baggage"
+      ]
+    }
+  }
+]

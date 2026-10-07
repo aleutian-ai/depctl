@@ -1,0 +1,3302 @@
+[
+  {
+    "id": "gen-001",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/BurntSushi/toml",
+    "question": "How do I declare a key/value pair in TOML, and what types are valid for values?",
+    "gold": {
+      "chunk_ids": [
+        "chk_ggw3zoxxnzyrm3jixfjcnfy4yc6vsycmtjos3gxphfpcytzlg4gq"
+      ]
+    }
+  },
+  {
+    "id": "gen-002",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/BurntSushi/toml",
+    "question": "How can I compare two TOML values and get a human-readable explanation of the first difference between them?",
+    "gold": {
+      "chunk_ids": [
+        "chk_nhz5rptgubf5vtogudsrq5w7km6norad7kzcwhf32vhmfqu5l5nq"
+      ]
+    }
+  },
+  {
+    "id": "gen-003",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/BurntSushi/toml",
+    "question": "How can I define a nested table using a dotted key, and can I then add more sub-tables to it using a normal table header?",
+    "gold": {
+      "chunk_ids": [
+        "chk_hqvp2bcjusrulaw4z53mv4ntgzukwzzoqw477pxiehyhbezo5lha"
+      ]
+    }
+  },
+  {
+    "id": "gen-004",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/BurntSushi/toml",
+    "question": "How do I define a list of tables where each entry can have its own sub-tables and nested lists of tables?",
+    "gold": {
+      "chunk_ids": [
+        "chk_ru4uqjza4vlwn2pq6x6gvm3uxdw6wnocaffgswpcmj3kdtbgjdra"
+      ]
+    }
+  },
+  {
+    "id": "gen-005",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/BurntSushi/toml",
+    "question": "How can I defer decoding of a TOML value so I can inspect its type at runtime before converting it into a Go value?",
+    "gold": {
+      "chunk_ids": [
+        "chk_tqwbscsvxfu5qgdi4d2a7ixouq4ixdygfjjllbl6qj7dfsbixi3a"
+      ]
+    }
+  },
+  {
+    "id": "gen-006",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/BurntSushi/toml",
+    "question": "How do I add explanatory notes to a TOML file without them being interpreted as actual data?",
+    "gold": {
+      "chunk_ids": [
+        "chk_kihrgg7ytetdkhy4v53g35qaygonbnkkxw3ru3p77ghd4sn7enha"
+      ]
+    }
+  },
+  {
+    "id": "gen-007",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/BurntSushi/toml",
+    "question": "How do I write a string that contains special characters, quotes, and line breaks?",
+    "gold": {
+      "chunk_ids": [
+        "chk_en4pjgn2fd35jcszxpr7wew5jlkcyyuasbvy4hi56jje25s3qofq"
+      ]
+    }
+  },
+  {
+    "id": "gen-008",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/BurntSushi/toml",
+    "question": "How do I name the keys in a TOML file, including whether I can use plain text, quoted strings, or dotted notation?",
+    "gold": {
+      "chunk_ids": [
+        "chk_wkfo722sewkpvtmovp2uvhggov5p4hqrosxnl2kk2llxe22l4cmq"
+      ]
+    }
+  },
+  {
+    "id": "gen-009",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/BurntSushi/toml",
+    "question": "How do I represent a specific moment in time versus a date-time without a timezone?",
+    "gold": {
+      "chunk_ids": [
+        "chk_bhsasacam4t5fcpvgs4md5pydru6iandkeddvbtmowyunug5fyuq"
+      ]
+    }
+  },
+  {
+    "id": "gen-010",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/BurntSushi/toml",
+    "question": "How do I write numbers with fractional parts and exponents, including cases like `3.1415`, `5e+22`, and `6.626e-34`?",
+    "gold": {
+      "chunk_ids": [
+        "chk_dofrhprh6mqhpoyuct4zmkzrxnspdwyjblqumtbwdnsdkmpz7seq"
+      ]
+    }
+  },
+  {
+    "id": "gen-011",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/BurntSushi/toml",
+    "question": "How do I write a string value that contains backslashes, single quotes, and newlines without having to escape any of them?",
+    "gold": {
+      "chunk_ids": [
+        "chk_jv4ec7i3f5puda2f6bgcwxseerjuxdpkc3nzhunpnzr6n7hwacsa"
+      ]
+    }
+  },
+  {
+    "id": "gen-012",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/BurntSushi/toml",
+    "question": "How do I convert a Go struct or map into a TOML file?",
+    "gold": {
+      "chunk_ids": [
+        "chk_xw6x3mxmjmy5uu23uuf5p2fsf3qu62goa2nhf63foax2uiqs6lyq"
+      ]
+    }
+  },
+  {
+    "id": "gen-013",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/BurntSushi/toml",
+    "question": "How do I define a table with multiple key/value pairs and nested sub-tables?",
+    "gold": {
+      "chunk_ids": [
+        "chk_vpyyvvup7qqnccr3mksxx37gu7nsiaaf63cscol4zrret35pajfa"
+      ]
+    }
+  },
+  {
+    "id": "gen-014",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/BurntSushi/toml",
+    "question": "How can I check whether a specific nested key exists in a TOML file?",
+    "gold": {
+      "chunk_ids": [
+        "chk_3jtdv76xqgzkk3ftjwsugns3x47jowmznm6mh3wkhmmgdxweebwa"
+      ]
+    }
+  },
+  {
+    "id": "gen-015",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/BurntSushi/toml",
+    "question": "How do I write a table in a more compact form using curly braces and comma-separated key/value pairs?",
+    "gold": {
+      "chunk_ids": [
+        "chk_woxcjd57a3pojgqkdmpwnhirf5lz32cxzo4rc7whypf5d4ehu6rq"
+      ]
+    }
+  },
+  {
+    "id": "gen-016",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/BurntSushi/toml",
+    "question": "How can I include a single quote in a string value without escaping it?",
+    "gold": {
+      "chunk_ids": [
+        "chk_zxeyuusfv442yfrluswijsoeesqnkyk3gajhn5i4j72zfko5tfda"
+      ]
+    }
+  },
+  {
+    "id": "gen-017",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/BurntSushi/toml",
+    "question": "How do I find which keys from my TOML file haven't been assigned to a concrete type in my Go structs?",
+    "gold": {
+      "chunk_ids": [
+        "chk_npjfsf56fiid2hv2z7n4yqxgvihldvk3tfuem5zv6ta6gyjevl7a"
+      ]
+    }
+  },
+  {
+    "id": "gen-018",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/BurntSushi/toml",
+    "question": "How do I represent multiple values that share the same set of attributes, such as several fruits that each have a color and shape?",
+    "gold": {
+      "chunk_ids": [
+        "chk_rxlxn2cjpsiujjbbk62bhj7ql3amduza7ns246mkby4a5lfq3eoa"
+      ]
+    }
+  },
+  {
+    "id": "gen-019",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/BurntSushi/toml",
+    "question": "How do I define an ordered list of values in TOML, including multi-line arrays, trailing commas, and mixing different types of values?",
+    "gold": {
+      "chunk_ids": [
+        "chk_fuvjlcet2ideisvg7xon3mzfyckdghumg4k5rbbkyzqt2rhhd2qa"
+      ]
+    }
+  },
+  {
+    "id": "gen-020",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/BurntSushi/toml",
+    "question": "How do I write a floating-point number in TOML, including fractional and exponent parts, and what are the valid and invalid formats?",
+    "gold": {
+      "chunk_ids": [
+        "chk_h7suxiowhaexsas3gedyd2ywl4466o2g4yluk5ccypcyohp3wqhq"
+      ]
+    }
+  },
+  {
+    "id": "gen-021",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/BurntSushi/toml",
+    "question": "How do I know if my TOML file is valid and won't be rejected?",
+    "gold": {
+      "chunk_ids": [
+        "chk_xmc6cz3liur2ijlu4y3rggdh7qh5r7pv222xppi3vmklclvoadla"
+      ]
+    }
+  },
+  {
+    "id": "gen-022",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/BurntSushi/toml",
+    "question": "How do I define a value under a key that doesn't exist yet, and then add more values to that same key afterward?",
+    "gold": {
+      "chunk_ids": [
+        "chk_2kvingdckldiqq6aoj6do7iisbaxf6oxxphuxovvmaeipnf2q42q"
+      ]
+    }
+  },
+  {
+    "id": "gen-023",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/BurntSushi/toml",
+    "question": "How can I make the library automatically parse raw string values into a custom type like an email address?",
+    "gold": {
+      "chunk_ids": [
+        "chk_srg53rjm6is6wpqqg2ddasokegfip4tx4sf3zzjv546bhwfzdgha"
+      ]
+    }
+  },
+  {
+    "id": "gen-024",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/BurntSushi/toml",
+    "question": "How do I specify a value that represents only a particular day, only a particular time of day, or a list of multiple values in a single key?",
+    "gold": {
+      "chunk_ids": [
+        "chk_eoy6og7ixeqamhcpyhufjurlfdgjop2pzkpesdwnsov3fszof22a"
+      ]
+    }
+  },
+  {
+    "id": "gen-025",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/BurntSushi/toml",
+    "question": "How can I convert a TOML file into a Go data structure and back again?",
+    "gold": {
+      "chunk_ids": [
+        "chk_wh6j26l5mxumayji6v5g63s6rsgnath5moxltp3b2rrmrw2xwf4a"
+      ]
+    }
+  },
+  {
+    "id": "gen-026",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/dgraph-io/badger/v4",
+    "question": "How can I prevent a database file from being left behind when a write operation fails?",
+    "gold": {
+      "chunk_ids": [
+        "chk_4gdpatfuth2432hvdmpndnzw6zulfxelhgfvi3yabogofu6fnriq"
+      ]
+    }
+  },
+  {
+    "id": "gen-027",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/dgraph-io/badger/v4",
+    "question": "How do I convert a size in bytes into a human-readable format with a custom number of decimal places?",
+    "gold": {
+      "chunk_ids": [
+        "chk_rre62leweoyq2xkdmmo3alhm65gkplsuwwrqbcmfzr5v2ovwru4q"
+      ]
+    }
+  },
+  {
+    "id": "gen-028",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/dgraph-io/badger/v4",
+    "question": "How do I upgrade to a version of this dependency that uses semantic versioning and requires Go 1.19 or later?",
+    "gold": {
+      "chunk_ids": [
+        "chk_wmy4rtyeevaxfpxwx42a2xxzuzoj2hrb7msuqojts5a543y2zihq"
+      ]
+    }
+  },
+  {
+    "id": "gen-029",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/dgraph-io/badger/v4",
+    "question": "How do I set up my development environment to match the project's CI requirements?",
+    "gold": {
+      "chunk_ids": [
+        "chk_5negn3xjiacune7n3yb7pz5ja3ypxzocpevuzksyp3joohuayezq"
+      ]
+    }
+  },
+  {
+    "id": "gen-030",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/dgraph-io/badger/v4",
+    "question": "How do I update Badger to a newer version?",
+    "gold": {
+      "chunk_ids": [
+        "chk_da6atrnfa3rywxibwv3jo72rj2gtkv4d55a46pbxzwu5nokngrda"
+      ]
+    }
+  },
+  {
+    "id": "gen-031",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/dgraph-io/badger/v4",
+    "question": "How often should I change my encryption key to protect against security threats?",
+    "gold": {
+      "chunk_ids": [
+        "chk_m756wfsgfzdhaswismqxcxoi4fc7ns7zefzqwhhlkwklkbk6j5ka"
+      ]
+    }
+  },
+  {
+    "id": "gen-032",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/dgraph-io/badger/v4",
+    "question": "How do I create a transaction that safely reads data while other transactions may be modifying it, and how do I clean it up afterward?",
+    "gold": {
+      "chunk_ids": [
+        "chk_pip4lzvq5grrfqugnnsbfzh4crjsploytuy2phohpi2kz5xthi3a"
+      ]
+    }
+  },
+  {
+    "id": "gen-033",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/dgraph-io/badger/v4",
+    "question": "How can I configure the database to automatically decide what percentage of values should be stored in the LSM tree versus the value log, based on the distribution of values in my data?",
+    "gold": {
+      "chunk_ids": [
+        "chk_sbidoo46jcqk7x5zqd755ljlcrr3kgrpntotw4ud43kpvpkpyvhq"
+      ]
+    }
+  },
+  {
+    "id": "gen-034",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/dgraph-io/badger/v4",
+    "question": "How can I store and retrieve data as key-value pairs in a fast, persistent database that runs entirely within my Go application?",
+    "gold": {
+      "chunk_ids": [
+        "chk_gukzrbyp25wof4cbbibh5vjpt7edma2dicszjst4cd55hgko3zaq"
+      ]
+    }
+  },
+  {
+    "id": "gen-035",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/dgraph-io/badger/v4",
+    "question": "How do I describe a single change to a table's metadata, including its identifier, the type of operation being performed, the storage level for creation, the key identifier, the encryption algorithm, and the compression method?",
+    "gold": {
+      "chunk_ids": [
+        "chk_7bo5xlnczijqwnxelpibf4vdv7widzpaxfqq6zfetyy3cgbu33pq"
+      ]
+    }
+  },
+  {
+    "id": "gen-036",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/dgraph-io/badger/v4",
+    "question": "How do I open a database on disk using Badger?",
+    "gold": {
+      "chunk_ids": [
+        "chk_ohfs7b5z3kioofdfihf26s2ad2jq72itspbqfujqvzibhhkfmgjq"
+      ]
+    }
+  },
+  {
+    "id": "gen-037",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/dgraph-io/badger/v4",
+    "question": "What kind of server hardware should I use to run Badger for best performance?",
+    "gold": {
+      "chunk_ids": [
+        "chk_mvjtj4gftysjibc33uqtz73x3gubd3zi2d6ctrxcuy6pc5uoudia"
+      ]
+    }
+  },
+  {
+    "id": "gen-038",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/dgraph-io/badger/v4",
+    "question": "How do I limit the maximum size of each batch when streaming data?",
+    "gold": {
+      "chunk_ids": [
+        "chk_g2ic5o3gtmql5bcuajykdtnybtldoh2ripdybdibfksnlgo6bpsa"
+      ]
+    }
+  },
+  {
+    "id": "gen-039",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/dgraph-io/badger/v4",
+    "question": "How can I ensure that writes are unblocked when returning early from a function that creates a new writer, without erasing partially written data?",
+    "gold": {
+      "chunk_ids": [
+        "chk_c4hxp4lzo5boaeb6dpsrs2cienbwyvggddavdzz2opmkyb3vu3rq"
+      ]
+    }
+  },
+  {
+    "id": "gen-040",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/dgraph-io/badger/v4",
+    "question": "How many background workers should handle merging older data together, and what happens if I set it to zero?",
+    "gold": {
+      "chunk_ids": [
+        "chk_br6gpz5trdmfm6jjdubq6abpqkrq3j4ekvyelsamsjvguahrc6ea"
+      ]
+    }
+  },
+  {
+    "id": "gen-041",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/dgraph-io/badger/v4",
+    "question": "How do I build a fast key-value database in pure Go that's optimized for SSDs and can handle terabytes of data?",
+    "gold": {
+      "chunk_ids": [
+        "chk_ovdz6rghu55uakypqa745kck2ew36ghlobvdxnwud2kxwbe2y7kq"
+      ]
+    }
+  },
+  {
+    "id": "gen-042",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/dgraph-io/badger/v4",
+    "question": "How can I enable background compression and encryption of data blocks while disabling the default caching behavior?",
+    "gold": {
+      "chunk_ids": [
+        "chk_gjt2ctjthlg5xwmzmt5me6xpgpn43djuwiwtkzssne5mgc6ogygq"
+      ]
+    }
+  },
+  {
+    "id": "gen-043",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/dgraph-io/badger/v4",
+    "question": "How can I encrypt my database files so that knowing the IV alone does not allow decryption of the data?",
+    "gold": {
+      "chunk_ids": [
+        "chk_xfxpjujlzxcmvg5wb6skb4oecqct7u7yspbb25wlwyoohj24vpfq"
+      ]
+    }
+  },
+  {
+    "id": "gen-044",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/dgraph-io/badger/v4",
+    "question": "How do I permanently save the changes made during a transaction, and how can I be notified when those changes are fully written to the database?",
+    "gold": {
+      "chunk_ids": [
+        "chk_dfn4kprh5n4qtqk4lpgnufifv7qwe3wzwclmlaooxtlmmkwnlvza"
+      ]
+    }
+  },
+  {
+    "id": "gen-045",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/dgraph-io/badger/v4",
+    "question": "How can I perform many writes efficiently in a single transaction without having to manually manage transaction creation and committing?",
+    "gold": {
+      "chunk_ids": [
+        "chk_ylfiuojahylw3sypmfzmh6e7pssfp3dfbero5y5f4dejiujgcddq"
+      ]
+    }
+  },
+  {
+    "id": "gen-046",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/dgraph-io/badger/v4",
+    "question": "How do I reclaim space from old versioned values that Badger stores separately from its LSM tree?",
+    "gold": {
+      "chunk_ids": [
+        "chk_fpdmvvhckh5zzhywl7dpqrxluqtmg2uylvml4jy3qubp3xtd3kza"
+      ]
+    }
+  },
+  {
+    "id": "gen-047",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/dgraph-io/badger/v4",
+    "question": "How can I store and retrieve key-value pairs efficiently on modern storage devices, even for very large datasets?",
+    "gold": {
+      "chunk_ids": [
+        "chk_6kdowpcp6ywr3ubof64a5swaj6stt7zjxf3is3j6lpmf7rpahpnq"
+      ]
+    }
+  },
+  {
+    "id": "gen-048",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/dgraph-io/badger/v4",
+    "question": "How can I subscribe to changes in a Badger database?",
+    "gold": {
+      "chunk_ids": [
+        "chk_ythsxqqj74bdiaqcournzyfvctq5wlrnk5gowh5ymut2x46hzrta"
+      ]
+    }
+  },
+  {
+    "id": "gen-049",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/dgraph-io/badger/v4",
+    "question": "How do I create a data structure that quickly tells me whether a given value might be in a large set, accepting a small chance of false positives?",
+    "gold": {
+      "chunk_ids": [
+        "chk_tgzqu4neluh6fbaa3pwaopua7u373jtn4fjfmfeuga2ti2hvghha"
+      ]
+    }
+  },
+  {
+    "id": "gen-050",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/dgraph-io/badger/v4",
+    "question": "How do I safely iterate over keys in a transaction without triggering panics?",
+    "gold": {
+      "chunk_ids": [
+        "chk_hytbhi34kltxgr23ugyscfbwdvbnbcz6uaqxylieycpr7m3bmiga"
+      ]
+    }
+  },
+  {
+    "id": "gen-051",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/fsnotify/fsnotify",
+    "question": "How do I detect when a file has been modified on Windows?",
+    "gold": {
+      "chunk_ids": [
+        "chk_oecpdhklveugahgxoyfmt7shn7kre5ycc7aa5musk2ihpuqa7v5a"
+      ]
+    }
+  },
+  {
+    "id": "gen-052",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/fsnotify/fsnotify",
+    "question": "How can I watch files for changes, and why does my program crash when I stop watching?",
+    "gold": {
+      "chunk_ids": [
+        "chk_3jec2edzinbo5suyg6qmhw3v42kmadv7kluljyawtmyeg7d676jq"
+      ]
+    }
+  },
+  {
+    "id": "gen-053",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/fsnotify/fsnotify",
+    "question": "How do I detect when a file's metadata changes without detecting changes to its contents?",
+    "gold": {
+      "chunk_ids": [
+        "chk_cb3n6gd2efm3iwjc4pjovc3y2tyhrjhoeyhco7y77kgpfu5czmpa"
+      ]
+    }
+  },
+  {
+    "id": "gen-054",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/fsnotify/fsnotify",
+    "question": "How do I know if a watched file has been deleted?",
+    "gold": {
+      "chunk_ids": [
+        "chk_spzovhgneygjmfwq32ifbs5oknngqcjluyejdaopxru5agamthsa"
+      ]
+    }
+  },
+  {
+    "id": "gen-055",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/fsnotify/fsnotify",
+    "question": "How can I be notified when a file or directory is modified, created, or deleted?",
+    "gold": {
+      "chunk_ids": [
+        "chk_q7j7mselrxobuwpi6kj2hyqwm7eeiqygzmyevjgp4l6dyikr7xga"
+      ]
+    }
+  },
+  {
+    "id": "gen-056",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/fsnotify/fsnotify",
+    "question": "How can I monitor a file or directory for changes across different operating systems?",
+    "gold": {
+      "chunk_ids": [
+        "chk_ilfzoxsst6jzaotjvxnoc2l5j35ks6ztezunpfc2nl2eu6epa4sa"
+      ]
+    }
+  },
+  {
+    "id": "gen-057",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/fsnotify/fsnotify",
+    "question": "How do I receive notifications when files in a directory change?",
+    "gold": {
+      "chunk_ids": [
+        "chk_gphz7aw2jijpsm2exkg5rxxfrvp2g7wmfzmur6mhlod6zp2fzunq"
+      ]
+    }
+  },
+  {
+    "id": "gen-058",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/fsnotify/fsnotify",
+    "question": "How do I stop watching a file when its parent directory is deleted?",
+    "gold": {
+      "chunk_ids": [
+        "chk_zfygftfuz72z4exzsbci4yjdaqjra3on34uh5iq2xbd7kmb5o5sa"
+      ]
+    }
+  },
+  {
+    "id": "gen-059",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/fsnotify/fsnotify",
+    "question": "How can I watch files and directories for changes without the watcher missing events when files are quickly removed and re-created?",
+    "gold": {
+      "chunk_ids": [
+        "chk_233z4tnagp5x2n5b72ru4fldzyq7wytuwyk7n3raz7ccmb7mhpka"
+      ]
+    }
+  },
+  {
+    "id": "gen-060",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/fsnotify/fsnotify",
+    "question": "How do I know when a file's contents have changed?",
+    "gold": {
+      "chunk_ids": [
+        "chk_3uzqnxwvgdg2axxmup7oapxkgtvkmlczmfvi4xfafmdbanxwv5vq"
+      ]
+    }
+  },
+  {
+    "id": "gen-061",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/fsnotify/fsnotify",
+    "question": "How can I check whether a watched event contains a specific change operation, like Write or Remove, without manually comparing each bit of the event's operation flags?",
+    "gold": {
+      "chunk_ids": [
+        "chk_pwev7lkryts4tmuizrkbfpxezyl34ywpywxl7zqxixpyopkfuk4a"
+      ]
+    }
+  },
+  {
+    "id": "gen-062",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/fsnotify/fsnotify",
+    "question": "How can I watch a directory for file changes across different operating systems?",
+    "gold": {
+      "chunk_ids": [
+        "chk_p4gwnvca46rqdch23abnmostchmxqdcrm4gsqu2fguwjz6nmsaaq"
+      ]
+    }
+  },
+  {
+    "id": "gen-063",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/fsnotify/fsnotify",
+    "question": "How can I get notified when a file or directory changes on my system?",
+    "gold": {
+      "chunk_ids": [
+        "chk_zicmjinfejbhzyprnc3esezhtqh5m3pc5n2genp4znvqjettpb2a"
+      ]
+    }
+  },
+  {
+    "id": "gen-064",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/fsnotify/fsnotify",
+    "question": "How do I stop watching a path for changes?",
+    "gold": {
+      "chunk_ids": [
+        "chk_7ybovl5fss3wbuuyu7fpycc7pgo3bokwrihdwwwzegw43jzx4irq"
+      ]
+    }
+  },
+  {
+    "id": "gen-065",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/fsnotify/fsnotify",
+    "question": "What file system events does this library support across different operating systems?",
+    "gold": {
+      "chunk_ids": [
+        "chk_sho2dmiyqyqnqu6sdbdbnep4uarfwjhub4lujv5kuafvjfzaizdq"
+      ]
+    }
+  },
+  {
+    "id": "gen-066",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/fsnotify/fsnotify",
+    "question": "How can I detect when files in a directory change and get notified automatically?",
+    "gold": {
+      "chunk_ids": [
+        "chk_f5sjwxbqnp3nlwpsfse4qtto4twta256gywgrgjpv4ps6g3xcx4q"
+      ]
+    }
+  },
+  {
+    "id": "gen-067",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/fsnotify/fsnotify",
+    "question": "How can I increase the limits on the number of files and directories I can monitor?",
+    "gold": {
+      "chunk_ids": [
+        "chk_mbgscub4jblgwgriic5eefol2u6awfq3mq4phf4gck2mk4uvsiza"
+      ]
+    }
+  },
+  {
+    "id": "gen-068",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/fsnotify/fsnotify",
+    "question": "How do I watch a directory for changes and get notified whenever a file inside it is modified?",
+    "gold": {
+      "chunk_ids": [
+        "chk_6lzqdsmd43kk3jalb3mojjybzf6nymgqm3okrzb6vjxn53hhgfla"
+      ]
+    }
+  },
+  {
+    "id": "gen-069",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/fsnotify/fsnotify",
+    "question": "How do I get notified when a file or directory changes?",
+    "gold": {
+      "chunk_ids": [
+        "chk_sucg6i2rcaaipvnroomy2d32eiaffoe2qzjg4offgpy7nl5ilxja"
+      ]
+    }
+  },
+  {
+    "id": "gen-070",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/fsnotify/fsnotify",
+    "question": "How do I watch files for changes and get notified when they are modified, created, or deleted?",
+    "gold": {
+      "chunk_ids": [
+        "chk_dpba4j4pjdcjr5nsri34ibxp2ezru5cvhz5hkhljjse2sq46cssa"
+      ]
+    }
+  },
+  {
+    "id": "gen-071",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/fsnotify/fsnotify",
+    "question": "How does the library handle situations where a signal interrupts a function call, and why does it need to repeat the call?",
+    "gold": {
+      "chunk_ids": [
+        "chk_puu43m2dhorvkekriigrep4szbbz2pqlysos4cbpd4xbmk5q4xza"
+      ]
+    }
+  },
+  {
+    "id": "gen-072",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/fsnotify/fsnotify",
+    "question": "How can I watch a directory for file changes, and does the library follow symbolic links by default?",
+    "gold": {
+      "chunk_ids": [
+        "chk_2fff2sakclnjcnjwjx23plij6awiyl54bouykvjnozdozjvab4pq"
+      ]
+    }
+  },
+  {
+    "id": "gen-073",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/fsnotify/fsnotify",
+    "question": "Why does adding a directory containing a broken symlink cause my entire directory watch to fail?",
+    "gold": {
+      "chunk_ids": [
+        "chk_h3hiwfz3twqsr3a5iys5d2lgnsuylsqqc34iga6zkqjt5gw6x2ua"
+      ]
+    }
+  },
+  {
+    "id": "gen-074",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/fsnotify/fsnotify",
+    "question": "How can I watch subdirectories of a directory I've already started watching?",
+    "gold": {
+      "chunk_ids": [
+        "chk_5rax5qmymgukkaxupyd72fbln2usapctqlkslbqsqc32wi3feerq"
+      ]
+    }
+  },
+  {
+    "id": "gen-075",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/fsnotify/fsnotify",
+    "question": "How can I ensure that when I start a child process from my Go program, the file-watching mechanism doesn't leave an open handle that keeps running in the background after the child is gone?",
+    "gold": {
+      "chunk_ids": [
+        "chk_s3jmwcjbxavhwubhkl7xg7qddrsvl2qxd5alsttbwb3xek2fhs4a"
+      ]
+    }
+  },
+  {
+    "id": "gen-076",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/google/uuid",
+    "question": "How can I generate a UUID using the current time and clock sequence?",
+    "gold": {
+      "chunk_ids": [
+        "chk_7he5ovnoczbxptptrwb6fx6csdfquzvuztie5ywi6l7yz4myijsa"
+      ]
+    }
+  },
+  {
+    "id": "gen-077",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/google/uuid",
+    "question": "How can I generate and store a collection of UUID strings in my program?",
+    "gold": {
+      "chunk_ids": [
+        "chk_jwqwixhdctto5k5w4bkjryyeybth2xgbeyfoyjfihbkxrstbh75a"
+      ]
+    }
+  },
+  {
+    "id": "gen-078",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/google/uuid",
+    "question": "How do I generate a UUIDv6 that works with existing UUIDv1 values but sorts better in databases?",
+    "gold": {
+      "chunk_ids": [
+        "chk_di56jtmecksmexlid55wpnw473d65pk3d5lnh4urh4janl62xo5q"
+      ]
+    }
+  },
+  {
+    "id": "gen-079",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/google/uuid",
+    "question": "How can I check whether a given string is a valid UUID in any of the supported formats?",
+    "gold": {
+      "chunk_ids": [
+        "chk_hkyqz6sla7sopg2hugzvst4evfe7pavfdleanof64czgo3ulmb7a"
+      ]
+    }
+  },
+  {
+    "id": "gen-080",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/google/uuid",
+    "question": "How can I generate a time-ordered UUID version 7 based on the current time?",
+    "gold": {
+      "chunk_ids": [
+        "chk_anat2gimvxrdxzyxeg75i4xrt47imefumvpuy3effh2exzi6yjma"
+      ]
+    }
+  },
+  {
+    "id": "gen-081",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/google/uuid",
+    "question": "How can I generate a UUID that stays consistently ordered across multiple runs of my program?",
+    "gold": {
+      "chunk_ids": [
+        "chk_2jgg3ldawhxemxgs6ty5qih35n6nhgh47gh4myg7tdlx7wveweoq"
+      ]
+    }
+  },
+  {
+    "id": "gen-082",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/google/uuid",
+    "question": "How can I generate a unique identifier string?",
+    "gold": {
+      "chunk_ids": [
+        "chk_k7lqri45owc6u5lbp3wjx4ercnnaypemggd7u72qortmnkqvrwfa"
+      ]
+    }
+  },
+  {
+    "id": "gen-083",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/google/uuid",
+    "question": "How do I generate a unique identifier that is guaranteed to be unique across systems and time?",
+    "gold": {
+      "chunk_ids": [
+        "chk_z4ylxw4eukie7uhnqr3ovivrrv4xrgeepdnoupa5i6s6e62ouv6a"
+      ]
+    }
+  },
+  {
+    "id": "gen-084",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/google/uuid",
+    "question": "How do I parse a UUID that is prefixed with \"urn:\"?",
+    "gold": {
+      "chunk_ids": [
+        "chk_xwwqz5uyp3pfarzoxe2fpi2qfntu4ppb34rmsw5uvguwybsjspca"
+      ]
+    }
+  },
+  {
+    "id": "gen-085",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/google/uuid",
+    "question": "How can I replace the default random number generator used by the package with my own source of randomness?",
+    "gold": {
+      "chunk_ids": [
+        "chk_howhyajtce7hzrv4upmwicbt5kvn4qeyb4cz3us7xjvmmrt2bofa"
+      ]
+    }
+  },
+  {
+    "id": "gen-086",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/google/uuid",
+    "question": "How can I create a UUID from a custom hash of my own data?",
+    "gold": {
+      "chunk_ids": [
+        "chk_itsvximbu4gs6kqdmdy6gbbdwtttt4z2dm7oqbocivduzbh65ega"
+      ]
+    }
+  },
+  {
+    "id": "gen-087",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/google/uuid",
+    "question": "How do I turn off the randomness pool that I previously turned on?",
+    "gold": {
+      "chunk_ids": [
+        "chk_upvkw7wln4pdugwd3kg3wurlikt6gh4ztw3tbxbnvlawgc6h5zgq"
+      ]
+    }
+  },
+  {
+    "id": "gen-088",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/google/uuid",
+    "question": "How should I format my commit messages?",
+    "gold": {
+      "chunk_ids": [
+        "chk_bwfz6irz2luodonurjduz46sjz7il377kl624znuiya7xi5m36xq"
+      ]
+    }
+  },
+  {
+    "id": "gen-089",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/google/uuid",
+    "question": "How do I sign the Contributor License Agreement?",
+    "gold": {
+      "chunk_ids": [
+        "chk_fpj3f4os36bta46bdqg66w2p5mzlxntez6p7uiw6l2ohzawlr3nq"
+      ]
+    }
+  },
+  {
+    "id": "gen-090",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/google/uuid",
+    "question": "How can I improve the performance of generating Version 4 UUIDs without compromising security?",
+    "gold": {
+      "chunk_ids": [
+        "chk_v7pzfe3dmqdebiruhtnvobw2qq5oilokj3w73p7dqdsbo4porwya"
+      ]
+    }
+  },
+  {
+    "id": "gen-091",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/google/uuid",
+    "question": "How can I obtain the clock sequence used for generating version 1 UUIDs, and how is it initialized if not already set?",
+    "gold": {
+      "chunk_ids": [
+        "chk_ap5lesumaequhkrvu64gh45ulcaf4nnfkyna3iosisdk7nlqtmua"
+      ]
+    }
+  },
+  {
+    "id": "gen-092",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/google/uuid",
+    "question": "How can I store and read a UUID column in a database that might contain NULL values?",
+    "gold": {
+      "chunk_ids": [
+        "chk_uftb6qc2uh74ewsccr3vlanuegfiyqpqhfx77s77vo2jblahzbza"
+      ]
+    }
+  },
+  {
+    "id": "gen-093",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/google/uuid",
+    "question": "How can I generate and work with universally unique identifiers that are 16 bytes long and can be used as map keys?",
+    "gold": {
+      "chunk_ids": [
+        "chk_66f2m2fxiv5nnomojm6p7xqfz72wti5xrxrfnn5ubvvzfvedwxza"
+      ]
+    }
+  },
+  {
+    "id": "gen-094",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/google/uuid",
+    "question": "How can I generate a DCE Security version 2 UUID for a specific domain and identifier?",
+    "gold": {
+      "chunk_ids": [
+        "chk_nfa2wmr5ad2bxxgxrjwhgu3jhwn77r4nqpwv4hj7ndrsnrvtwjfa"
+      ]
+    }
+  },
+  {
+    "id": "gen-095",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/google/uuid",
+    "question": "How can I automatically read UUID values from a database when retrieving rows?",
+    "gold": {
+      "chunk_ids": [
+        "chk_tmrlafwbq5givguq27zdo46jbb5f7t746gqbf5uhlwku3fwczq2q"
+      ]
+    }
+  },
+  {
+    "id": "gen-096",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/google/uuid",
+    "question": "How do I specify which network interface's hardware address to use when generating Version 1 UUIDs?",
+    "gold": {
+      "chunk_ids": [
+        "chk_aatvyj5rfhqtingo7zlatpoubub5hoyjhg5gzsegd65mk6vsst7a"
+      ]
+    }
+  },
+  {
+    "id": "gen-097",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/google/uuid",
+    "question": "How do I release a new version of this library?",
+    "gold": {
+      "chunk_ids": [
+        "chk_odmg6c2j6hzfhmsk25ktvjftvnzckgsl4aidkb7jf45tg4qgbnhq"
+      ]
+    }
+  },
+  {
+    "id": "gen-098",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/google/uuid",
+    "question": "How do I convert a string into a UUID, and what formats does it accept?",
+    "gold": {
+      "chunk_ids": [
+        "chk_525eciq53zs6pwddmecw6htnrrksbo5x7tssyss76ztdqlhy4lba"
+      ]
+    }
+  },
+  {
+    "id": "gen-099",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/google/uuid",
+    "question": "How can I generate and validate unique 128-bit identifiers that conform to the standard RFC 4122 specification?",
+    "gold": {
+      "chunk_ids": [
+        "chk_an65erhdlygme2q64fiqml42zr6m3pmkk5vx525d75ej3qgrwbpa"
+      ]
+    }
+  },
+  {
+    "id": "gen-100",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/google/uuid",
+    "question": "How can I generate a version 4 UUID using cryptographically strong randomness?",
+    "gold": {
+      "chunk_ids": [
+        "chk_2b575ipcp7rucnc25f7b4wcilj3acvgrpsc7t3zj24jmlk6kfgla"
+      ]
+    }
+  },
+  {
+    "id": "gen-101",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/jackc/pgx/v5",
+    "question": "How can I set up the reference checkouts needed to build pgx?",
+    "gold": {
+      "chunk_ids": [
+        "chk_vqyio2a3k4ejfxa3kdqllc6kid6h553sjewpxzoaw3i2xpe74imq"
+      ]
+    }
+  },
+  {
+    "id": "gen-102",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/jackc/pgx/v5",
+    "question": "How do I represent a network address and its subnet in a way that is more memory efficient than before?",
+    "gold": {
+      "chunk_ids": [
+        "chk_ste7hfksfuxp4onsimcx7y7btwvgtwhpden4tq5iurykjrs4kwia"
+      ]
+    }
+  },
+  {
+    "id": "gen-103",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/jackc/pgx/v5",
+    "question": "How do I register named types along with all their dependencies in a single operation?",
+    "gold": {
+      "chunk_ids": [
+        "chk_cfugtg7dbwhvxhcudoracaf34thzktppsog3otxcdawlotgowzfq"
+      ]
+    }
+  },
+  {
+    "id": "gen-104",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/jackc/pgx/v5",
+    "question": "How can I begin a transaction using a function instead of a method?",
+    "gold": {
+      "chunk_ids": [
+        "chk_3jkynndgnnhvqbwc55qqz6n6cqskw5cly6pwoyvnay7apvqgpyqq"
+      ]
+    }
+  },
+  {
+    "id": "gen-105",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/jackc/pgx/v5",
+    "question": "How can I perform a COPY FROM operation where each row's values are provided by a custom function that I control?",
+    "gold": {
+      "chunk_ids": [
+        "chk_w4qf373gvzljxcbtnlfnre2r4gwgzxz6pkss6vf6vluhrupf3flq"
+      ]
+    }
+  },
+  {
+    "id": "gen-106",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/jackc/pgx/v5",
+    "question": "How can I change or remove the default limit on the maximum length of a message body that the frontend accepts?",
+    "gold": {
+      "chunk_ids": [
+        "chk_4qy4fongumy5dj46elnj3mebs2trfwuzutoanor4v5tf3om6343a"
+      ]
+    }
+  },
+  {
+    "id": "gen-107",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/jackc/pgx/v5",
+    "question": "How can I scan a row into a struct where fields are matched by position, ignoring fields tagged with a hyphen?",
+    "gold": {
+      "chunk_ids": [
+        "chk_bq7shbvquwo6sw2qiez3ojicwcx52lxzossrxpj76m4fldcu7k4q"
+      ]
+    }
+  },
+  {
+    "id": "gen-108",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/jackc/pgx/v5",
+    "question": "How should I handle code changes that were created with AI assistance when submitting them for review?",
+    "gold": {
+      "chunk_ids": [
+        "chk_mqzds64unf2kqsawnxerchavxiruezlgl6m3kphgi3w4s3gkjasa"
+      ]
+    }
+  },
+  {
+    "id": "gen-109",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/jackc/pgx/v5",
+    "question": "How can I tell whether the database server currently considers my connection to be idle, inside a transaction, or inside a failed transaction?",
+    "gold": {
+      "chunk_ids": [
+        "chk_oj3iujqu6em4uqdzc7rgf2zzbxy3dybrd37v46jqaq5afopfubpq"
+      ]
+    }
+  },
+  {
+    "id": "gen-110",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/jackc/pgx/v5",
+    "question": "How can I scan a database row into a struct by matching fields to columns by name?",
+    "gold": {
+      "chunk_ids": [
+        "chk_6fun46eipcnl2a3gwhm4vfmjkqdmfuv7b3blr7qfih4azi5ltcaq"
+      ]
+    }
+  },
+  {
+    "id": "gen-111",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/jackc/pgx/v5",
+    "question": "How can I avoid repeatedly allocating memory when reading the same text values many times?",
+    "gold": {
+      "chunk_ids": [
+        "chk_4zrazmspn2scw3k7ozdbgxlprkecexzu6qe4ydipoq6s2cxotefa"
+      ]
+    }
+  },
+  {
+    "id": "gen-112",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/jackc/pgx/v5",
+    "question": "How can I send a COPY data message to the server without copying it to an internal buffer first?",
+    "gold": {
+      "chunk_ids": [
+        "chk_ih6j2vr6k73nsnyqlsyobnhild5kanbw6abvlzldkn4ohdc2lm7a"
+      ]
+    }
+  },
+  {
+    "id": "gen-113",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/jackc/pgx/v5",
+    "question": "How can I take full control of a raw database connection to use it as a load balancer or proxy?",
+    "gold": {
+      "chunk_ids": [
+        "chk_kh6z3gdrtemor3qnrstoo6bd7dlzwd2aewkuemf7xced2zt26ava"
+      ]
+    }
+  },
+  {
+    "id": "gen-114",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/jackc/pgx/v5",
+    "question": "How can I verify that a TCP connection is still intact before sending a query, in case the connection has been broken?",
+    "gold": {
+      "chunk_ids": [
+        "chk_vjur4jqyrrzv4qln6yagjmisfrfyi4nk6w3chazfbb6s6n5o3tlq"
+      ]
+    }
+  },
+  {
+    "id": "gen-115",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/jackc/pgx/v5",
+    "question": "How do I configure the options needed to establish a connection?",
+    "gold": {
+      "chunk_ids": [
+        "chk_5yojj2co4bbt6f33y3xq7qudixqvxhbhsqlpb5qhbmxhhecaadpq"
+      ]
+    }
+  },
+  {
+    "id": "gen-116",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/jackc/pgx/v5",
+    "question": "How can I clean up a prepared statement, and does that operation work even when my transaction is in an aborted state?",
+    "gold": {
+      "chunk_ids": [
+        "chk_nf4figj3andsgtdfgvzf3l6cmhw67qoqpcwxoqbtkokuototh5wq"
+      ]
+    }
+  },
+  {
+    "id": "gen-117",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/jackc/pgx/v5",
+    "question": "How does this library handle cancellation of long-running database operations?",
+    "gold": {
+      "chunk_ids": [
+        "chk_6plnjhvmej2ovtigash6n6leizjoiimeubwwghnv2zmu36xzrj4a"
+      ]
+    }
+  },
+  {
+    "id": "gen-118",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/jackc/pgx/v5",
+    "question": "How do I execute a prepared statement with parameters, and what formats should I use for the input and output data?",
+    "gold": {
+      "chunk_ids": [
+        "chk_bvaela6gt5b5b43vv3lbusxgkli7rbxklmrnxfaqvivkcixn2kha"
+      ]
+    }
+  },
+  {
+    "id": "gen-119",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/jackc/pgx/v5",
+    "question": "How do I send multiple SQL statements with parameters in a single request and have them executed together?",
+    "gold": {
+      "chunk_ids": [
+        "chk_c2a227n5y57oqm7tdlkeqhlernrvb2bzh2uoklf4n2ib3ocdypbq"
+      ]
+    }
+  },
+  {
+    "id": "gen-120",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/jackc/pgx/v5",
+    "question": "How can I configure the connection so that it waits a specific amount of time while attempting to establish a connection to a database server?",
+    "gold": {
+      "chunk_ids": [
+        "chk_olgqrwm6pjwp7zy74bdvxcthihmbarmutr4jemncl3zw4mk5zsyq"
+      ]
+    }
+  },
+  {
+    "id": "gen-121",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/jackc/pgx/v5",
+    "question": "How can I configure my connection to use a specific timezone and pass additional options like statement timeouts or log levels to the PostgreSQL server?",
+    "gold": {
+      "chunk_ids": [
+        "chk_cdkz3k5l7c4ttfzxyjzkaeq6pptku7j64jfmofcdezb2pcwbiw5q"
+      ]
+    }
+  },
+  {
+    "id": "gen-122",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/jackc/pgx/v5",
+    "question": "How can I control when the connection pool sends a ping to reset the session after a connection is established?",
+    "gold": {
+      "chunk_ids": [
+        "chk_h7e57kbv4einoamrclhj5ujrgx2mum6oj6l6khhwub7jo7gcgzba"
+      ]
+    }
+  },
+  {
+    "id": "gen-123",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/jackc/pgx/v5",
+    "question": "How can I make the server send its buffered output to me without waiting for a synchronization point?",
+    "gold": {
+      "chunk_ids": [
+        "chk_l7szpl4jjabpq2kpvhkod6qo2fqejyyf3pg26a2u6hlebzufsyva"
+      ]
+    }
+  },
+  {
+    "id": "gen-124",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/jackc/pgx/v5",
+    "question": "How can I configure a connection pool to only ping the database server when a connection is actually needed rather than on every checkout?",
+    "gold": {
+      "chunk_ids": [
+        "chk_gtladbun4zuvop467ajom3rw2tnqs3oqgh7hswvwckrztwinsz7q"
+      ]
+    }
+  },
+  {
+    "id": "gen-125",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/jackc/pgx/v5",
+    "question": "How can I configure the connection pool to log when connections are acquired and released?",
+    "gold": {
+      "chunk_ids": [
+        "chk_hh2vddowxbf34tnebt3fluldabqd47nqyoni5f7vozjva4h5eaea"
+      ]
+    }
+  },
+  {
+    "id": "gen-126",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/modelcontextprotocol/go-sdk",
+    "question": "How do I invoke a remote method and receive its response, including how parameters are transmitted and how errors are handled if the request fails?",
+    "gold": {
+      "chunk_ids": [
+        "chk_o7t4j6q5icalokhapihlt4ikblfocf2nm43nk6fzrfcu4ivl3xaq"
+      ]
+    }
+  },
+  {
+    "id": "gen-127",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/modelcontextprotocol/go-sdk",
+    "question": "How do I create an MCP server that communicates with a client over HTTP using the streamable transport?",
+    "gold": {
+      "chunk_ids": [
+        "chk_yrvcxyxw56rehh767lqpkfowmnt6yxz2guubxpfz5rxhle7pczwq"
+      ]
+    }
+  },
+  {
+    "id": "gen-128",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/modelcontextprotocol/go-sdk",
+    "question": "How can a server respond to completion requests sent by a client?",
+    "gold": {
+      "chunk_ids": [
+        "chk_gbjgsxy2sgze22ivdropg4onokutdtvktdnewyic7dcxbtsevhxa"
+      ]
+    }
+  },
+  {
+    "id": "gen-129",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/modelcontextprotocol/go-sdk",
+    "question": "How do I set up a client and server, connect them, and shut down the session?",
+    "gold": {
+      "chunk_ids": [
+        "chk_zhq4zlpcd74tktndyblxciffq5rbl6ixycc6axccolx53ntegciq"
+      ]
+    }
+  },
+  {
+    "id": "gen-130",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/modelcontextprotocol/go-sdk",
+    "question": "How do I enable logging for my MCP server?",
+    "gold": {
+      "chunk_ids": [
+        "chk_bx7k6d4sbj5yw2pymr5jubqtnt3oo57imw6aija52yrj2o4dqxdq"
+      ]
+    }
+  },
+  {
+    "id": "gen-131",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/modelcontextprotocol/go-sdk",
+    "question": "How do I connect to an MCP server over HTTP using the streamable transport protocol?",
+    "gold": {
+      "chunk_ids": [
+        "chk_uz3i3qjnkpz6nrmd5gohk7wag7tvjj5zpjm2cpjtyrokpz64lmlq"
+      ]
+    }
+  },
+  {
+    "id": "gen-132",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/modelcontextprotocol/go-sdk",
+    "question": "How do I configure the client to support sampling?",
+    "gold": {
+      "chunk_ids": [
+        "chk_ryszptixrqxushbbdh6oljfmxdfzeoxijvjfujtym3e4ss4vemoq"
+      ]
+    }
+  },
+  {
+    "id": "gen-133",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/modelcontextprotocol/go-sdk",
+    "question": "How do I request a message from the model that includes available tools and lets the model decide which tools to use?",
+    "gold": {
+      "chunk_ids": [
+        "chk_onzdtixxmgxax46lgnuqmctr5huwsooz32ynl4ukj7gv2krtwfhq"
+      ]
+    }
+  },
+  {
+    "id": "gen-134",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/modelcontextprotocol/go-sdk",
+    "question": "How can I create a custom struct that satisfies the Result interface?",
+    "gold": {
+      "chunk_ids": [
+        "chk_tenpb4yv65sa53s5t7ehqtr3uzc2qgu44ctn3gffckj3ibtdtrza"
+      ]
+    }
+  },
+  {
+    "id": "gen-135",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/modelcontextprotocol/go-sdk",
+    "question": "How do I set up OAuth authorization code flow with automatic token refresh and step-up authentication for a streamable HTTP MCP client?",
+    "gold": {
+      "chunk_ids": [
+        "chk_iuauwcq5kftwyuykvssowts6uxsqyyg53phz2kq7wavrkmk3sxeq"
+      ]
+    }
+  },
+  {
+    "id": "gen-136",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/modelcontextprotocol/go-sdk",
+    "question": "How do I list the tools a server offers and then invoke one of them by name with arguments?",
+    "gold": {
+      "chunk_ids": [
+        "chk_ww5b7fp3tiwodb4pbpnmmbngfy7mnmvb327fz576jau5zt72nexa"
+      ]
+    }
+  },
+  {
+    "id": "gen-137",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/modelcontextprotocol/go-sdk",
+    "question": "How do I add authentication or context injection to my MCP server?",
+    "gold": {
+      "chunk_ids": [
+        "chk_modclqhqqx6jr6wkpouo657gzk5hlgt47ohv6rvy3uey75rwgueq"
+      ]
+    }
+  },
+  {
+    "id": "gen-138",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/modelcontextprotocol/go-sdk",
+    "question": "How do I proceed with a request when the server requires me to provide additional information, such as URLs, before it can be processed?",
+    "gold": {
+      "chunk_ids": [
+        "chk_mtjrka2rh3l3lenmo5sdixvdex5h2xfhijesbiajm44hzt6fuzuq"
+      ]
+    }
+  },
+  {
+    "id": "gen-139",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/modelcontextprotocol/go-sdk",
+    "question": "How do I retrieve every tool, prompt, resource, and resource template available through a session, including items on subsequent pages?",
+    "gold": {
+      "chunk_ids": [
+        "chk_67vbwxing4iu7frb6huodhyy4pz7lsuyeyhu7pcxat73xyk24hva"
+      ]
+    }
+  },
+  {
+    "id": "gen-140",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/modelcontextprotocol/go-sdk",
+    "question": "How do I set up enterprise authorization so that my client automatically obtains and refreshes access tokens when they expire, without manually handling the token exchange flow?",
+    "gold": {
+      "chunk_ids": [
+        "chk_a6fnwqjtquelwdvatjex3au7bggf33ze2c5j3a6zcmojafn7mjtq"
+      ]
+    }
+  },
+  {
+    "id": "gen-141",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/modelcontextprotocol/go-sdk",
+    "question": "How do I create and run an MCP server that exposes tools to clients over stdin/stdout?",
+    "gold": {
+      "chunk_ids": [
+        "chk_h627fwwxb4rclgjeqvmsuxf5avhcjrvbyq6uqwzz7tl53ulirrfa"
+      ]
+    }
+  },
+  {
+    "id": "gen-142",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/modelcontextprotocol/go-sdk",
+    "question": "How can I authenticate a service-to-service connection using pre-registered client credentials without requiring user interaction?",
+    "gold": {
+      "chunk_ids": [
+        "chk_5sxczq6qpvgxljmsfbbl4i3ljxe6s3rfvsxxgkzgprsixzzt6suq"
+      ]
+    }
+  },
+  {
+    "id": "gen-143",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/modelcontextprotocol/go-sdk",
+    "question": "How can I make the SDK preserve existing message content when sending errors, and enable cross-origin protection by default?",
+    "gold": {
+      "chunk_ids": [
+        "chk_65dl5kkhzbbjb5g6ogkxi3qzs5wmvq672e6ldri7t4gofprun4pq"
+      ]
+    }
+  },
+  {
+    "id": "gen-144",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/modelcontextprotocol/go-sdk",
+    "question": "How do I retrieve a list of tools available from a server, and how can I paginate through the results if there are more than one page?",
+    "gold": {
+      "chunk_ids": [
+        "chk_or2atwmluh6lhmnfdyevaesdy3v5giavceqzh4gozhkst6ynvmaa"
+      ]
+    }
+  },
+  {
+    "id": "gen-145",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/modelcontextprotocol/go-sdk",
+    "question": "How do I enable a client to respond to a server's request for sampled responses?",
+    "gold": {
+      "chunk_ids": [
+        "chk_amatykgrhkuj4xlfcc3g3hkilo4mbw6ltxwpvaoikhm7emjmarba"
+      ]
+    }
+  },
+  {
+    "id": "gen-146",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/modelcontextprotocol/go-sdk",
+    "question": "Where should I raise design questions or propose changes to this project?",
+    "gold": {
+      "chunk_ids": [
+        "chk_xaixqpzqzefckpum4zltfvtf7uhp66357xef52vbt3wc7tfgjzpq"
+      ]
+    }
+  },
+  {
+    "id": "gen-147",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/modelcontextprotocol/go-sdk",
+    "question": "How can I temporarily disable a new SDK behavior that I need to opt out of, for example to work around a bug or security issue?",
+    "gold": {
+      "chunk_ids": [
+        "chk_5jrpab67lx6v2njm3xeuxpqbcfksrcjajrijaaztgpabbec6uy5a"
+      ]
+    }
+  },
+  {
+    "id": "gen-148",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/modelcontextprotocol/go-sdk",
+    "question": "How does the SDK handle the timing of notifications relative to other requests from the same client, and are calls to tools processed in order?",
+    "gold": {
+      "chunk_ids": [
+        "chk_yp6zcpf6gjw4w4atoepctxy6ms4ty77goep4jkxpis4osva2i6ua"
+      ]
+    }
+  },
+  {
+    "id": "gen-149",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/modelcontextprotocol/go-sdk",
+    "question": "How can I specify which model to use?",
+    "gold": {
+      "chunk_ids": [
+        "chk_ebsjlgo25c7genqaxpll2qydp2ixv7swzc4d5c4ofwtwtm5kcp4a"
+      ]
+    }
+  },
+  {
+    "id": "gen-150",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/modelcontextprotocol/go-sdk",
+    "question": "How do I enable the server to provide code completion suggestions to clients?",
+    "gold": {
+      "chunk_ids": [
+        "chk_kczfm7cl2rl7b3hyb5ywnbfb2sxdgrbi4aofw5imigxudljji2kq"
+      ]
+    }
+  },
+  {
+    "id": "gen-151",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/oklog/ulid/v2",
+    "question": "How are the components of a ULID encoded in terms of byte order and layout?",
+    "gold": {
+      "chunk_ids": [
+        "chk_tnnpzfde63b4gexc3cnermmnr3s6ytkrlashplkn2plfwc2xh55a"
+      ]
+    }
+  },
+  {
+    "id": "gen-152",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/oklog/ulid/v2",
+    "question": "How can I generate a 128-bit identifier that is both globally unique and sortable as text?",
+    "gold": {
+      "chunk_ids": [
+        "chk_7cfirxe4pajp4w7jaieacenlojhvrikbfi3mkeqy55vgy7fdqyrq"
+      ]
+    }
+  },
+  {
+    "id": "gen-153",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/oklog/ulid/v2",
+    "question": "How do I convert a string into a ULID, and how can I tell if the string is not a valid ULID?",
+    "gold": {
+      "chunk_ids": [
+        "chk_k3lwt5q3r4y35sf4drf2xvtwc7bg2wovh7mslqrky2dct6xzlgpq"
+      ]
+    }
+  },
+  {
+    "id": "gen-154",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/oklog/ulid/v2",
+    "question": "How can I ensure that a ULID generator produces different values for ULIDs created at the same millisecond timestamp?",
+    "gold": {
+      "chunk_ids": [
+        "chk_glwl5t3tvmerizelo6fb2flqt7v4rmnusy3lp2ovcpgea3nplyia"
+      ]
+    }
+  },
+  {
+    "id": "gen-155",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/oklog/ulid/v2",
+    "question": "How can I generate ULIDs in a performance-sensitive way without lock contention, while still ensuring they are ordered within the same millisecond?",
+    "gold": {
+      "chunk_ids": [
+        "chk_g4wmao2s63yraripsgcvf3giumtpqt7jqddp3thymc377hcnzs3q"
+      ]
+    }
+  },
+  {
+    "id": "gen-156",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/oklog/ulid/v2",
+    "question": "How do I create a ULID from a specific point in time?",
+    "gold": {
+      "chunk_ids": [
+        "chk_x7gluwov6ebrfj46thhzsgqwrnxejralo37575d6ztgkkrfj52tq"
+      ]
+    }
+  },
+  {
+    "id": "gen-157",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/oklog/ulid/v2",
+    "question": "How do I generate a new ULID from the current time, and how do I convert it back to a time value?",
+    "gold": {
+      "chunk_ids": [
+        "chk_ujjkt6445egik6yl2ydswzq3nkg3ornksx3kbit6chregzzp6d5q"
+      ]
+    }
+  },
+  {
+    "id": "gen-158",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/oklog/ulid/v2",
+    "question": "How is a ULID string structured in terms of timestamp and entropy components?",
+    "gold": {
+      "chunk_ids": [
+        "chk_6ibjitsc6edxz45joahjqf5gbcgqwsx4j3sgj55365rfydwftyyq"
+      ]
+    }
+  },
+  {
+    "id": "gen-159",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/oklog/ulid/v2",
+    "question": "How can I parse a ULID string and be sure it contains only valid characters?",
+    "gold": {
+      "chunk_ids": [
+        "chk_safirxwijovfnyvahjxevolt2hw5jc7wfkhhafqstsrjpq734t5q"
+      ]
+    }
+  },
+  {
+    "id": "gen-160",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/oklog/ulid/v2",
+    "question": "How do I propose a more involved change to this project before starting the work?",
+    "gold": {
+      "chunk_ids": [
+        "chk_utgc5hczbowejgajny6c47mlsjcbaud27zzk6sfsgu7oztuvbspq"
+      ]
+    }
+  },
+  {
+    "id": "gen-161",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/oklog/ulid/v2",
+    "question": "How do I convert a binary value into a compact, human-readable string using only the letters and digits 0-9, A-H, J-K, M-R, and S-Z?",
+    "gold": {
+      "chunk_ids": [
+        "chk_oepiff7chcsr7efb3ezbld45hp2b2re66rypdivc5hq72r36q3ya"
+      ]
+    }
+  },
+  {
+    "id": "gen-162",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/oklog/ulid/v2",
+    "question": "How can I generate a unique identifier that combines a timestamp with a custom entropy source while ensuring uniqueness within the same millisecond?",
+    "gold": {
+      "chunk_ids": [
+        "chk_wgq6tjn6mn4pxbn5xmusidyhm6ed2toemmsap2ptb656fqzdmyya"
+      ]
+    }
+  },
+  {
+    "id": "gen-163",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/oklog/ulid/v2",
+    "question": "How do I generate a ULID from a specific timestamp and my own source of random data?",
+    "gold": {
+      "chunk_ids": [
+        "chk_o6bipyryxxnxknscztrjp5a7gjr4dty7vzfvo63p2jnhtr47i7vq"
+      ]
+    }
+  },
+  {
+    "id": "gen-164",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/oklog/ulid/v2",
+    "question": "How can I generate ULIDs that are guaranteed to be strictly increasing within the same timestamp, without relying on random entropy?",
+    "gold": {
+      "chunk_ids": [
+        "chk_ql3qksezpijiovh555nllcxp2g7duhjkbjubpnpyutmzy7wakj4q"
+      ]
+    }
+  },
+  {
+    "id": "gen-165",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/oklog/ulid/v2",
+    "question": "How can I generate and parse ULIDs from the command line, and how do I control the time format and entropy when working with them?",
+    "gold": {
+      "chunk_ids": [
+        "chk_kcdo5eox5eeaiyhd3kenwueqavhrceyklaawriqjygkk6tj2ur7a"
+      ]
+    }
+  },
+  {
+    "id": "gen-166",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/oklog/ulid/v2",
+    "question": "How can I generate a unique identifier that is more compact than a UUID, remains sortable, and encodes both time and randomness without requiring a stable MAC address?",
+    "gold": {
+      "chunk_ids": [
+        "chk_uik4b2pes7dot5cuizcax4aomq6thcoaxoz3hj6mvuz3tbzbznha"
+      ]
+    }
+  },
+  {
+    "id": "gen-167",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/oklog/ulid/v2",
+    "question": "How do I convert a string into a ULID?",
+    "gold": {
+      "chunk_ids": [
+        "chk_qzeit2r4mbkaymgg5nbbrftxnnnjddrpuby24mstqosrbzrgy6pa"
+      ]
+    }
+  },
+  {
+    "id": "gen-168",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/oklog/ulid/v2",
+    "question": "How can I store a ULID in a database column that expects bytes, and also get a string version when needed?",
+    "gold": {
+      "chunk_ids": [
+        "chk_ppjllcqxztzrnh6zepbwd2vzwjkzsb4gfwnia7xpq4hbr7cbrnea"
+      ]
+    }
+  },
+  {
+    "id": "gen-169",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/prometheus/client_golang",
+    "question": "How can I find out if my metric descriptor was created correctly before using it?",
+    "gold": {
+      "chunk_ids": [
+        "chk_olpw5sk2x6ysdmgfxl7jault457jloynk5oc2jvydt4orlhfe3da"
+      ]
+    }
+  },
+  {
+    "id": "gen-170",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/prometheus/client_golang",
+    "question": "How can I add fixed labels to only some of my metrics while keeping the rest unchanged?",
+    "gold": {
+      "chunk_ids": [
+        "chk_fkpdbnx56iwli5hy662vrhxhm7uqbh5q2x3wdyc2pjqqbmorxhca"
+      ]
+    }
+  },
+  {
+    "id": "gen-171",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/prometheus/client_golang",
+    "question": "How do I push metrics from my registry to a Pushgateway?",
+    "gold": {
+      "chunk_ids": [
+        "chk_slnqfkfkwkkdx7443zxl6giq7lgti4jgqmbrwds46bkavzx6fueq"
+      ]
+    }
+  },
+  {
+    "id": "gen-172",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/prometheus/client_golang",
+    "question": "How do I create a counter that automatically registers itself with the default registry, and what happens if the registration fails?",
+    "gold": {
+      "chunk_ids": [
+        "chk_pz72gpyhhgaukz3j64soh6cvfciz6spfx2zlbjw26azx6ejrk63q"
+      ]
+    }
+  },
+  {
+    "id": "gen-173",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/prometheus/client_golang",
+    "question": "How can I use a regular function to observe the duration of a timer?",
+    "gold": {
+      "chunk_ids": [
+        "chk_gj6clxmjjh7tx3ke3pup45k664hli2igw3xc7skh6qlxpy2z44hq"
+      ]
+    }
+  },
+  {
+    "id": "gen-174",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/prometheus/client_golang",
+    "question": "How do I create a histogram that automatically registers itself with the default registry, and what happens if the registration fails?",
+    "gold": {
+      "chunk_ids": [
+        "chk_yykkg5ufhfyhrh52nxn3qpz3gtowrsfg7rtw2gjer5n2wguumwja"
+      ]
+    }
+  },
+  {
+    "id": "gen-175",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/prometheus/client_golang",
+    "question": "How can I pre-set certain labels for all future label operations on a vector while keeping the remaining labels in their original order?",
+    "gold": {
+      "chunk_ids": [
+        "chk_uu6eyd35uypwhoctyockn3sabgj4vy4gef3jxfjrltajvkdf7f4a"
+      ]
+    }
+  },
+  {
+    "id": "gen-176",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/prometheus/client_golang",
+    "question": "How do I send metrics to a Pushgateway?",
+    "gold": {
+      "chunk_ids": [
+        "chk_2ko7pyhv5yiqu23sb6cb4iyua6nexqldvdy7pkvgiem727lhi4bq"
+      ]
+    }
+  },
+  {
+    "id": "gen-177",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/prometheus/client_golang",
+    "question": "Where should I ask for help if I have a bug to report or a feature request to make?",
+    "gold": {
+      "chunk_ids": [
+        "chk_c2p2gem4i7ddqt5ld2kcap5o6mnb3cowyicfvhkxzii7sodpf2la"
+      ]
+    }
+  },
+  {
+    "id": "gen-178",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/prometheus/client_golang",
+    "question": "How can I rely on the stability of the API between minor releases?",
+    "gold": {
+      "chunk_ids": [
+        "chk_223ash62va7ciockrm72p5utl6xicbpjflqesy62cbrtussywsga"
+      ]
+    }
+  },
+  {
+    "id": "gen-179",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/prometheus/client_golang",
+    "question": "How do I release a new minor version of the library?",
+    "gold": {
+      "chunk_ids": [
+        "chk_umxszp6owcmbyewzyebdakuqzz7jmww6fs2lcg3x57tyny5boumq"
+      ]
+    }
+  },
+  {
+    "id": "gen-180",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/prometheus/client_golang",
+    "question": "How can I tell whether a metric registration failed because the same metric was already registered under a different collector, so I can reuse the existing one instead of failing?",
+    "gold": {
+      "chunk_ids": [
+        "chk_6g6evflrs2alqiv7dpwsyxb634lr3eyxx5qq2ysz7ehoklo6t6pa"
+      ]
+    }
+  },
+  {
+    "id": "gen-181",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/prometheus/client_golang",
+    "question": "How do I create a new histogram with custom buckets, and can I attach exemplars to individual buckets?",
+    "gold": {
+      "chunk_ids": [
+        "chk_mrq2lu3buvfk33tiw4oyh3drjc3v3i5savxswruplssr6jnd2laa"
+      ]
+    }
+  },
+  {
+    "id": "gen-182",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/prometheus/client_golang",
+    "question": "How can I return a collection of errors that only uses the combined error type when there is more than one error, but returns a single error or nothing when there is only one or none?",
+    "gold": {
+      "chunk_ids": [
+        "chk_44bfkfadhnu3l3gnoub5g5c7bmrjxplgegw2szzwzwmuyps7rhha"
+      ]
+    }
+  },
+  {
+    "id": "gen-183",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/prometheus/client_golang",
+    "question": "How do I configure the options when creating a metric, and which fields are required versus optional?",
+    "gold": {
+      "chunk_ids": [
+        "chk_arnkmcu5ld4u4xem3quxi7yfsgfesqycullwzjpjb655irqup5ra"
+      ]
+    }
+  },
+  {
+    "id": "gen-184",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/prometheus/client_golang",
+    "question": "How can I automatically register metrics with a local registry?",
+    "gold": {
+      "chunk_ids": [
+        "chk_xhoxw35a4iwhdvskuaigah6tfrtoo3qrkt5pywlgs7rxerrzyupq"
+      ]
+    }
+  },
+  {
+    "id": "gen-185",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/prometheus/client_golang",
+    "question": "How can I pre-set certain labels on a histogram so that all subsequent operations use those labels automatically?",
+    "gold": {
+      "chunk_ids": [
+        "chk_zsyvzl37jnhoqcckyl44d7gfzhljjznkdznsgh23fg4b45hudrzq"
+      ]
+    }
+  },
+  {
+    "id": "gen-186",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/prometheus/client_golang",
+    "question": "How do I remove all previously deprecated features from this library while understanding which changes are breaking and which are experimental?",
+    "gold": {
+      "chunk_ids": [
+        "chk_vgvnbvvya3d4disks4sdgd4j4udhkbtbcikhb7xout6cbupnsh7q"
+      ]
+    }
+  },
+  {
+    "id": "gen-187",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/prometheus/client_golang",
+    "question": "How do I retrieve or create a counter for a specific set of label values?",
+    "gold": {
+      "chunk_ids": [
+        "chk_3grxznat5k4j62bgfzlx5ehiytn4vb6iqw3nnzftztojlojjitxa"
+      ]
+    }
+  },
+  {
+    "id": "gen-188",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/prometheus/client_golang",
+    "question": "How can I build a Go program that uses this Prometheus client library so that it runs on the WebAssembly (wasm) platform?",
+    "gold": {
+      "chunk_ids": [
+        "chk_7aoo7jr274p7oaoyunjrmm67bpcbr5y7rugl7mnge3ruatto6qsa"
+      ]
+    }
+  },
+  {
+    "id": "gen-189",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/prometheus/client_golang",
+    "question": "How can I measure the size of responses returned by my HTTP handler, broken down by status code and method?",
+    "gold": {
+      "chunk_ids": [
+        "chk_ba6gdk4d72q2myixzdtvjmtztz6i3fsgb2juj54ubq4icoxagfda"
+      ]
+    }
+  },
+  {
+    "id": "gen-190",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/prometheus/client_golang",
+    "question": "How can I create a collector that automatically registers itself with a registration system?",
+    "gold": {
+      "chunk_ids": [
+        "chk_gmjn3fhchrmquk4damndihzrhfkin4fz5lvpd66haaezodwiukhq"
+      ]
+    }
+  },
+  {
+    "id": "gen-191",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/prometheus/client_golang",
+    "question": "How do I upgrade the prometheus/common library to the latest version?",
+    "gold": {
+      "chunk_ids": [
+        "chk_46o62nikbsecnxo3ftiml275nyzupydmxsb2ghvilzkwpo5niiia"
+      ]
+    }
+  },
+  {
+    "id": "gen-192",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/prometheus/client_golang",
+    "question": "How do I remove all the metrics I previously pushed to the Pushgateway?",
+    "gold": {
+      "chunk_ids": [
+        "chk_5xupexzo5s5f5jsucx7e4gkphwrrvp57cvn4uxtvq2pwarffjeuq"
+      ]
+    }
+  },
+  {
+    "id": "gen-193",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/prometheus/client_golang",
+    "question": "How do I add Prometheus metrics to my Go application to monitor its performance?",
+    "gold": {
+      "chunk_ids": [
+        "chk_ho4g6rygxxs4sc2vtzti4edeyoiborm73ztgtblbp3fdlkqnzndq"
+      ]
+    }
+  },
+  {
+    "id": "gen-194",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/spf13/cobra",
+    "question": "How can I legally use, modify, and distribute your software while complying with its copyright terms?",
+    "gold": {
+      "chunk_ids": [
+        "chk_ikgp2c7kov2zfsprx4kxsdyl26z2bz6p6l2zlsvtmjqmfdm3bbma"
+      ]
+    }
+  },
+  {
+    "id": "gen-195",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/spf13/cobra",
+    "question": "How do I enable active help when using the default completion command?",
+    "gold": {
+      "chunk_ids": [
+        "chk_26szllqvpdvbx5pvfaoagp5u556rwqynmwa2gtt3jzwmnvo3gesa"
+      ]
+    }
+  },
+  {
+    "id": "gen-196",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/spf13/cobra",
+    "question": "How can I generate shell completion suggestions for the fish shell that display helpful descriptions alongside each command?",
+    "gold": {
+      "chunk_ids": [
+        "chk_vzjwn4tvo65qcf2z4rgxgweavscd5jbfbvgbnmunl5xzm7ku56ra"
+      ]
+    }
+  },
+  {
+    "id": "gen-197",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/spf13/cobra",
+    "question": "How can I make a program suggest possible values for a specific command-line option when I type it?",
+    "gold": {
+      "chunk_ids": [
+        "chk_cdfbizchqm365e6gmlfnewjp4vxrlcctg2nxfaxf7qmx6vs563ca"
+      ]
+    }
+  },
+  {
+    "id": "gen-198",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/spf13/cobra",
+    "question": "How can I restrict the valid values for command arguments across all shells, not just zsh?",
+    "gold": {
+      "chunk_ids": [
+        "chk_dwehl77cjpxgwojpkbihtg2rddnnu72rnkjqdopml23sgesriruq"
+      ]
+    }
+  },
+  {
+    "id": "gen-199",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/spf13/cobra",
+    "question": "How can I turn off Cobra's Active Help suggestions without modifying my code?",
+    "gold": {
+      "chunk_ids": [
+        "chk_wzib5svb2ygkye7eu44hakoc6a6we5qbhn6rhmkb3iuzvpiedbbq"
+      ]
+    }
+  },
+  {
+    "id": "gen-200",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/spf13/cobra",
+    "question": "How can I make my parent command parse and handle its own flags before running the subcommand?",
+    "gold": {
+      "chunk_ids": [
+        "chk_qzsblw6vc5shdquxte6zpgewqafxhnggxdcxfay7smma3uv4icsa"
+      ]
+    }
+  },
+  {
+    "id": "gen-201",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/spf13/cobra",
+    "question": "How do I create a command-line tool that can be invoked as a plugin for kubectl?",
+    "gold": {
+      "chunk_ids": [
+        "chk_li2asm73kvyd6ob72ubqrmm32g75uee66q37jj6awopjamygd5qa"
+      ]
+    }
+  },
+  {
+    "id": "gen-202",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/spf13/cobra",
+    "question": "What legal protections does this license provide regarding liability and warranties when redistributing the software?",
+    "gold": {
+      "chunk_ids": [
+        "chk_xwojgzf7z3wty6tmbkkhmswlodjjnrsxf3supqqagpmn3sivwa2a"
+      ]
+    }
+  },
+  {
+    "id": "gen-203",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/spf13/cobra",
+    "question": "How can I generate a man page for my command?",
+    "gold": {
+      "chunk_ids": [
+        "chk_rr6fnucckfwmh4lc7a4lftfid6j3igm34guw3b33yv43vg32y6ia"
+      ]
+    }
+  },
+  {
+    "id": "gen-204",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/spf13/cobra",
+    "question": "How do I filter command-line arguments by file extension when using zsh shell completion?",
+    "gold": {
+      "chunk_ids": [
+        "chk_4bhylngo3p4p4di6qrxqxqvdthpwbp43eebeddgtjwwkmlrtk5na"
+      ]
+    }
+  },
+  {
+    "id": "gen-205",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/spf13/cobra",
+    "question": "How can I make my command reject invalid input before it runs?",
+    "gold": {
+      "chunk_ids": [
+        "chk_aklevvr2cqflumhhak3hertryv4nag6ldrouiiuq5t534smweawa"
+      ]
+    }
+  },
+  {
+    "id": "gen-206",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/spf13/cobra",
+    "question": "How can I make a persistent flag mandatory so the command fails if it's not provided, and ensure it's prioritized during shell completion?",
+    "gold": {
+      "chunk_ids": [
+        "chk_7o24hvdjhzn5gc7cgwv4s4wfcpabf7eezlmv57wr7z73vcyayvba"
+      ]
+    }
+  },
+  {
+    "id": "gen-207",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/spf13/cobra",
+    "question": "How do I add optional settings that change how a command behaves?",
+    "gold": {
+      "chunk_ids": [
+        "chk_wtwluyuvrvfnjq5hmn4nrz57y6b3zpiayh4l2twcby3qrqfizpbq"
+      ]
+    }
+  },
+  {
+    "id": "gen-208",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/spf13/cobra",
+    "question": "How quickly will security patches be released if a serious vulnerability is discovered in this library?",
+    "gold": {
+      "chunk_ids": [
+        "chk_xpvqf3onyva6dbi63fp5uragcze6psigfqslhj2hqzddqslr7b5q"
+      ]
+    }
+  },
+  {
+    "id": "gen-209",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/spf13/cobra",
+    "question": "How can I build a powerful command-line application in Go?",
+    "gold": {
+      "chunk_ids": [
+        "chk_iqju73db6rniqs3ludpescifcowyuvjdzyi4xb46fkujscmn2knq"
+      ]
+    }
+  },
+  {
+    "id": "gen-210",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/spf13/cobra",
+    "question": "How can I debug my Go completion code and add printouts without those printouts being interpreted as completion choices?",
+    "gold": {
+      "chunk_ids": [
+        "chk_34r74u6ygxorapwele7sy2jhlbmsmmbxbhgyhqvs3qbtldres3ca"
+      ]
+    }
+  },
+  {
+    "id": "gen-211",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/spf13/cobra",
+    "question": "How can I make my command recommend similar subcommands when a user types an unknown command, and how do I disable or adjust those suggestions?",
+    "gold": {
+      "chunk_ids": [
+        "chk_xzfwjedxlmqeux6nxcr5g3ykw35jdi6g2fz5nihva5sb655q3qda"
+      ]
+    }
+  },
+  {
+    "id": "gen-212",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/spf13/cobra",
+    "question": "How can I make my command-line tool automatically suggest possible options and arguments as I type in the shell?",
+    "gold": {
+      "chunk_ids": [
+        "chk_sjm2gphmhx5w6yjinmyd4ie7r6ungjxhvaxb2mem5nypj25drhsa"
+      ]
+    }
+  },
+  {
+    "id": "gen-213",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/spf13/cobra",
+    "question": "How do I generate shell completion suggestions for my commands?",
+    "gold": {
+      "chunk_ids": [
+        "chk_d5ydi4pyvvwitzqasl3lfcw66mkqgrokeoj26343pba5ivwboxmq"
+      ]
+    }
+  },
+  {
+    "id": "gen-214",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/spf13/cobra",
+    "question": "How can I display contextual help messages that appear as users type commands in the shell?",
+    "gold": {
+      "chunk_ids": [
+        "chk_qtihsrqtpfbpqjnulf6v6ql7wnhudzvywzlkflnaapqynacbw3bq"
+      ]
+    }
+  },
+  {
+    "id": "gen-215",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/spf13/cobra",
+    "question": "How do I install and include Cobra in my Go application?",
+    "gold": {
+      "chunk_ids": [
+        "chk_quecrkudhfqzj4t7ivhuxboeikz2h52lkgcssnqy4nkiarxhvnvq"
+      ]
+    }
+  },
+  {
+    "id": "gen-216",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/spf13/cobra",
+    "question": "How can I make a flag mandatory so my command fails if it isn't provided?",
+    "gold": {
+      "chunk_ids": [
+        "chk_gfawww2cq7ozvnsumepakjkkrqiuf3j3d2wmo7jftmikhyoputnq"
+      ]
+    }
+  },
+  {
+    "id": "gen-217",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/spf13/cobra",
+    "question": "How can I make my command reject input when the user provides the wrong number of arguments or includes values that aren't allowed?",
+    "gold": {
+      "chunk_ids": [
+        "chk_kn3q2iluovrjyakj4sysjtpekyevsvbppmat5l2fwwyjskx6bbma"
+      ]
+    }
+  },
+  {
+    "id": "gen-218",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "github.com/spf13/cobra",
+    "question": "How can I keep my cobra-based CLI secure and up to date?",
+    "gold": {
+      "chunk_ids": [
+        "chk_53xldcpx7jhhwqsamdzqv6geac2htd5oits54ohk3zwxcpmuonlq"
+      ]
+    }
+  },
+  {
+    "id": "gen-219",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "go.etcd.io/bbolt",
+    "question": "How can I create a smaller, compacted copy of an existing database file while leaving the original file unchanged?",
+    "gold": {
+      "chunk_ids": [
+        "chk_oaq2i743piabcnrdbgjiif3ka4fgym7spbub7g7t52kpk4dug3xa"
+      ]
+    }
+  },
+  {
+    "id": "gen-220",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "go.etcd.io/bbolt",
+    "question": "How can I safely persist my in-memory changes to disk so that partially written data is ignored if the system crashes?",
+    "gold": {
+      "chunk_ids": [
+        "chk_3ozbho2k5r32jfdq32vfwnia2br4brx765ya5b6tc3cs3qpkeqya"
+      ]
+    }
+  },
+  {
+    "id": "gen-221",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "go.etcd.io/bbolt",
+    "question": "How can I set up a logging system that outputs messages at different severity levels, such as debug, info, warning, error, fatal, and panic?",
+    "gold": {
+      "chunk_ids": [
+        "chk_s4f5r2dm67pgvwvjepl2wgjntj2i3u56salhvwc6k2fslfjdmy3a"
+      ]
+    }
+  },
+  {
+    "id": "gen-222",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "go.etcd.io/bbolt",
+    "question": "How can I avoid slow performance and crashes when writing to a Bolt database?",
+    "gold": {
+      "chunk_ids": [
+        "chk_3pqmbz5w24tqatx25amrmuvymblp3d4scqi4k6rraeluvqul4gga"
+      ]
+    }
+  },
+  {
+    "id": "gen-223",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "go.etcd.io/bbolt",
+    "question": "Why might my data become corrupted on Linux if I have enabled fast commit on my ext4 filesystem?",
+    "gold": {
+      "chunk_ids": [
+        "chk_g4irxeqkbsbwx3yuvpxlbtkmviese26hkcygwtbebhc5bqsfo6yq"
+      ]
+    }
+  },
+  {
+    "id": "gen-224",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "go.etcd.io/bbolt",
+    "question": "How do I upgrade bbolt to the latest version?",
+    "gold": {
+      "chunk_ids": [
+        "chk_wvmsjirh7ngmajvbcit3kqq374iqlqqdbg5ylx4muzniixemkxva"
+      ]
+    }
+  },
+  {
+    "id": "gen-225",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "go.etcd.io/bbolt",
+    "question": "How do I save, retrieve, and delete a value associated with a specific key in a bucket, and what happens if the key doesn't exist?",
+    "gold": {
+      "chunk_ids": [
+        "chk_irvwwtgcisjqvyd55uu6jtu23rroatr74oaaos6ilqvtq4vp2lwq"
+      ]
+    }
+  },
+  {
+    "id": "gen-226",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "go.etcd.io/bbolt",
+    "question": "How do I remove a range of elements from a specific page in a bbolt database?",
+    "gold": {
+      "chunk_ids": [
+        "chk_fjzumsopifme3hqija5djnven3t6f6wiuhxlonlu5fukanysxgnq"
+      ]
+    }
+  },
+  {
+    "id": "gen-227",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "go.etcd.io/bbolt",
+    "question": "How do I store and retrieve key/value pairs in a simple, fast, embedded database for my Go project?",
+    "gold": {
+      "chunk_ids": [
+        "chk_ernef76o77snzs3h5ap274izlthjnaclu5m46iwhj47ufwug2kga"
+      ]
+    }
+  },
+  {
+    "id": "gen-228",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "go.etcd.io/bbolt",
+    "question": "How can I force the database to rebuild its freelist by removing it from both metadata pages?",
+    "gold": {
+      "chunk_ids": [
+        "chk_7dwpiibai7b4cpku7gsfci74gcod6gr2acpusdfv2w76nftzorxa"
+      ]
+    }
+  },
+  {
+    "id": "gen-229",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "go.etcd.io/bbolt",
+    "question": "How can I verify that a bbolt database file is not corrupted and that all its pages are intact and properly referenced?",
+    "gold": {
+      "chunk_ids": [
+        "chk_gyvjy6eo2erhnnpt6yrumjgktiy7lhlldcuwuuwm7wgtxmv5lufa"
+      ]
+    }
+  },
+  {
+    "id": "gen-230",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "go.etcd.io/bbolt",
+    "question": "How do I access data stored in a database file that has been opened?",
+    "gold": {
+      "chunk_ids": [
+        "chk_2d3gln7xgqpy6agbkrolxh6zh2ipmh6kfvoaqbqca5djo4c3qfia"
+      ]
+    }
+  },
+  {
+    "id": "gen-231",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "go.etcd.io/bbolt",
+    "question": "How do I retrieve the value stored for a specific key in a bucket, and what should I expect if the key doesn't exist or is a nested bucket?",
+    "gold": {
+      "chunk_ids": [
+        "chk_owyap7otij6opspmla62wstsgojptk3ryk56yqkmntc6smyzqera"
+      ]
+    }
+  },
+  {
+    "id": "gen-232",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "go.etcd.io/bbolt",
+    "question": "How do I remove all data from a specific page in a bbolt database file?",
+    "gold": {
+      "chunk_ids": [
+        "chk_h76z5ulsum7ppbs7ewmihi3zinatyqtotdbeenk4eresh5ruxzha"
+      ]
+    }
+  },
+  {
+    "id": "gen-233",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "go.etcd.io/bbolt",
+    "question": "How do I create a new bucket, and what happens if one with that name already exists?",
+    "gold": {
+      "chunk_ids": [
+        "chk_utvrryvf22ro5hmfqd5zjgp3723utqikdttuq6wmw4q532dlsmsq"
+      ]
+    }
+  },
+  {
+    "id": "gen-234",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "go.etcd.io/bbolt",
+    "question": "How can I manually repair corrupted metadata by updating specific fields like the root bucket page ID, freelist page ID, and next page ID in a database file?",
+    "gold": {
+      "chunk_ids": [
+        "chk_meub7ulmwp66afhvdxdqc5yvgkfddps2hz7q6fpbd3i5obquzmwq"
+      ]
+    }
+  },
+  {
+    "id": "gen-235",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "go.etcd.io/bbolt",
+    "question": "How can I monitor the internal operations my database performs over time?",
+    "gold": {
+      "chunk_ids": [
+        "chk_mfw7wmbjccduin7m4ktabh6x62tjvgw4eseiosnt2dqcg6mlznrq"
+      ]
+    }
+  },
+  {
+    "id": "gen-236",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "go.etcd.io/bbolt",
+    "question": "How do I manage which pages are available for reuse when allocating space in the database?",
+    "gold": {
+      "chunk_ids": [
+        "chk_baktjmelpwq7scfx3ysoithe2ov6tz72plfwg5ajgn74qwotpauq"
+      ]
+    }
+  },
+  {
+    "id": "gen-237",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "go.etcd.io/bbolt",
+    "question": "How do I iterate over all key/value pairs stored in a bucket in order?",
+    "gold": {
+      "chunk_ids": [
+        "chk_n7orvetasqdscfd6qdd7l7chjmbfmdn3liyk5i5r45q6f5prxvmq"
+      ]
+    }
+  },
+  {
+    "id": "gen-238",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "go.etcd.io/bbolt",
+    "question": "How can I restore my database to a previous consistent state when the most recent transaction appears corrupted?",
+    "gold": {
+      "chunk_ids": [
+        "chk_gzz7qc6g2ovz3rrp3cfsgxk7ovefe2qjg4vt3lrvk3m6cqrsvx7q"
+      ]
+    }
+  },
+  {
+    "id": "gen-239",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "go.etcd.io/bbolt",
+    "question": "How can I undo the changes made by the most recent transaction to restore the database to its previous consistent state?",
+    "gold": {
+      "chunk_ids": [
+        "chk_nviofiqn2qjorwgn5bbyw3kx57jk46ho6w3idtgrncihr2dsnhoa"
+      ]
+    }
+  },
+  {
+    "id": "gen-240",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "go.etcd.io/bbolt",
+    "question": "How can I group multiple write operations from different goroutines into a single transaction so they execute together, and what guarantees does this provide about when changes become permanent?",
+    "gold": {
+      "chunk_ids": [
+        "chk_f2le6em2kktrr4zd2ayr4anv73onppuzbyz4eb4ifqfhbmwkntja"
+      ]
+    }
+  },
+  {
+    "id": "gen-241",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "go.etcd.io/bbolt",
+    "question": "How do I inspect and manipulate a bbolt database file using a command line tool?",
+    "gold": {
+      "chunk_ids": [
+        "chk_lxfvwqtziqrj3zir7s56566vo2on6zfde5rhe5lm6xztwvopb7sq"
+      ]
+    }
+  },
+  {
+    "id": "gen-242",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "go.etcd.io/bbolt",
+    "question": "How can I read data from the database without being able to modify it?",
+    "gold": {
+      "chunk_ids": [
+        "chk_w22naxdkx5qb2qhpa6nwxsaesysvmkn2tuncyqwa52xvlqjzoyra"
+      ]
+    }
+  },
+  {
+    "id": "gen-243",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "go.etcd.io/bbolt",
+    "question": "How do I find the performance metrics that occurred between two points in time?",
+    "gold": {
+      "chunk_ids": [
+        "chk_la44fi2q6q3yffkr2rijqgvigrblju6ygaggrolsptgj2ygown4a"
+      ]
+    }
+  },
+  {
+    "id": "gen-244",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "go.opentelemetry.io/otel",
+    "question": "How do I record the reason or reasons why the AI model stopped generating tokens for a particular response?",
+    "gold": {
+      "chunk_ids": [
+        "chk_utzq3ymjzhzk5yrk4quh2y4rcxf5zuas5gm7vaixxaetqimzy4ca"
+      ]
+    }
+  },
+  {
+    "id": "gen-245",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "go.opentelemetry.io/otel",
+    "question": "How can I measure the total CPU time my program has consumed, broken down by different CPU states like idle and system time?",
+    "gold": {
+      "chunk_ids": [
+        "chk_2bxjpwku73xfdmbgmfuo3qrorxtfnpqxhnq2zxlfwh5o6klxf3wq"
+      ]
+    }
+  },
+  {
+    "id": "gen-246",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "go.opentelemetry.io/otel",
+    "question": "How do I measure the number of NFS client RPC requests sent to the server, including those rejected by the server?",
+    "gold": {
+      "chunk_ids": [
+        "chk_3i6ovpfqlrwpoz3qkx7u54oekjwuv6usrhqhqzhqe36nqhhjag7a"
+      ]
+    }
+  },
+  {
+    "id": "gen-247",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "go.opentelemetry.io/otel",
+    "question": "How do I migrate from the semconv v1.36.0 package to v1.37.0?",
+    "gold": {
+      "chunk_ids": [
+        "chk_gnsyxyofyo7m73jul35gfahvyimwa2g6kioqi277gwcsx66mjwxq"
+      ]
+    }
+  },
+  {
+    "id": "gen-248",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "go.opentelemetry.io/otel",
+    "question": "How do I record a Kubernetes Pod label with a specific name and value as a semantic attribute?",
+    "gold": {
+      "chunk_ids": [
+        "chk_oaeigfeescpbbjokpvzlfpinmariyprtlkeszvycqnpf2yjykt7a"
+      ]
+    }
+  },
+  {
+    "id": "gen-249",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "go.opentelemetry.io/otel",
+    "question": "How should I indicate in a log record that it was dropped because the queue was full or the processor was already shut down?",
+    "gold": {
+      "chunk_ids": [
+        "chk_dho7ykznxogard2k5pe6oqfkxqckzdy3unoinxow4g6c6upel5qq"
+      ]
+    }
+  },
+  {
+    "id": "gen-250",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "go.opentelemetry.io/otel",
+    "question": "How do I record the number of times a storage class is used, including the count from a Kubernetes resource quota?",
+    "gold": {
+      "chunk_ids": [
+        "chk_jhdiqtr62v4rjdpiyshz376rzri6i4bkjjpqvk4ae54gdpn434kq"
+      ]
+    }
+  },
+  {
+    "id": "gen-251",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "go.opentelemetry.io/otel",
+    "question": "How do I prepare and ship a new version of this library?",
+    "gold": {
+      "chunk_ids": [
+        "chk_32gcnftb56dtxs72tk3pesrmwckeegujxpuwrtakamtfutbjshcq"
+      ]
+    }
+  },
+  {
+    "id": "gen-252",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "go.opentelemetry.io/otel",
+    "question": "How do I specify the Amazon ECS cluster identifier when creating a container in AWS?",
+    "gold": {
+      "chunk_ids": [
+        "chk_rgqho345ock35tzaar25tgtfc3f6qug6a7bwori6amuznxgnhdsa"
+      ]
+    }
+  },
+  {
+    "id": "gen-253",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "go.opentelemetry.io/otel",
+    "question": "How can I include the complete address of a version control repository so that it can be located and identified?",
+    "gold": {
+      "chunk_ids": [
+        "chk_chlgllnkj5xrfumptoz4dwnq2dz6dynmgy4gsfrcidl5liwfxvbq"
+      ]
+    }
+  },
+  {
+    "id": "gen-254",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "go.opentelemetry.io/otel",
+    "question": "How do I track the number of replicas in a Kubernetes deployment?",
+    "gold": {
+      "chunk_ids": [
+        "chk_vc7hwdgmljnkvcbzktevt2vdfo2x6mvdgqehnln7fk2muuw3utia"
+      ]
+    }
+  },
+  {
+    "id": "gen-255",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "go.opentelemetry.io/otel",
+    "question": "How do I measure the total number of replica pods that are ready and available for a Kubernetes replica set?",
+    "gold": {
+      "chunk_ids": [
+        "chk_xvjhixnpxuvbuujpldgfmuj2q32axvnrqhabu5ekekojw3qs4vwq"
+      ]
+    }
+  },
+  {
+    "id": "gen-256",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "go.opentelemetry.io/otel",
+    "question": "How do I increase a counter by a specific amount for a set of attributes?",
+    "gold": {
+      "chunk_ids": [
+        "chk_nrddnc3sc2cz2huhwbakfyukdyyyh6clne6lz7kwkpdaxes7opfa"
+      ]
+    }
+  },
+  {
+    "id": "gen-257",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "go.opentelemetry.io/otel",
+    "question": "How do the tracing and metrics modules differ in their versioning for this release?",
+    "gold": {
+      "chunk_ids": [
+        "chk_cviaszcezg6ozylddqdhx3qfqzl66ksla7vwcbj7tm7bmjzaa6mq"
+      ]
+    }
+  },
+  {
+    "id": "gen-258",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "go.opentelemetry.io/otel",
+    "question": "How can I track the maximum obtainable memory limit for the JVM as a metric?",
+    "gold": {
+      "chunk_ids": [
+        "chk_cnaf4zaaxbcgyk33rechck3xxsitwovjlx62626yclrr56elmosq"
+      ]
+    }
+  },
+  {
+    "id": "gen-259",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "go.opentelemetry.io/otel",
+    "question": "How can I measure the number of replica pods that a horizontal pod autoscaler has calculated it wants to run?",
+    "gold": {
+      "chunk_ids": [
+        "chk_l73fguuw6o6zs347ubw7widsru5jxqibjrwhiza2uvxftrax672q"
+      ]
+    }
+  },
+  {
+    "id": "gen-260",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "go.opentelemetry.io/otel",
+    "question": "How do I measure the number of threads running in my process?",
+    "gold": {
+      "chunk_ids": [
+        "chk_n6geaviabcqj6ichimccvhcozxxlz6vs6cslliqt42srcnb6fbpq"
+      ]
+    }
+  },
+  {
+    "id": "gen-261",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "go.opentelemetry.io/otel",
+    "question": "How do I add a value to an existing counter for a specific set?",
+    "gold": {
+      "chunk_ids": [
+        "chk_ajgglcoppb2d7q6hcmtmc2vrmsfcimqmaslzdx5jbei6y4trgdcq"
+      ]
+    }
+  },
+  {
+    "id": "gen-262",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "go.opentelemetry.io/otel",
+    "question": "How can I measure the number of times my program's operating system had to load data from disk into memory?",
+    "gold": {
+      "chunk_ids": [
+        "chk_fa76r3nqcrcueeornmy7hdz2xnkhwxnv47wy3snq6o4lx5damoza"
+      ]
+    }
+  },
+  {
+    "id": "gen-263",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "go.opentelemetry.io/otel",
+    "question": "How can I measure how long my container has been running?",
+    "gold": {
+      "chunk_ids": [
+        "chk_zaa3bhwhqscyiy63dakh7qkrzzyosyzp6blgsu4be4gbcgpr53uq"
+      ]
+    }
+  },
+  {
+    "id": "gen-264",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "go.opentelemetry.io/otel",
+    "question": "How do I specify a recurring schedule for a function using a cron expression?",
+    "gold": {
+      "chunk_ids": [
+        "chk_pwmtu3v5lksxlizks5rb72nvtzo3j6aapwnsxjuqoog54ovtkq4a"
+      ]
+    }
+  },
+  {
+    "id": "gen-265",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "go.opentelemetry.io/otel",
+    "question": "How do I specify the name of a branch or tag reference in a version control repository as an attribute?",
+    "gold": {
+      "chunk_ids": [
+        "chk_qefjsh7wymjgdswmtozx3nwfdhznzgztqb4vlebxrlmvc2di7jba"
+      ]
+    }
+  },
+  {
+    "id": "gen-266",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "go.opentelemetry.io/otel",
+    "question": "How should configuration options be structured and managed to support extensibility, defaults, and validation while maintaining compatibility?",
+    "gold": {
+      "chunk_ids": [
+        "chk_r3bjsilub3fv3stowgpen6rv6az6pbmtjevyvrfc5fawnbl23g4q"
+      ]
+    }
+  },
+  {
+    "id": "gen-267",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "go.opentelemetry.io/otel",
+    "question": "How do I measure the number of requests currently waiting to be processed on an open database connection?",
+    "gold": {
+      "chunk_ids": [
+        "chk_t72i7bb3fgscullwilepwecmgyhl5cbrhnxwdcnqsvmfg7ndjhia"
+      ]
+    }
+  },
+  {
+    "id": "gen-268",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "go.opentelemetry.io/otel",
+    "question": "How can I track the CPU usage of a running container as a percentage of its configured CPU request?",
+    "gold": {
+      "chunk_ids": [
+        "chk_p2jjkttx7kbpq75blgunce2rnhtvkwpzniblrgrsfofdyjl6rc6q"
+      ]
+    }
+  },
+  {
+    "id": "gen-269",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "gopkg.in/yaml.v3",
+    "question": "How do I convert a YAML document into a Go value?",
+    "gold": {
+      "chunk_ids": [
+        "chk_7yvkbiqe7fvmmkarkgph3gnyvkf45pu7rlmr72ej62uvzlgbkt4a"
+      ]
+    }
+  },
+  {
+    "id": "gen-270",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "gopkg.in/yaml.v3",
+    "question": "How do I install a Go package that reads and writes YAML files?",
+    "gold": {
+      "chunk_ids": [
+        "chk_pb2z3ywatq7qbv4d4doanp7vqlawqqhkn2bajefn3ktqtgjdl6xa"
+      ]
+    }
+  },
+  {
+    "id": "gen-271",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "gopkg.in/yaml.v3",
+    "question": "How do I convert a YAML string into a Go structure and back into YAML?",
+    "gold": {
+      "chunk_ids": [
+        "chk_tesozltid2pq5ueuiilqvj5hbbj3nkscf2rtpo4yvsyji5gxu5aa"
+      ]
+    }
+  },
+  {
+    "id": "gen-272",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "gopkg.in/yaml.v3",
+    "question": "How do I write a Go value as YAML to an output stream?",
+    "gold": {
+      "chunk_ids": [
+        "chk_rb6bqqru2mjil2ouvdkhmvyqo4nrgyzjto4tgkkzysq7gcoekrta"
+      ]
+    }
+  },
+  {
+    "id": "gen-273",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "gopkg.in/yaml.v3",
+    "question": "How can I control how my type is written to a YAML file?",
+    "gold": {
+      "chunk_ids": [
+        "chk_xpofcz2umld7puqcrpieosutmtk3lamayvschs2wuzibz4pbnatq"
+      ]
+    }
+  },
+  {
+    "id": "gen-274",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "gopkg.in/yaml.v3",
+    "question": "How do I convert a Go value into a YAML document, and how can I control which fields appear, what keys they use, and whether empty values are included?",
+    "gold": {
+      "chunk_ids": [
+        "chk_k27jngn36fdqqlaoxve2bet6bvkw22x42mxfsstwownafylpk67q"
+      ]
+    }
+  },
+  {
+    "id": "gen-275",
+    "source": "generated",
+    "kind": "paraphrase",
+    "dependency": "gopkg.in/yaml.v3",
+    "question": "How can I decode YAML data into a type that lets me inspect details like line numbers and comments, and then re-encode it, even when I don't want to use structs or maps?",
+    "gold": {
+      "chunk_ids": [
+        "chk_wafnf3lzx6qb4yk3ml3vkdqrqx522rgxnmvaocbq43dunie7zdwq"
+      ]
+    }
+  }
+]

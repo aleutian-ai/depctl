@@ -69,7 +69,7 @@ Using [opencode](https://opencode.ai) specifically? See [docs/opencode-usage.md]
 
 Pick one at setup with `ragctl init --retrieval-mode keyword`, or edit `retrieval.mode` and run `ragctl daemon stop`.
 
-Keyword search is built for code docs. It matches identifiers whole and in parts (`pgxpool.NewWithConfig`, `NewRandom`, `snake_case`), and it's strongest when a question uses the docs' own words. Semantic search is stronger on paraphrase ("run a function inside a transaction" finding `BeginFunc`). On a small comparison (uuid and pgx, ten questions) each found about half of the right docs in its top three, with different strengths. Both are always scoped to the exact version your project uses.
+Keyword search is built for code docs. It matches identifiers whole and in parts (`pgxpool.NewWithConfig`, `NewRandom`, `snake_case`), and it's strongest when a question uses the docs' own words. Semantic search is stronger on paraphrase ("run a function inside a transaction" finding `BeginFunc`). **There's no measurable quality drop without Ollama.** On 323 questions over 12 real Go dependencies, the right doc was in the top three 60% of the time with keyword search and 57% with vector search, a difference within noise. Keyword search was also about 25× faster, and combining both was measurably better than either. See [docs/retrieval-eval.md](docs/retrieval-eval.md). Both are always scoped to the exact version your project uses.
 
 ## Integrations
 
@@ -177,6 +177,7 @@ hack/test-linux.sh                                       # Linux, via Podman + A
 - [docs/offline-quickstart.md](docs/offline-quickstart.md) — index your own docs repo and query it offline via a local model over MCP.
 - [docs/observability-guide.md](docs/observability-guide.md) — structured logs, OpenTelemetry tracing, and Prometheus metrics: what's on by default, what's opt-in, and how to try each against a real Jaeger/Prometheus.
 - [docs/security-hardening.md](docs/security-hardening.md) — the five security invariants ragctl enforces in code (trust labeling, prompt-injection labeling, fetch limits, no downloaded-code execution, no telemetry), each with a concrete example.
+- [docs/retrieval-eval.md](docs/retrieval-eval.md) — keyword vs. vector search, measured: how often each finds the right doc.
 - [docs/opencode-usage.md](docs/opencode-usage.md) — using ragctl from opencode, including with a small local model.
 - [docs/demos/](docs/demos/README.md) — runnable demos of every search mode and integration.
 - [docs/features/](docs/features/README.md) — how each user-facing feature works.
