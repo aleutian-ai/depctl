@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.3.1 — unreleased
+## v0.3.1 — 2026-10-07
 
 ### Smaller index files
 - The keyword index (`keyword.db`) is about 4x smaller and the embedded vector store (`vectors.db`) about 2.5x smaller. On ragctl's own 187 dependency versions that's 202 MB → 54 MB and 1.29 GB → 495 MB. Both now store each generation in its own bucket with its dependency and version written once, and pack pages full.
