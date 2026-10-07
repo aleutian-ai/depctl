@@ -2,8 +2,20 @@
 
 ## Unreleased
 
+### Hybrid search
+- In `retrieval.mode: auto` with Ollama available, search now merges keyword and semantic rankings (reciprocal rank fusion) instead of using semantic search alone. On the retrieval eval's held-out questions that's 0.528 MRR against 0.466 for semantic search alone, and the right doc in the top 10 for 83% of questions against 75%. Without Ollama, search is keyword-only as before.
+
+### Better semantic search by default
+- Fresh installs use [`embeddinggemma-2:270m`](https://ollama.com/library/embeddinggemma-2) (378 MB, Apache-2.0) instead of `nomic-embed-text-v2-moe` (957 MB). With its code-retrieval prompts and vectors kept to 256 dimensions, hybrid search on the eval's held-out questions scores 0.583 MRR against 0.528 with nomic, with the right doc in the top 3 for 69% of questions against 60%. The vector store is about 3x smaller. Ollama is still optional; when it's running, ragctl pulls the model itself.
+- New config keys `embedding.query_prompt`, `embedding.document_prompt` and `embedding.dimensions`. A config without them behaves exactly as before, so **existing installs keep their model**. Switching an existing install to the new model currently means deleting `vectors.db` and rebuilding (see `docs/retrieval-eval.md`); `doctor` flags a model, prompt or size mismatch.
+
+### Fixes
+- Searches in `auto` mode right after the daemon starts now wait up to 3 seconds for the Ollama check instead of quietly falling back to keyword-only results.
+- A `ragctl sync --rebuild` (or an MCP `sync_project` with `rebuild: true`) that arrives while that project is already syncing now runs as a rebuild. Before, it could merge into a queued plain sync and be silently dropped.
+- A real `ragctl gc` that arrives while a GC is running is no longer turned into a dry run when a dry-run request is also queued. Each queues its own run, and a dry run still never deletes.
+
 ### Retrieval eval
-- `hack/retrieval-eval` measures keyword, vector and hybrid search on a real synced install, using 48 hand-written and 275 generated questions. On 12 Go dependencies, keyword and vector search performed the same within noise (MRR 0.527 against 0.496), and a hybrid of the two was measurably better (0.556). See `docs/retrieval-eval.md`.
+- `hack/retrieval-eval` measures keyword, vector and hybrid search on a real synced install, using 48 hand-written and 275 generated questions. On 12 Go dependencies, keyword and vector search performed the same within noise (MRR 0.527 against 0.496), and a hybrid of the two was measurably better (0.556). See `docs/retrieval-eval.md`. Its held-out half (162 questions) is now a frozen benchmark; new questions use `dev-` IDs and only ever join the tune half.
 
 ## v0.3.1 — 2026-10-07
 

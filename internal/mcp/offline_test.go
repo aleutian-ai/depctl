@@ -22,6 +22,7 @@ import (
 	"aleutian-ai/ragctl/internal/control/bbolt"
 	"aleutian-ai/ragctl/internal/data/badger"
 	"aleutian-ai/ragctl/internal/domain"
+	"aleutian-ai/ragctl/internal/embedding"
 	"aleutian-ai/ragctl/internal/embedding/ollama"
 	"aleutian-ai/ragctl/internal/query"
 )
@@ -223,7 +224,7 @@ func TestOfflineSearchDependencyDocsAndGetDependencyVersion(t *testing.T) {
 	// per MCP-004's speed guidance; the protocol serialization path
 	// between a real client and real server is still exercised for
 	// real).
-	svc := query.New(store, badgerStore, vb, embedder, ns, "qdrant")
+	svc := query.New(store, badgerStore, vb, &embedding.Prompted{Embedder: embedder}, ns, "qdrant")
 	server := New(Deps{Query: svc})
 
 	t1, t2 := sdkmcp.NewInMemoryTransports()

@@ -112,7 +112,7 @@ flowchart TD
     VS --- WV["weaviate.Client"] --> WS[(Weaviate)]
 ```
 
-Writes and deletes go to every index in the `searchIndex`. A query uses the vector store when the request carries a vector and falls back to keyword search when it doesn't, or when the vector search finds nothing (a generation built while the embedder was unavailable has no vectors). `Count` is the largest count across the indexes.
+Writes and deletes go to every index in the `searchIndex`. A query with a vector, when both indexes exist, is a hybrid search: each index's top 50 merged by reciprocal rank fusion, whose score then replaces the backends' own. A generation built while the embedder was unavailable has no vectors, so its results are keyword search's. Without a vector, or with only one index, that index answers alone. `Count` is the largest count across the indexes.
 
 ## Walkthrough
 

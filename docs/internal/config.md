@@ -12,14 +12,17 @@ Every key `config.yaml` can hold, with the default a fresh `ragctl init` writes.
 | `storage.control.type` / `.path` | `bbolt`, `<data-dir>/control.db` | Control-plane store. The keyword index (`keyword.db`), the embedded vector store (`vectors.db`), the daemon socket (`ragctld.sock`) and its log (`ragctld.log`) all live next to this file. |
 | `storage.data.type` / `.path` | `badger`, `<data-dir>/badger` | Content store (normalized objects, chunks, embedding cache). |
 | `embedding.provider` | `ollama` | The only supported provider. |
-| `embedding.model` | `nomic-embed-text-v2-moe` | Pulled automatically by the daemon if missing. |
+| `embedding.model` | `embeddinggemma-2:270m` | Pulled automatically by the daemon if missing (Ollama itself is never installed). |
+| `embedding.query_prompt` | `task: code retrieval \| query: {q}` | Wraps each search question the way the model was trained; empty sends the question as is. |
+| `embedding.document_prompt` | `title: {title} \| text: {text}` | Wraps each chunk; `{title}` is its qualified symbol (e.g. `pgxpool.New`), else its file path, else `none`. Empty sends the text as is. |
+| `embedding.dimensions` | `256` | Keeps the first N values of each vector (EmbeddingGemma 2 is a Matryoshka model); `0` keeps all. |
 | `embedding.endpoint` | `http://127.0.0.1:11434` | Ollama URL. |
 | `vector.backend` | `embedded` | Vector store: `embedded` (a bbolt file, no service), `qdrant`, `pgvector` or `weaviate`. Also the key active generations are recorded under, in every retrieval mode. |
 | `vector.endpoint` | empty | Qdrant/Weaviate URL or Postgres connection URL. For `embedded`, an optional file path (default `vectors.db` next to `control.db`). `ragctl init --vector-backend qdrant` sets `http://127.0.0.1:6333`. |
 | `vector.collection` | `ragctl-<8 random hex>` | Collection/table/namespace name; random per install (see Notes). |
 | `vector.api_key_env` | empty | Name of an environment variable holding the secret: Qdrant's or Weaviate's API key, or pgvector's database password. Read by the daemon process, so it must be set in the daemon's environment. |
 | `vector.managed` | `false` (`true` with `init --vector-backend qdrant`) | For `qdrant` only: start a ragctl-owned Qdrant container (podman or docker) when the endpoint doesn't answer. |
-| `retrieval.mode` | `auto` (if absent: `vector`) | `auto`: always build a keyword index, and add vectors when Ollama and the vector store are ready; search uses vectors when it can and keyword search otherwise. `vector`: always require Ollama. `keyword`: never use an embedding model. Set at init with `--retrieval-mode`. |
+| `retrieval.mode` | `auto` (if absent: `vector`) | `auto`: always build a keyword index, and add vectors when Ollama and the vector store are ready; search combines keyword and vector rankings (hybrid) when vectors exist, and uses keyword search otherwise. `vector`: always require Ollama. `keyword`: never use an embedding model. Set at init with `--retrieval-mode`. |
 | `retention.grace_period` | `336h` (14 days; 0 = default) | How long a version no project references any more is kept before `ragctl gc` may delete it. |
 | `retention.keep_latest` | `true` | Written by `Default`, but nothing reads it yet. |
 | `retention.orphan_age` | `24h` (0 = default) | How long a FAILED or stuck generation must sit untouched before `ragctl gc --orphans` may delete it. |
@@ -101,7 +104,7 @@ Concrete scenario: on macOS, a user has already hand-edited a config file at a n
        path: /Users/jin/ragctl-configs/data/badger
    embedding:
      provider: ollama
-     model: nomic-embed-text-v2-moe
+     model: embeddinggemma-2:270m
      endpoint: http://127.0.0.1:11434
    vector:
      backend: qdrant

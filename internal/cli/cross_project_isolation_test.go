@@ -12,6 +12,7 @@ import (
 	bboltstore "aleutian-ai/ragctl/internal/control/bbolt"
 	badgerstore "aleutian-ai/ragctl/internal/data/badger"
 	"aleutian-ai/ragctl/internal/domain"
+	"aleutian-ai/ragctl/internal/embedding"
 	"aleutian-ai/ragctl/internal/planner"
 	"aleutian-ai/ragctl/internal/query"
 	"aleutian-ai/ragctl/internal/registry"
@@ -96,7 +97,7 @@ func newCrossProjectIsolationFixture(t *testing.T) *crossProjectIsolationFixture
 	}{{projectA, "v1.0.0"}, {projectB, "v2.0.0"}} {
 		depVersion := domain.DependencyVersion{Dependency: dep, Version: tc.version}
 		action := planner.Action{Kind: planner.ActionSyncVersion, ProjectID: tc.projectID, Dependency: depVersion}
-		if err := syncVersion(ctx, store, badgerStore, gitCache, embedder, vb, ns, reg, action, false); err != nil {
+		if err := syncVersion(ctx, store, badgerStore, gitCache, &embedding.Prompted{Embedder: embedder}, vb, ns, reg, action, false); err != nil {
 			t.Fatalf("sync %s for %s: %v", tc.version, tc.projectID, err)
 		}
 		if err := store.PutProject(ctx, domain.Project{ID: tc.projectID, Root: t.TempDir()}); err != nil {
@@ -125,7 +126,7 @@ func newCrossProjectIsolationFixture(t *testing.T) *crossProjectIsolationFixture
 }
 
 func (f *crossProjectIsolationFixture) queryService() *query.Service {
-	return query.New(f.store, f.badgerStore, f.vb, f.embedder, f.ns, f.vb.Name())
+	return query.New(f.store, f.badgerStore, f.vb, &embedding.Prompted{Embedder: f.embedder}, f.ns, f.vb.Name())
 }
 
 func TestModeProjectStructurallyExcludesOtherProjectsVersion(t *testing.T) {

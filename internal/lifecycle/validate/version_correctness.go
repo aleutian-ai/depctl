@@ -6,6 +6,7 @@ import (
 	"sort"
 
 	"aleutian-ai/ragctl/internal/backend"
+	"aleutian-ai/ragctl/internal/data/generation"
 	"aleutian-ai/ragctl/internal/domain"
 	"aleutian-ai/ragctl/internal/embedding"
 )
@@ -36,7 +37,7 @@ func SampleChunks(chunks []domain.Chunk) []domain.Chunk {
 // content is itself a failure: it means the replica is missing content
 // it should have. With a nil embedder (keyword-only search, LOCAL-001)
 // each chunk's own text is the query instead.
-func VersionCorrectness(ctx context.Context, embedder embedding.Embedder, vb backend.VectorBackend, ns backend.Namespace, gen domain.Generation, sampleChunks []domain.Chunk) (StructuralResult, error) {
+func VersionCorrectness(ctx context.Context, embedder *embedding.Prompted, vb backend.VectorBackend, ns backend.Namespace, gen domain.Generation, sampleChunks []domain.Chunk) (StructuralResult, error) {
 	if len(sampleChunks) == 0 {
 		return StructuralResult{Passed: true}, nil
 	}
@@ -48,7 +49,11 @@ func VersionCorrectness(ctx context.Context, embedder embedding.Embedder, vb bac
 	vectors := make([][]float32, len(sampleChunks))
 	if embedder != nil {
 		var err error
-		vectors, err = embedder.Embed(ctx, texts)
+		docs := make([]embedding.Document, len(sampleChunks))
+		for i, c := range sampleChunks {
+			docs[i] = embedding.Document{Title: generation.ChunkTitle(c), Text: string(c.Content)}
+		}
+		vectors, err = embedder.EmbedDocuments(ctx, docs)
 		if err != nil {
 			return StructuralResult{}, fmt.Errorf("validate: embed sample chunks: %w", err)
 		}

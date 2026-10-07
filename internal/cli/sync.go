@@ -609,7 +609,7 @@ func addReference(ctx context.Context, store *bboltstore.Store, action planner.A
 // across every SYNC_VERSION action in the run. embedder and vector are nil
 // for a keyword-only build; vb is every index the build writes.
 type syncPipeline struct {
-	embedder embedding.Embedder
+	embedder *embedding.Prompted
 	vb       backend.VectorBackend
 	vector   backend.VectorBackend
 	gitCache *git.Cache
@@ -1096,7 +1096,7 @@ var onSyncPhaseTimings = func(dep domain.DependencyVersion, t SyncPhaseTimings) 
 
 // syncVersion drives the full build->replicate->validate->promote
 // pipeline for one SYNC_VERSION action.
-func syncVersion(ctx context.Context, store *bboltstore.Store, badgerStore *badgerstore.Store, gitCache *git.Cache, embedder embedding.Embedder, vb backend.VectorBackend, ns backend.Namespace, reg *registry.Registry, action planner.Action, force bool) error {
+func syncVersion(ctx context.Context, store *bboltstore.Store, badgerStore *badgerstore.Store, gitCache *git.Cache, embedder *embedding.Prompted, vb backend.VectorBackend, ns backend.Namespace, reg *registry.Registry, action planner.Action, force bool) error {
 	dep := action.Dependency
 	var timings SyncPhaseTimings
 	defer func() { onSyncPhaseTimings(dep, timings) }()

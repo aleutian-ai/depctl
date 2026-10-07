@@ -56,7 +56,7 @@ func (r Report) Failures() []string {
 //
 // prior/priorManifest are nil for a dependency's first-ever generation
 // (Sanity auto-passes in that case, per VAL-002).
-func Run(ctx context.Context, gen domain.Generation, manifest generation.Manifest, replica domain.BackendReplica, prior *domain.Generation, priorManifest *generation.Manifest, cfg SanityConfig, embedder embedding.Embedder, vb backend.VectorBackend, ns backend.Namespace, store *bbolt.Store, badgerStore *badger.Store) (resultGen domain.Generation, resultReport Report, err error) {
+func Run(ctx context.Context, gen domain.Generation, manifest generation.Manifest, replica domain.BackendReplica, prior *domain.Generation, priorManifest *generation.Manifest, cfg SanityConfig, embedder *embedding.Prompted, vb backend.VectorBackend, ns backend.Namespace, store *bbolt.Store, badgerStore *badger.Store) (resultGen domain.Generation, resultReport Report, err error) {
 	ctx, end := trace.StartSpan(ctx, "validate")
 	defer func() {
 		if err != nil {

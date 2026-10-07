@@ -39,7 +39,7 @@ config away from each other:
 
 ```bash
 # embedding model ragctl uses to vectorize chunks (optional, see below):
-ollama pull nomic-embed-text-v2-moe
+ollama pull embeddinggemma-2:270m
 
 # whichever chat model your MCP client will use to answer questions —
 # these are already pulled locally:
@@ -58,10 +58,12 @@ a chat model itself, it only serves retrieved chunks over MCP.
 
 The embedding model is optional. A fresh install uses
 `retrieval.mode: auto`: it always builds a keyword index (BM25, in
-`keyword.db`) and adds vectors when Ollama is reachable, so search works
-by meaning when it can and by keyword otherwise. `ragctl init
---retrieval-mode keyword` never contacts Ollama at all. Semantic search
-is better at paraphrased questions, so pull the model if you can.
+`keyword.db`) and adds vectors when Ollama is reachable; search then
+combines keyword and semantic rankings (hybrid), and uses keyword search
+alone otherwise. `ragctl init --retrieval-mode keyword` never contacts
+Ollama at all. Keyword search alone measured as good as semantic search
+on code docs, and hybrid a little better than both
+([retrieval-eval.md](retrieval-eval.md)), so the model is optional.
 
 ## 2. Build and initialize
 
@@ -77,16 +79,19 @@ indexes go alongside them on the first sync — `keyword.db` and, when
 Ollama is available, `vectors.db`: by default there's no vector database
 to run (`vector.backend: embedded`).
 
-If you pulled a specific tagged variant (e.g.
-`ollama pull nomic-embed-text-v2-moe:fp16`), edit `config.yaml`'s
-embedding model to match it exactly — the plain default model name
-won't match a locally-tagged variant:
+If you use a different model or tag, edit `config.yaml`'s embedding
+model to match `ollama list` exactly. The prompts and dimensions below
+are tuned for EmbeddingGemma 2; for another model, remove those three
+lines unless its documentation says otherwise:
 
 ```yaml
 embedding:
   provider: ollama
-  model: nomic-embed-text-v2-moe    # match `ollama list` exactly
+  model: embeddinggemma-2:270m      # match `ollama list` exactly
   endpoint: http://127.0.0.1:11434
+  query_prompt: 'task: code retrieval | query: {q}'
+  document_prompt: 'title: {title} | text: {text}'
+  dimensions: 256
 vector:
   backend: embedded                 # the default: a file, no service
   collection: ragctl-1a2b3c4d       # keep the unique name init generated

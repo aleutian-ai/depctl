@@ -759,3 +759,56 @@ func TestMergeOptionsUnionsDependencySets(t *testing.T) {
 		})
 	}
 }
+
+// A rebuild names the dependencies it applies to, so merging it into a
+// plain follow-up either narrows that sync or loses the rebuild. It
+// queues its own run instead, and later rebuilds merge into that one.
+func TestSchedulerNeverMergesARebuildIntoAPlainSync(t *testing.T) {
+	f := newFakeSync()
+	s := NewScheduler(context.Background(), f.run, noGC, nil)
+
+	first := s.Request("proj_a", SyncOptions{}, nil)
+	f.awaitStart(t)
+	plain := s.Request("proj_a", SyncOptions{}, nil)
+	rebuildA := s.Request("proj_a", SyncOptions{Rebuild: true, Dependencies: []string{"example.com/a"}}, nil)
+	rebuildB := s.Request("proj_a", SyncOptions{Rebuild: true, Dependencies: []string{"example.com/b"}}, nil)
+
+	close(f.release)
+	for _, ch := range []<-chan Result{first, plain, rebuildA, rebuildB} {
+		awaitResult(t, ch)
+	}
+	s.Wait()
+
+	calls := f.snapshot()
+	if len(calls) != 3 {
+		t.Fatalf("sync ran %d times, want 3 (the first, one plain follow-up, one rebuild)", len(calls))
+	}
+	if calls[1].opts.Rebuild || len(calls[1].opts.Dependencies) != 0 {
+		t.Errorf("plain follow-up = %+v, want a plain whole-project sync", calls[1].opts)
+	}
+	if !calls[2].opts.Rebuild || !reflect.DeepEqual(calls[2].opts.Dependencies, []string{"example.com/a", "example.com/b"}) {
+		t.Errorf("rebuild follow-up = %+v, want a rebuild of example.com/a and example.com/b", calls[2].opts)
+	}
+}
+
+// A real GC queued behind a dry run must still run for real: the dry
+// run never deletes, and the real request is never downgraded.
+func TestSchedulerGCRealRequestIsNeverDowngradedByADryRun(t *testing.T) {
+	g := newFakeGC()
+	s := NewScheduler(context.Background(), noSync, g.run, nil)
+
+	first := s.RequestGC(false, nil)
+	g.awaitStart(t)
+	preview := s.RequestGC(true, nil)
+	real := s.RequestGC(false, nil)
+
+	close(g.release)
+	for _, ch := range []<-chan GCOutcome{first, preview, real} {
+		awaitGCResult(t, ch)
+	}
+	s.Wait()
+
+	if calls := g.snapshot(); !reflect.DeepEqual(calls, []bool{false, true, false}) {
+		t.Errorf("gc runs (dryRun per run) = %v, want [false true false]: the preview, then the real request, each as asked", calls)
+	}
+}

@@ -558,7 +558,10 @@ func (e *engine) fullQueryService(ctx context.Context) (*query.Service, error) {
 	case config.RetrievalKeyword:
 		return e.keywordQueryService()
 	case config.RetrievalAuto:
-		if e.embeddingReadiness.checkReady() != nil || e.vectorReadiness.checkReady() != nil {
+		// Wait briefly for a readiness check still in progress (just after
+		// the daemon starts), so early searches aren't silently
+		// keyword-only; a settled state answers at once.
+		if !e.embeddingReadiness.readyWithin(searchReadinessWait) || !e.vectorReadiness.readyWithin(searchReadinessWait) {
 			return e.keywordQueryService()
 		}
 	default:
@@ -592,6 +595,11 @@ func (e *engine) fullQueryService(ctx context.Context) (*query.Service, error) {
 	})
 	return e.fullQuery, e.fullQueryErr
 }
+
+// searchReadinessWait bounds how long a search waits for a readiness
+// check that's still running. Shorter than sync's wait: a search is
+// interactive.
+const searchReadinessWait = 3 * time.Second
 
 // keywordQueryService returns e's memoized keyword-only query.Service.
 func (e *engine) keywordQueryService() (*query.Service, error) {

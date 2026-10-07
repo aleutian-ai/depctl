@@ -8,11 +8,13 @@ Embedding is optional. With `retrieval.mode: keyword`, or in `auto` mode while O
 
 **internal/embedding** (internal/embedding/embedding.go)
 - `Embedder` — interface: `Name()`, `ModelID()`, `Dimensions(ctx) (int, error)`, `Embed(ctx, texts) ([][]float32, error)`. Batch request/response only, no streaming/async; a failure fails the whole batch.
+- `Prompts` — `Query` (with `{q}`), `Document` (with `{title}` and `{text}`) and `Dimensions` (keep the first N values; 0 = all). `QueryText`/`DocumentText` apply them; `Identity(model)` names what produced a set of vectors: just the model when nothing is set (as for every install before these existed), else the model plus the size and a hash of the prompts, so vectors made with different prompts or sizes are never treated as compatible. Built from config by `config.EmbeddingConfig.Prompts`.
+- `Prompted` — an `Embedder` used with its `Prompts`: `EmbedQuery` for search questions, `EmbedDocuments` for chunks (each a `Document{Title, Text}`), both truncating to `Dimensions`. `ModelID` is the identity and `Dimensions` the truncated size. Everything that embeds goes through it: replication, backfill and validation embed documents, search embeds questions.
 - `EmbeddingIdentity` — `Provider`, `Model`, `Dimensions`, `Normalization`, `CreatedAt`. Defined but not used yet: a replica's model and dimensions are recorded on `domain.BackendReplica`, and the cache keys on provider and model directly.
 
 **internal/embedding/ollama** (internal/embedding/ollama/ollama.go)
 - `Client` — `Embedder` against Ollama's `/api/embed` endpoint via a hand-written HTTP client, no SDK. `Name()` is `"ollama"`.
-- `New(endpoint, model, opts...)` — default batch size 16 texts per request, 60s HTTP timeout. The default config uses `http://127.0.0.1:11434` and model `nomic-embed-text-v2-moe`.
+- `New(endpoint, model, opts...)` — default batch size 16 texts per request, 60s HTTP timeout. The default config uses `http://127.0.0.1:11434` and model `embeddinggemma-2:270m` (with code-retrieval prompts and 256 dimensions; see `docs/retrieval-eval.md`).
 - `WithBatchSize(n)` / `WithHTTPClient(h)` — functional options.
 - `(*Client) Dimensions(ctx)` — probes the vector length once by embedding a fixed string, cached via `sync.Once`.
 - `(*Client) Embed(ctx, texts)` — sends batches of `batchSize` sequentially and checks every returned vector has the expected dimension count.
@@ -48,7 +50,7 @@ flowchart TD
 
 ## Walkthrough
 
-Sync is embedding three chunks pulled from `redis`'s `README.md`, using a `CachingEmbedder` wrapping an `ollama.Client` for model `nomic-embed-text-v2-moe`.
+Sync is embedding three chunks pulled from `redis`'s `README.md`, using a `CachingEmbedder` wrapping an `ollama.Client`. The example uses a config without prompts (model `nomic-embed-text-v2-moe`); with prompts, `Prompted` wraps each text first, so the cache keys on the prompted text.
 
 1. The caller builds `texts := []string{"Redis is an in-memory data structure store...", "To start the server, run redis-server...", "Redis is an in-memory data structure store..."}` — chunk 0 and chunk 2 are identical text — and calls `cachingEmbedder.Embed(ctx, texts)`.
 2. For each text, `Embed` computes `key := cacheKey(text, "ollama", "nomic-embed-text-v2-moe")`. `cacheKey` hashes the text with `dchunk.ContentHash` (`hex.EncodeToString(blake3.Sum256(content))`, internal/data/chunk/chunk.go), giving e.g. `"embedcache/1f3a9c...7bde/ollama/nomic-embed-text-v2-moe"` for chunk 0, and the *same* key for chunk 2.

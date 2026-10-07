@@ -15,6 +15,7 @@ import (
 	"aleutian-ai/ragctl/internal/data/badger"
 	"aleutian-ai/ragctl/internal/data/generation"
 	"aleutian-ai/ragctl/internal/domain"
+	"aleutian-ai/ragctl/internal/embedding"
 	"aleutian-ai/ragctl/internal/registry"
 	"aleutian-ai/ragctl/internal/retention"
 	"aleutian-ai/ragctl/internal/source/git"
@@ -121,7 +122,7 @@ func TestGCEndToEndRemovesOrphanedVersionLeavesReferencedVersionUntouched(t *tes
 	if err := generation.Build(ctx, orphanGen, sources, gitCache, store, badgerStore, ""); err != nil {
 		t.Fatalf("Build orphan: %v", err)
 	}
-	if err := generation.Replicate(ctx, orphanGen, sources, embedder, vb, ns, store, badgerStore); err != nil {
+	if err := generation.Replicate(ctx, orphanGen, sources, &embedding.Prompted{Embedder: embedder}, vb, ns, store, badgerStore); err != nil {
 		t.Fatalf("Replicate orphan: %v", err)
 	}
 	if err := store.AddReference(ctx, domain.VersionReference{
@@ -161,7 +162,7 @@ func TestGCEndToEndRemovesOrphanedVersionLeavesReferencedVersionUntouched(t *tes
 	if err := generation.Build(ctx, refGen, sources, gitCache, store, badgerStore, ""); err != nil {
 		t.Fatalf("Build referenced: %v", err)
 	}
-	if err := generation.Replicate(ctx, refGen, sources, embedder, vb, ns, store, badgerStore); err != nil {
+	if err := generation.Replicate(ctx, refGen, sources, &embedding.Prompted{Embedder: embedder}, vb, ns, store, badgerStore); err != nil {
 		t.Fatalf("Replicate referenced: %v", err)
 	}
 	if err := store.AddReference(ctx, domain.VersionReference{

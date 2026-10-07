@@ -61,12 +61,12 @@ func configuredVectorBackendName() (string, error) {
 // buildEmbedder constructs the configured Embedder wrapped in a
 // content-hash cache backed by badgerStore. "ollama" is the only
 // supported provider.
-func buildEmbedder(cfg config.Config, badgerStore *badger.Store) (embedding.Embedder, error) {
+func buildEmbedder(cfg config.Config, badgerStore *badger.Store) (*embedding.Prompted, error) {
 	if cfg.Embedding.Provider != "ollama" {
 		return nil, fmt.Errorf("unsupported embedding provider %q (only \"ollama\" is implemented)", cfg.Embedding.Provider)
 	}
 	client := ollama.New(cfg.Embedding.Endpoint, cfg.Embedding.Model)
-	return cache.New(client, badgerStore), nil
+	return &embedding.Prompted{Embedder: cache.New(client, badgerStore), Prompts: cfg.Embedding.Prompts()}, nil
 }
 
 // buildVectorBackend constructs the configured vector store: "embedded"

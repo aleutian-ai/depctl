@@ -15,6 +15,7 @@ import (
 	"aleutian-ai/ragctl/internal/backend"
 	"aleutian-ai/ragctl/internal/backend/backendtest"
 	"aleutian-ai/ragctl/internal/domain"
+	"aleutian-ai/ragctl/internal/embedding"
 	"aleutian-ai/ragctl/internal/query"
 )
 
@@ -229,7 +230,7 @@ func newTestEnv(t *testing.T) *testEnv {
 	if err := vb.EnsureNamespace(context.Background(), ns); err != nil {
 		t.Fatalf("EnsureNamespace: %v", err)
 	}
-	svc := query.New(control, data, vb, &fakeEmbedder{dims: 4}, ns, "qdrant")
+	svc := query.New(control, data, vb, &embedding.Prompted{Embedder: &fakeEmbedder{dims: 4}}, ns, "qdrant")
 	return &testEnv{control: control, data: data, vb: vb, svc: svc}
 }
 

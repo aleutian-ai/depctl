@@ -19,6 +19,7 @@ import (
 	bboltstore "aleutian-ai/ragctl/internal/control/bbolt"
 	badgerstore "aleutian-ai/ragctl/internal/data/badger"
 	"aleutian-ai/ragctl/internal/domain"
+	"aleutian-ai/ragctl/internal/embedding"
 	"aleutian-ai/ragctl/internal/embedding/ollama"
 	"aleutian-ai/ragctl/internal/planner"
 	"aleutian-ai/ragctl/internal/source/git"
@@ -206,7 +207,7 @@ func TestRealSyncMakesNoUnexpectedNetworkCalls(t *testing.T) {
 		Version:    "v1.0.0",
 	}
 	action := planner.Action{Kind: planner.ActionSyncVersion, ProjectID: "proj_sec005", Dependency: dep}
-	if err := syncVersion(ctx, store, badgerStore, gitCache, embedder, vb, ns, reg, action, false); err != nil {
+	if err := syncVersion(ctx, store, badgerStore, gitCache, &embedding.Prompted{Embedder: embedder}, vb, ns, reg, action, false); err != nil {
 		t.Fatalf("syncVersion: %v", err)
 	}
 

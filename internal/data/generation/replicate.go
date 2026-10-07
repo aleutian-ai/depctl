@@ -52,7 +52,7 @@ const defaultReplicateBatchSize = 64
 //
 // embedder may be nil (keyword-only search, LOCAL-001): points then
 // carry text and no vector, and the replica records no embedding model.
-func Replicate(ctx context.Context, gen domain.Generation, sources []registry.Source, embedder embedding.Embedder, vb backend.VectorBackend, ns backend.Namespace, store *bbolt.Store, badgerStore *badger.Store) error {
+func Replicate(ctx context.Context, gen domain.Generation, sources []registry.Source, embedder *embedding.Prompted, vb backend.VectorBackend, ns backend.Namespace, store *bbolt.Store, badgerStore *badger.Store) error {
 	ctx, replicateSpanEnd := trace.StartSpan(ctx, "replicate")
 	defer replicateSpanEnd()
 	replicateStart := time.Now()
@@ -168,16 +168,16 @@ func Replicate(ctx context.Context, gen domain.Generation, sources []registry.So
 // here would silently mislabel a reused chunk's vector with stale
 // metadata — the same failure mode already found and fixed for Version;
 // SourceType/Authority had the identical bug and are fixed the same way.
-func embedBatch(ctx context.Context, embedder embedding.Embedder, badgerStore *badger.Store, objectCache map[string]domain.KnowledgeObject, gen domain.Generation, sourcesByID map[string]registry.Source, chunks []domain.Chunk) ([]backend.Point, error) {
-	texts := make([]string, len(chunks))
+func embedBatch(ctx context.Context, embedder *embedding.Prompted, badgerStore *badger.Store, objectCache map[string]domain.KnowledgeObject, gen domain.Generation, sourcesByID map[string]registry.Source, chunks []domain.Chunk) ([]backend.Point, error) {
+	docs := make([]embedding.Document, len(chunks))
 	for i, c := range chunks {
-		texts[i] = string(c.Content)
+		docs[i] = embedding.Document{Title: ChunkTitle(c), Text: string(c.Content)}
 	}
 
 	vectors := make([][]float32, len(chunks))
 	if embedder != nil {
 		var err error
-		vectors, err = embedder.Embed(ctx, texts)
+		vectors, err = embedder.EmbedDocuments(ctx, docs)
 		if err != nil {
 			return nil, fmt.Errorf("%w: embed batch: %v", ErrReplication, err)
 		}
@@ -246,6 +246,18 @@ func failReplica(ctx context.Context, store *bbolt.Store, replica *domain.Backen
 	return err
 }
 
+// ChunkTitle is the title an embedding model sees for c: its qualified
+// symbol for an API doc, else its source path, else empty.
+func ChunkTitle(c domain.Chunk) string {
+	if sym := c.Metadata["symbol"]; sym != "" {
+		if pkg := c.Metadata["package"]; pkg != "" {
+			return pkg + "." + sym
+		}
+		return sym
+	}
+	return c.Metadata["source_path"]
+}
+
 // keywordText is what a keyword index searches for c: its content, led
 // by the qualified symbol when the chunk is an API doc (godoc chunks
 // carry it as metadata). A doc like "New creates a new Pool" never
@@ -271,7 +283,7 @@ func keywordText(c domain.Chunk) string {
 // it never changes the generation's state, which is typically ACTIVE and
 // serving: on failure it removes whatever it wrote for the generation,
 // so searches never match a partial set.
-func AddToIndex(ctx context.Context, gen domain.Generation, sources []registry.Source, embedder embedding.Embedder, vb backend.VectorBackend, ns backend.Namespace, badgerStore *badger.Store) error {
+func AddToIndex(ctx context.Context, gen domain.Generation, sources []registry.Source, embedder *embedding.Prompted, vb backend.VectorBackend, ns backend.Namespace, badgerStore *badger.Store) error {
 	if err := vb.EnsureNamespace(ctx, ns); err != nil {
 		return fmt.Errorf("%w: ensure namespace %s: %v", ErrReplication, ns.Name, err)
 	}

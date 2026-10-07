@@ -12,6 +12,7 @@ import (
 
 	"aleutian-ai/ragctl/internal/daemon"
 	"aleutian-ai/ragctl/internal/domain"
+	"aleutian-ai/ragctl/internal/embedding"
 	"aleutian-ai/ragctl/internal/planner"
 	"aleutian-ai/ragctl/internal/registry"
 )
@@ -110,7 +111,7 @@ func TestWorkerPoolProcessesActionsConcurrently(t *testing.T) {
 
 	shared := &trackingEmbedder{atomicPromotionFakeEmbedder: atomicPromotionFakeEmbedder{dims: 4}, delay: 100 * time.Millisecond}
 	getPipeline := func() (*syncPipeline, error) {
-		return &syncPipeline{embedder: shared, vb: f.vb, gitCache: f.gitCache, ns: f.ns}, nil
+		return &syncPipeline{embedder: &embedding.Prompted{Embedder: shared}, vb: f.vb, gitCache: f.gitCache, ns: f.ns}, nil
 	}
 
 	var wg sync.WaitGroup
@@ -155,7 +156,7 @@ func TestWorkerPoolIsolatesOneFailureFromOthers(t *testing.T) {
 		// in-flight action's own dependency name is enough — each
 		// worker only ever asks for the pipeline while processing one
 		// specific action at a time.
-		return &syncPipeline{embedder: &routingEmbedder{failing: failing, ok: ok}, vb: f.vb, gitCache: f.gitCache, ns: f.ns}, nil
+		return &syncPipeline{embedder: &embedding.Prompted{Embedder: &routingEmbedder{failing: failing, ok: ok}}, vb: f.vb, gitCache: f.gitCache, ns: f.ns}, nil
 	}
 
 	results := map[string]int{} // dependency name -> failed count
@@ -275,13 +276,13 @@ func TestRunSyncDependencyTimeoutDoesNotWedgeOtherWorkers(t *testing.T) {
 	coordinator := daemon.NewBuildCoordinator()
 
 	getPipeline := func() (*syncPipeline, error) {
-		return &syncPipeline{embedder: hangingEmbedder{}, vb: f.vb, gitCache: f.gitCache, ns: f.ns}, nil
+		return &syncPipeline{embedder: &embedding.Prompted{Embedder: hangingEmbedder{}}, vb: f.vb, gitCache: f.gitCache, ns: f.ns}, nil
 	}
 	// gadget's own worker uses a real, fast embedder instead — routed
 	// the same way TestWorkerPoolIsolatesOneFailureFromOthers routes by
 	// dependency, so gadget never touches the hanging one at all.
 	fastGetPipeline := func() (*syncPipeline, error) {
-		return &syncPipeline{embedder: &atomicPromotionFakeEmbedder{dims: 4}, vb: f.vb, gitCache: f.gitCache, ns: f.ns}, nil
+		return &syncPipeline{embedder: &embedding.Prompted{Embedder: &atomicPromotionFakeEmbedder{dims: 4}}, vb: f.vb, gitCache: f.gitCache, ns: f.ns}, nil
 	}
 
 	results := map[string]int{}
@@ -354,7 +355,7 @@ func TestWorkerPoolReportsProgressAcrossConcurrentWorkers(t *testing.T) {
 
 	emb := &snapshottingEmbedder{atomicPromotionFakeEmbedder: atomicPromotionFakeEmbedder{dims: 4}, progress: progress}
 	getPipeline := func() (*syncPipeline, error) {
-		return &syncPipeline{embedder: emb, vb: f.vb, gitCache: f.gitCache, ns: f.ns}, nil
+		return &syncPipeline{embedder: &embedding.Prompted{Embedder: emb}, vb: f.vb, gitCache: f.gitCache, ns: f.ns}, nil
 	}
 
 	var wg sync.WaitGroup
@@ -401,7 +402,7 @@ func TestWorkerPoolProgressCountsFailures(t *testing.T) {
 	failing := &atomicPromotionFakeEmbedder{dims: 4, failAfter: 1}
 	ok := &atomicPromotionFakeEmbedder{dims: 4}
 	getPipeline := func() (*syncPipeline, error) {
-		return &syncPipeline{embedder: &routingEmbedder{failing: failing, ok: ok}, vb: f.vb, gitCache: f.gitCache, ns: f.ns}, nil
+		return &syncPipeline{embedder: &embedding.Prompted{Embedder: &routingEmbedder{failing: failing, ok: ok}}, vb: f.vb, gitCache: f.gitCache, ns: f.ns}, nil
 	}
 	for {
 		action, more := queue.next(nil)

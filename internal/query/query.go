@@ -170,12 +170,12 @@ type Service struct {
 	control     ControlStore
 	data        DataStore
 	backend     backend.VectorBackend
-	embedder    embedding.Embedder
+	embedder    *embedding.Prompted
 	namespace   backend.Namespace
 	backendName string
 }
 
 // New returns a Service wired against the given stores/providers.
-func New(control ControlStore, data DataStore, vb backend.VectorBackend, embedder embedding.Embedder, namespace backend.Namespace, backendName string) *Service {
+func New(control ControlStore, data DataStore, vb backend.VectorBackend, embedder *embedding.Prompted, namespace backend.Namespace, backendName string) *Service {
 	return &Service{control: control, data: data, backend: vb, embedder: embedder, namespace: namespace, backendName: backendName}
 }

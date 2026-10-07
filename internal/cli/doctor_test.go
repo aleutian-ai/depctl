@@ -68,6 +68,8 @@ func healthyDoctorEnv(t *testing.T) *doctorEnv {
 	cfg.Vector.QdrantDefaults()
 	cfg.Vector.Endpoint = healthyBackendURL(t)
 	cfg.Embedding.Model = testEmbeddingModel
+	// An install from before embedding prompts existed: plain text, full size.
+	cfg.Embedding.QueryPrompt, cfg.Embedding.DocumentPrompt, cfg.Embedding.Dimensions = "", "", 0
 	cfg.Embedding.Endpoint = healthyOllamaURL(t)
 
 	return &doctorEnv{
@@ -607,5 +609,16 @@ func TestDoctorCommandReturnsExitCode(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "vector backend reachable") || !strings.Contains(out.String(), "unhealthy") {
 		t.Errorf("report missing expected lines:\n%s", out.String())
+	}
+}
+
+// Vectors made with different prompts or a different size don't mix
+// with what search will now ask for, even under the same model name.
+func TestDoctorFlagsEmbeddingPromptOrSizeChange(t *testing.T) {
+	env := healthyDoctorEnv(t)
+	env.cfg.Embedding.Dimensions = 256 // the replica's vectors were made at full size
+	r := resultNamed(t, runChecks(context.Background(), env), "embedding model compatibility")
+	if r.Severity != SeverityUnhealthy || !strings.Contains(r.Detail, "256d") {
+		t.Errorf("embedding model compatibility = %s (%s), want UNHEALTHY naming the new 256d identity", r.Severity, r.Detail)
 	}
 }

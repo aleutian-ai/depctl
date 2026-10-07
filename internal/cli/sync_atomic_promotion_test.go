@@ -15,6 +15,7 @@ import (
 	bboltstore "aleutian-ai/ragctl/internal/control/bbolt"
 	badgerstore "aleutian-ai/ragctl/internal/data/badger"
 	"aleutian-ai/ragctl/internal/domain"
+	"aleutian-ai/ragctl/internal/embedding"
 	"aleutian-ai/ragctl/internal/planner"
 	"aleutian-ai/ragctl/internal/query"
 	"aleutian-ai/ragctl/internal/registry"
@@ -176,7 +177,7 @@ func TestSyncVersionAtomicPromotionUnderReplicateFailure(t *testing.T) {
 	// 1. First sync (v1.0.0): must succeed and promote.
 	action1 := planner.Action{Kind: planner.ActionSyncVersion, ProjectID: projectID, Dependency: dep}
 	embedderOK := &atomicPromotionFakeEmbedder{dims: 4}
-	if err := syncVersion(ctx, store, badgerStore, gitCache, embedderOK, vb, ns, reg, action1, false); err != nil {
+	if err := syncVersion(ctx, store, badgerStore, gitCache, &embedding.Prompted{Embedder: embedderOK}, vb, ns, reg, action1, false); err != nil {
 		t.Fatalf("first sync (v1.0.0): %v", err)
 	}
 
@@ -209,7 +210,7 @@ func TestSyncVersionAtomicPromotionUnderReplicateFailure(t *testing.T) {
 	dep11 := domain.DependencyVersion{Dependency: dep.Dependency, Version: "v1.1.0"}
 	action2 := planner.Action{Kind: planner.ActionSyncVersion, ProjectID: projectID, Dependency: dep11}
 	embedderFail := &atomicPromotionFakeEmbedder{dims: 4, failAfter: 1}
-	err = syncVersion(ctx, store, badgerStore, gitCache, embedderFail, vb, ns, reg, action2, false)
+	err = syncVersion(ctx, store, badgerStore, gitCache, &embedding.Prompted{Embedder: embedderFail}, vb, ns, reg, action2, false)
 	if err == nil {
 		t.Fatal("second sync (v1.1.0, injected Replicate failure) succeeded, want an error")
 	}
@@ -264,7 +265,7 @@ func TestSyncVersionAtomicPromotionUnderReplicateFailure(t *testing.T) {
 	// for this ecosystem/name, not that it matched the project's
 	// resolved version) — fixed in internal/query/search.go's
 	// searchProject.
-	svc := query.New(store, badgerStore, vb, embedderOK, ns, vb.Name())
+	svc := query.New(store, badgerStore, vb, &embedding.Prompted{Embedder: embedderOK}, ns, vb.Name())
 
 	_, searchErr := svc.SearchKnowledge(ctx, query.Query{ProjectID: projectID, Dependency: "example.com/widget", Text: "widget", Mode: query.ModeProject})
 	if !errors.Is(searchErr, query.ErrNoActiveGeneration) {
@@ -309,7 +310,7 @@ func TestSyncVersionAtomicPromotionUnderBuildFailure(t *testing.T) {
 
 	action1 := planner.Action{Kind: planner.ActionSyncVersion, ProjectID: projectID, Dependency: dep}
 	embedderOK := &atomicPromotionFakeEmbedder{dims: 4}
-	if err := syncVersion(ctx, store, badgerStore, gitCache, embedderOK, vb, ns, reg, action1, false); err != nil {
+	if err := syncVersion(ctx, store, badgerStore, gitCache, &embedding.Prompted{Embedder: embedderOK}, vb, ns, reg, action1, false); err != nil {
 		t.Fatalf("first sync (v1.0.0): %v", err)
 	}
 	activeBefore, err := store.GetActiveGeneration(ctx, domain.EcosystemGo, "example.com/widget", "v1.0.0", vb.Name())
@@ -321,7 +322,7 @@ func TestSyncVersionAtomicPromotionUnderBuildFailure(t *testing.T) {
 	// ResolveRef fails, an ACQUIRING-stage failure.
 	depBad := domain.DependencyVersion{Dependency: dep.Dependency, Version: "v9.9.9"}
 	action2 := planner.Action{Kind: planner.ActionSyncVersion, ProjectID: projectID, Dependency: depBad}
-	if err := syncVersion(ctx, store, badgerStore, gitCache, embedderOK, vb, ns, reg, action2, false); err == nil {
+	if err := syncVersion(ctx, store, badgerStore, gitCache, &embedding.Prompted{Embedder: embedderOK}, vb, ns, reg, action2, false); err == nil {
 		t.Fatal("second sync (v9.9.9, nonexistent ref) succeeded, want an error")
 	}
 

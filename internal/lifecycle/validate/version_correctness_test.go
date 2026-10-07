@@ -6,6 +6,7 @@ import (
 
 	"aleutian-ai/ragctl/internal/backend"
 	"aleutian-ai/ragctl/internal/backend/backendtest"
+	"aleutian-ai/ragctl/internal/embedding"
 	"aleutian-ai/ragctl/internal/source/git"
 )
 
@@ -46,7 +47,7 @@ func TestVersionCorrectnessIsolatesTwoIndexedVersions(t *testing.T) {
 		t.Fatalf("ListGenerationChunks v2: %v", err)
 	}
 
-	resultV1, err := VersionCorrectness(ctx, embedder, vb, ns, genV1, SampleChunks(chunksV1))
+	resultV1, err := VersionCorrectness(ctx, &embedding.Prompted{Embedder: embedder}, vb, ns, genV1, SampleChunks(chunksV1))
 	if err != nil {
 		t.Fatalf("VersionCorrectness v1: %v", err)
 	}
@@ -54,7 +55,7 @@ func TestVersionCorrectnessIsolatesTwoIndexedVersions(t *testing.T) {
 		t.Errorf("VersionCorrectness v1 failed: %v", resultV1.Failures)
 	}
 
-	resultV2, err := VersionCorrectness(ctx, embedder, vb, ns, genV2, SampleChunks(chunksV2))
+	resultV2, err := VersionCorrectness(ctx, &embedding.Prompted{Embedder: embedder}, vb, ns, genV2, SampleChunks(chunksV2))
 	if err != nil {
 		t.Fatalf("VersionCorrectness v2: %v", err)
 	}
@@ -109,7 +110,7 @@ func TestVersionCorrectnessDetectsCrossVersionContamination(t *testing.T) {
 		t.Fatalf("Upsert corrupt point: %v", err)
 	}
 
-	result, err := VersionCorrectness(ctx, embedder, vb, ns, gen, sample)
+	result, err := VersionCorrectness(ctx, &embedding.Prompted{Embedder: embedder}, vb, ns, gen, sample)
 	if err != nil {
 		t.Fatalf("VersionCorrectness: %v", err)
 	}

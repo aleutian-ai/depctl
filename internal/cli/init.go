@@ -23,7 +23,7 @@ func newInitCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&retrievalMode, "retrieval-mode", "",
-		`how search works, for a new config: "auto" (default; semantic search with Ollama embeddings when Ollama is available, keyword search otherwise), "vector" (always require Ollama), or "keyword" (never use an embedding model)`)
+		`how search works, for a new config: "auto" (default; hybrid keyword + semantic search when Ollama is available, keyword search otherwise), "vector" (always require Ollama), or "keyword" (never use an embedding model)`)
 	cmd.Flags().StringVar(&vectorBackend, "vector-backend", "",
 		`vector store for a new config: "embedded" (default; a file in the data dir, no service or container) or "qdrant" (a local Qdrant, which ragctl starts in a container if none is running). To use your own Qdrant, pgvector or Weaviate, edit the vector section of the config.`)
 	return cmd

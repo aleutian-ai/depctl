@@ -14,7 +14,7 @@ ragctl is not the only locally-hosted or privacy-first option in this space, and
 
 - Go 1.25.6+, to build ragctl.
 - `git`, which ragctl uses to fetch dependency sources. To scan a Go project, also the `go` toolchain (ragctl runs `go list`); Python and Node projects are resolved from their lockfiles. `python3` and `node` are only used to extract Python and TypeScript API docs. `ragctl doctor` checks what your projects need.
-- (recommended) [Ollama](https://ollama.com/) running locally, for semantic search. ragctl uses [`nomic-embed-text-v2-moe`](https://ollama.com/library/nomic-embed-text-v2-moe) (~957MB, Apache-2.0) and pulls it itself, in the background, the first time it's needed. **Without Ollama, ragctl still works:** it searches by keyword instead, and adds semantic search on the first sync after Ollama becomes available. See [Search modes](#search-modes).
+- (recommended) [Ollama](https://ollama.com/) running locally, for semantic search. ragctl uses [`embeddinggemma-2:270m`](https://ollama.com/library/embeddinggemma-2) (378 MB, Apache-2.0) and pulls it itself, in the background, the first time it's needed. It measured clearly better than ragctl's previous model on code docs ([retrieval-eval.md](docs/retrieval-eval.md)). ragctl never installs Ollama itself. **Without Ollama, ragctl still works:** it searches by keyword instead, and adds semantic search on the first sync after Ollama becomes available. See [Search modes](#search-modes).
 - Nothing else by default. ragctl keeps its search index in a file next to its other data, with no vector database or container to run. To use a vector database you already run (Qdrant, pgvector, Weaviate) or a ragctl-managed Qdrant instead, see [Integrations](#integrations) below.
 - (optional) [Podman](https://podman.io/) or [Docker](https://www.docker.com/) — only needed for a ragctl-managed Qdrant (`ragctl init --vector-backend qdrant`), plus the reference container and cross-platform tests, see below.
 
@@ -63,7 +63,7 @@ Using [opencode](https://opencode.ai) specifically? See [docs/opencode-usage.md]
 
 | Mode | Needs Ollama | What it does |
 |---|---|---|
-| `auto` (default) | No | Semantic search with Ollama embeddings when Ollama is available, keyword search when it isn't. Every sync also builds the keyword index, and versions synced without Ollama get their vectors on the first sync after it's back, with no rebuild. |
+| `auto` (default) | No | Hybrid search when Ollama is available: keyword and semantic rankings merged, which measured best. Keyword search when it isn't. Every sync also builds the keyword index, and versions synced without Ollama get their vectors on the first sync after it's back, with no rebuild. |
 | `vector` | Yes | Semantic search only, as before `retrieval.mode` existed. A config without the key means `vector`, so existing installs don't change. |
 | `keyword` | No | Keyword (BM25) search only. Nothing ever contacts Ollama or a vector store. |
 

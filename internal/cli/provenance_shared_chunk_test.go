@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"aleutian-ai/ragctl/internal/domain"
+	"aleutian-ai/ragctl/internal/embedding"
 	"aleutian-ai/ragctl/internal/planner"
 	"aleutian-ai/ragctl/internal/query"
 	"aleutian-ai/ragctl/internal/registry"
@@ -71,7 +72,7 @@ func TestProvenanceOfAChunkSharedAcrossDependencies(t *testing.T) {
 	}
 	for _, name := range []string{"example.com/alpha", "example.com/beta"} { // alpha first: it stores the shared object
 		action := planner.Action{Kind: planner.ActionSyncVersion, ProjectID: "proj_shared", Dependency: dep(name)}
-		if err := syncVersion(ctx, f.store, f.badgerStore, f.gitCache, emb, f.vb, f.ns, reg, action, false); err != nil {
+		if err := syncVersion(ctx, f.store, f.badgerStore, f.gitCache, &embedding.Prompted{Embedder: emb}, f.vb, f.ns, reg, action, false); err != nil {
 			t.Fatalf("sync %s: %v", name, err)
 		}
 	}
@@ -86,7 +87,7 @@ func TestProvenanceOfAChunkSharedAcrossDependencies(t *testing.T) {
 		t.Fatalf("PutResolution: %v", err)
 	}
 
-	svc := query.New(f.store, f.badgerStore, f.vb, emb, f.ns, f.vb.Name())
+	svc := query.New(f.store, f.badgerStore, f.vb, &embedding.Prompted{Embedder: emb}, f.ns, f.vb.Name())
 	result, err := svc.SearchKnowledge(ctx, query.Query{ProjectID: "proj_shared", Dependency: "example.com/beta", Text: "Shared notice", Mode: query.ModeProject})
 	if err != nil {
 		t.Fatalf("SearchKnowledge(beta): %v", err)

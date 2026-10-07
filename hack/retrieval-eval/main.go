@@ -6,14 +6,23 @@
 // Usage (stop the install's daemon first; this opens its stores):
 //
 //	go run ./hack/retrieval-eval gen  -config <config.yaml> -out generated.json [-per-dep 25]
-//	go run ./hack/retrieval-eval prefixed -config <config.yaml>
+//	go run ./hack/retrieval-eval index -config <config.yaml> -name eg2-270m -embed embeddinggemma-2:270m \
+//	    [-query-format 'task: code retrieval | query: {q}'] [-doc-format 'title: {title} | text: {text}'] [-dims 256]
 //	go run ./hack/retrieval-eval run  -config <config.yaml> -questions a.json,b.json [-report report.md]
 //
-// prefixed re-embeds every chunk with the "search_document: " task prefix
-// that nomic embedding models are trained with, into a separate
-// vectors-prefixed.db beside the install's files; run then adds a vector
-// method that also prefixes questions with "search_query: ". ragctl itself
-// embeds without prefixes, so this measures what adding them would gain.
+// index embeds every chunk with any Ollama embedding model, optional
+// prompt formats and optional truncation, into eval-<name>.db beside the
+// install's files (with eval-<name>.json describing it). {title} is the
+// chunk's qualified symbol, else its source path, else "none". run
+// compares keyword search, the install's own vectors (ragctl as shipped)
+// and every eval index, each alone and fused with keyword search.
+//
+// Questions are split deterministically into a tune half and a test half
+// (by a hash of the ID): decide changes on tune, report test. The test
+// half is frozen as the benchmark; new questions use "dev-" IDs, which
+// are always tune. A lenient
+// score also accepts a result equivalent to the right answer (the same
+// qualified symbol, or at least 80% of the same words).
 //
 // gen samples chunks and asks a local chat model (Ollama) for a question
 // each chunk answers, written without the chunk's identifiers or phrasing;
@@ -31,8 +40,10 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -89,6 +100,13 @@ func main() {
 	model := fs.String("model", "ornith-1.5:9b", "gen: Ollama chat model")
 	seed := fs.Int64("seed", 1, "gen: sampling seed")
 	questions := fs.String("questions", "", "run: comma-separated question files")
+	name := fs.String("name", "", "index: name of the eval index")
+	embedModel := fs.String("embed", "", "index: Ollama embedding model")
+	queryFormat := fs.String("query-format", "{q}", "index: how questions are prompted ({q})")
+	docFormat := fs.String("doc-format", "{text}", "index: how chunks are prompted ({title}, {text})")
+	dims := fs.Int("dims", 0, "index: truncate vectors to this many dimensions (0 = full)")
+	daemonProject := fs.String("daemon-project", "", "run: also ask every question through the running daemon's search API, for this project ID (start the daemon after the other methods' stores are closed: use -daemon-only)")
+	daemonOnly := fs.Bool("daemon-only", false, "run: only the daemon method (its daemon holds the stores open)")
 	report := fs.String("report", "", "run: also write the report to this file")
 	fs.Parse(os.Args[2:])
 	if *cfgPath == "" {
@@ -103,12 +121,15 @@ func main() {
 		if err := generate(c, *model, *perDep, *seed, *out); err != nil {
 			log.Fatal(err)
 		}
-	case "prefixed":
-		if err := embedPrefixed(c); err != nil {
+	case "index":
+		if *name == "" || *embedModel == "" {
+			log.Fatal("index needs -name and -embed")
+		}
+		if err := buildIndex(c, evalIndex{Name: *name, Model: *embedModel, QueryFormat: *queryFormat, DocFormat: *docFormat, Dims: *dims}); err != nil {
 			log.Fatal(err)
 		}
 	case "run":
-		if err := run(c, strings.Split(*questions, ","), *report); err != nil {
+		if err := run(c, strings.Split(*questions, ","), *report, *daemonProject, *daemonOnly); err != nil {
 			log.Fatal(err)
 		}
 	default:
@@ -249,17 +270,26 @@ func leaks(q, content, symbol string) bool {
 
 // --- evaluation
 
+// evalIndex describes one vector index built by `index`.
+type evalIndex struct {
+	Name        string `json:"name"`
+	Model       string `json:"model"`
+	QueryFormat string `json:"query_format"`
+	DocFormat   string `json:"doc_format"`
+	Dims        int    `json:"dims"` // 0 = the model's full output
+}
+
 type method struct {
 	name   string
 	search func(q Question, f backend.Filter, k int) ([]string, error)
 }
 
 type tally struct {
-	n, hit1, hit3, hit10 int
-	rr                   float64
+	n, hit1, hit3, hit10, lenient3 int
+	rr, lenientRR                  float64
 }
 
-func (t *tally) add(rank int) {
+func (t *tally) add(rank, lenientRank int) {
 	t.n++
 	if rank == 1 {
 		t.hit1++
@@ -271,9 +301,15 @@ func (t *tally) add(rank int) {
 		t.hit10++
 		t.rr += 1 / float64(rank)
 	}
+	if lenientRank >= 1 && lenientRank <= 3 {
+		t.lenient3++
+	}
+	if lenientRank >= 1 && lenientRank <= 10 {
+		t.lenientRR += 1 / float64(lenientRank)
+	}
 }
 
-func run(c *corpus, files []string, reportPath string) error {
+func run(c *corpus, files []string, reportPath, daemonProject string, daemonOnly bool) error {
 	var qs []Question
 	for _, f := range files {
 		b, err := os.ReadFile(f)
@@ -288,20 +324,19 @@ func run(c *corpus, files []string, reportPath string) error {
 	}
 	// A question whose right answer isn't in the corpus would count as a
 	// miss for every method and quietly skew the comparison: refuse it.
+	gold := map[string][]domain.Chunk{} // question ID -> its right answers
 	var unanswerable []string
 	for _, q := range qs {
 		f, ok := c.versions[q.Dependency]
 		if !ok {
 			continue
 		}
-		found := false
 		for _, ch := range c.byDep[f.Dependency] {
 			if c.isGold(ch.ID, q.Gold) {
-				found = true
-				break
+				gold[q.ID] = append(gold[q.ID], ch)
 			}
 		}
-		if !found {
+		if len(gold[q.ID]) == 0 {
 			unanswerable = append(unanswerable, q.ID+" ("+q.Question+")")
 		}
 	}
@@ -312,10 +347,7 @@ func run(c *corpus, files []string, reportPath string) error {
 	ctx := context.Background()
 	dir := filepath.Dir(c.cfg.Storage.Control.Path)
 	kw := keyword.New(filepath.Join(dir, "keyword.db"))
-	vec := embedded.New(filepath.Join(dir, "vectors.db"))
-	emb := ollama.New(c.cfg.Embedding.Endpoint, c.cfg.Embedding.Model)
 	ns := c.cfg.Vector.Collection
-
 	latency := map[string][]time.Duration{}
 	timed := func(name string, fn func() ([]string, error)) ([]string, error) {
 		t0 := time.Now()
@@ -329,88 +361,119 @@ func run(c *corpus, files []string, reportPath string) error {
 			return ids(res), err
 		})
 	}
-	vectorSearch := func(q Question, f backend.Filter, k int) ([]string, error) {
-		return timed("vector", func() ([]string, error) {
-			v, err := emb.Embed(ctx, []string{q.Question})
-			if err != nil {
-				return nil, err
-			}
-			res, err := vec.Query(ctx, backend.QueryRequest{Namespace: ns, Vector: v[0], TopK: k, Filter: &f})
-			return ids(res), err
-		})
-	}
-	// Reciprocal rank fusion of the two top-50 lists (k = 60, the usual
-	// constant): a simple hybrid that needs no score calibration.
-	hybrid := func(q Question, f backend.Filter, k int) ([]string, error) {
-		a, err := keywordSearch(q, f, 50)
-		if err != nil {
-			return nil, err
-		}
-		b, err := vectorSearch(q, f, 50)
-		if err != nil {
-			return nil, err
-		}
-		score := map[string]float64{}
-		for i, id := range a {
-			score[id] += 1 / float64(60+i+1)
-		}
-		for i, id := range b {
-			score[id] += 1 / float64(60+i+1)
-		}
-		merged := sortedKeys(score)
-		sort.SliceStable(merged, func(i, j int) bool { return score[merged[i]] > score[merged[j]] })
-		if len(merged) > k {
-			merged = merged[:k]
-		}
-		return merged, nil
-	}
-	methods := []method{{"keyword (BM25)", keywordSearch}, {"vector (Ollama + embedded)", vectorSearch}, {"hybrid (RRF)", hybrid}}
-	prefixedPath := filepath.Join(dir, "vectors-prefixed.db")
-	if _, err := os.Stat(prefixedPath); err == nil {
-		pvec := embedded.New(prefixedPath)
-		methods = append(methods, method{"vector, nomic task prefixes", func(q Question, f backend.Filter, k int) ([]string, error) {
-			return timed("vector, prefixed", func() ([]string, error) {
-				v, err := emb.Embed(ctx, []string{"search_query: " + q.Question})
+	vectorSearch := func(name, path string, ix evalIndex) func(Question, backend.Filter, int) ([]string, error) {
+		store := embedded.New(path)
+		emb := ollama.New(c.cfg.Embedding.Endpoint, ix.Model)
+		return func(q Question, f backend.Filter, k int) ([]string, error) {
+			return timed(name, func() ([]string, error) {
+				v, err := emb.Embed(ctx, []string{strings.ReplaceAll(ix.QueryFormat, "{q}", q.Question)})
 				if err != nil {
 					return nil, err
 				}
-				res, err := pvec.Query(ctx, backend.QueryRequest{Namespace: ns, Vector: v[0], TopK: k, Filter: &f})
+				res, err := store.Query(ctx, backend.QueryRequest{Namespace: ns, Vector: truncate(v[0], ix.Dims), TopK: k, Filter: &f})
 				return ids(res), err
 			})
-		}})
+		}
+	}
+	// Reciprocal rank fusion of each list's top 50 (k = 60, the usual
+	// constant): a simple hybrid that needs no score calibration.
+	fuse := func(a, b func(Question, backend.Filter, int) ([]string, error)) func(Question, backend.Filter, int) ([]string, error) {
+		return func(q Question, f backend.Filter, k int) ([]string, error) {
+			score := map[string]float64{}
+			for _, search := range []func(Question, backend.Filter, int) ([]string, error){a, b} {
+				got, err := search(q, f, 50)
+				if err != nil {
+					return nil, err
+				}
+				for i, id := range got {
+					score[id] += 1 / float64(60+i+1)
+				}
+			}
+			merged := sortedKeys(score)
+			sort.SliceStable(merged, func(i, j int) bool { return score[merged[i]] > score[merged[j]] })
+			if len(merged) > k {
+				merged = merged[:k]
+			}
+			return merged, nil
+		}
+	}
+
+	// ragctl as shipped: the install's own vectors, plain prompts.
+	// Embedded exactly as the install's config says: its model, query
+	// prompt and vector size.
+	shippedFormat := c.cfg.Embedding.QueryPrompt
+	if shippedFormat == "" {
+		shippedFormat = "{q}"
+	}
+	shipped := vectorSearch(c.cfg.Embedding.Model+" (as shipped)", filepath.Join(dir, "vectors.db"), evalIndex{Model: c.cfg.Embedding.Model, QueryFormat: shippedFormat, Dims: c.cfg.Embedding.Dimensions})
+	methods := []method{
+		{"keyword (BM25)", keywordSearch},
+		{"vector: " + c.cfg.Embedding.Model + " (as shipped)", shipped},
+		{"hybrid: keyword + " + c.cfg.Embedding.Model, fuse(keywordSearch, shipped)},
+	}
+	specs, _ := filepath.Glob(filepath.Join(dir, "eval-*.json"))
+	sort.Strings(specs)
+	for _, spec := range specs {
+		var ix evalIndex
+		b, err := os.ReadFile(spec)
+		if err != nil {
+			return err
+		}
+		if err := json.Unmarshal(b, &ix); err != nil {
+			return fmt.Errorf("%s: %w", spec, err)
+		}
+		v := vectorSearch(ix.Name, strings.TrimSuffix(spec, ".json")+".db", ix)
+		methods = append(methods, method{"vector: " + ix.Name, v}, method{"hybrid: keyword + " + ix.Name, fuse(keywordSearch, v)})
+	}
+
+	if daemonOnly {
+		methods = nil
+	}
+	if daemonProject != "" {
+		search, err := daemonSearch(dir, daemonProject, timed)
+		if err != nil {
+			return err
+		}
+		methods = append(methods, method{"ragctl search API (" + c.cfg.Retrieval.ModeOrDefault() + " mode)", search})
 	}
 
 	results := map[string]map[string]*tally{} // method -> group -> tally
-	type miss struct{ q, method string }
 	var perQuestion []string
-	skipped := 0
 	for _, q := range qs {
-		f, ok := c.versions[q.Dependency]
-		if !ok {
-			skipped++
-			continue
+		f := c.versions[q.Dependency]
+		answer := "prose (README, guides)"
+		for _, g := range gold[q.ID] {
+			if g.Metadata["symbol"] != "" {
+				answer = "API doc"
+				break
+			}
 		}
-		line := fmt.Sprintf("%-9s %-11s %-28s", q.ID, q.Kind, trim(q.Question, 28))
+		line := fmt.Sprintf("%-9s %-5s %-11s %-28s", q.ID, split(q.ID), q.Kind, trim(q.Question, 28))
 		for _, m := range methods {
 			got, err := m.search(q, f, 10)
 			if err != nil {
 				return fmt.Errorf("%s on %s: %w", m.name, q.ID, err)
 			}
-			rank := 0
+			rank, lenient := 0, 0
 			for i, id := range got {
-				if c.isGold(id, q.Gold) {
+				if rank == 0 && c.isGold(id, q.Gold) {
 					rank = i + 1
-					break
+				}
+				if lenient == 0 && c.equivalent(id, gold[q.ID]) {
+					lenient = i + 1
 				}
 			}
 			if results[m.name] == nil {
 				results[m.name] = map[string]*tally{}
 			}
-			for _, g := range []string{"all", "source: " + q.Source, "kind: " + q.Kind} {
+			for _, g := range []string{"all questions", "held-out test half", "tune half", "source: " + q.Source, "kind: " + q.Kind, "answer: " + answer} {
+				if g == "held-out test half" && split(q.ID) != "test" || g == "tune half" && split(q.ID) != "tune" {
+					continue
+				}
 				if results[m.name][g] == nil {
 					results[m.name][g] = &tally{}
 				}
-				results[m.name][g].add(rank)
+				results[m.name][g].add(rank, lenient)
 			}
 			line += fmt.Sprintf(" %3s", rankLabel(rank))
 		}
@@ -418,36 +481,44 @@ func run(c *corpus, files []string, reportPath string) error {
 	}
 
 	var b strings.Builder
-	fmt.Fprintf(&b, "%d questions (%d skipped: dependency not synced), %d dependencies, %d chunks\n\n", len(qs)-skipped, skipped, len(c.versions), len(c.chunks))
-	groups := map[string]bool{}
+	fmt.Fprintf(&b, "%d questions, %d dependencies, %d chunks\n\n", len(qs), len(c.versions), len(c.chunks))
+	order := []string{"held-out test half", "all questions", "tune half"}
+	seen := map[string]bool{}
+	for _, g := range order {
+		seen[g] = true
+	}
 	for _, byGroup := range results {
 		for g := range byGroup {
-			groups[g] = true
+			if !seen[g] {
+				order = append(order, g)
+				seen[g] = true
+			}
 		}
 	}
-	for _, g := range sortedKeys(groups) {
-		fmt.Fprintf(&b, "%s\n\n| method | n | hit@1 | hit@3 | hit@10 | MRR@10 |\n|---|---|---|---|---|---|\n", g)
+	sort.Strings(order[3:])
+	for _, g := range order {
+		fmt.Fprintf(&b, "### %s\n\n| method | n | hit@1 | hit@3 | hit@10 | MRR | lenient hit@3 | lenient MRR |\n|---|---|---|---|---|---|---|---|\n", g)
 		for _, m := range methods {
 			t := results[m.name][g]
 			if t == nil {
 				continue
 			}
-			fmt.Fprintf(&b, "| %s | %d | %.0f%% | %.0f%% | %.0f%% | %.3f |\n", m.name, t.n, pct(t.hit1, t.n), pct(t.hit3, t.n), pct(t.hit10, t.n), t.rr/float64(t.n))
+			n := float64(t.n)
+			fmt.Fprintf(&b, "| %s | %d | %.0f%% | %.0f%% | %.0f%% | %.3f | %.0f%% | %.3f |\n", m.name, t.n, pct(t.hit1, t.n), pct(t.hit3, t.n), pct(t.hit10, t.n), t.rr/n, pct(t.lenient3, t.n), t.lenientRR/n)
 		}
 		b.WriteString("\n")
 	}
 	b.WriteString("| search | median | p95 |\n|---|---|---|\n")
-	for _, name := range []string{"keyword", "vector", "vector, prefixed"} {
-		if len(latency[name]) == 0 {
-			continue
-		}
+	for _, name := range sortedKeys(latency) {
 		d := latency[name]
 		sort.Slice(d, func(i, j int) bool { return d[i] < d[j] })
 		fmt.Fprintf(&b, "| %s | %s | %s |\n", name, d[len(d)/2].Round(time.Millisecond/10), d[len(d)*95/100].Round(time.Millisecond/10))
 	}
-	b.WriteString("\n(vector includes embedding the question with Ollama; hybrid is the two together)\n\nPer question, rank of the first right answer (- = not in the top 10): keyword, vector, hybrid\n\n```\n")
-	b.WriteString(strings.Join(perQuestion, "\n"))
-	b.WriteString("\n```\n")
+	b.WriteString("\n(vector times include embedding the question with Ollama)\n\nPer question, rank of the first right answer (- = not in the top 10), in method order:\n")
+	for i, m := range methods {
+		fmt.Fprintf(&b, "%d. %s\n", i+1, m.name)
+	}
+	b.WriteString("\n```\n" + strings.Join(perQuestion, "\n") + "\n```\n")
 	fmt.Print(b.String())
 	if reportPath != "" {
 		return os.WriteFile(reportPath, []byte(b.String()), 0o644)
@@ -455,18 +526,127 @@ func run(c *corpus, files []string, reportPath string) error {
 	return nil
 }
 
-// embedPrefixed builds vectors-prefixed.db: every corpus chunk embedded
-// with the "search_document: " prefix, same metadata as the real index.
-func embedPrefixed(c *corpus) error {
+// daemonSearch asks questions through the install's daemon, exactly as an
+// agent's search_dependency_docs call does. The corpus is loaded first
+// (it opens the stores, which needs the daemon stopped); `ragctl status`
+// then auto-starts the daemon, using ragctl from PATH and this process's
+// environment, which must point at the same install.
+func daemonSearch(dir, projectID string, timed func(string, func() ([]string, error)) ([]string, error)) (func(Question, backend.Filter, int) ([]string, error), error) {
+	if out, err := exec.Command("ragctl", "status").CombinedOutput(); err != nil {
+		return nil, fmt.Errorf("start the daemon with `ragctl status`: %v: %s", err, out)
+	}
+	sock := filepath.Join(dir, "ragctld.sock")
+	client := &http.Client{Transport: &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+		return (&net.Dialer{}).DialContext(ctx, "unix", sock)
+	}}}
+	return func(q Question, _ backend.Filter, k int) ([]string, error) {
+		return timed("ragctl search API", func() ([]string, error) {
+			body, _ := json.Marshal(map[string]any{"project_id": projectID, "text": q.Question, "dependency": q.Dependency, "mode": "project", "top_k": k})
+			resp, err := client.Post("http://ragctl/v1/search", "application/json", bytes.NewReader(body))
+			if err != nil {
+				return nil, err
+			}
+			defer resp.Body.Close()
+			var r struct {
+				Chunks []struct {
+					ChunkID string `json:"chunk_id"`
+				} `json:"chunks"`
+				Error string `json:"error"`
+			}
+			if err := json.NewDecoder(resp.Body).Decode(&r); err != nil {
+				return nil, err
+			}
+			if r.Error != "" {
+				return nil, fmt.Errorf("daemon: %s", r.Error)
+			}
+			var ids []string
+			for _, ch := range r.Chunks {
+				ids = append(ids, ch.ChunkID)
+			}
+			return ids, nil
+		})
+	}, nil
+}
+
+// split assigns a question to the tune or test half, fixed by its ID.
+// The test half of questions-hand.json and questions-generated.json is
+// the frozen benchmark: decide changes on tune questions and run the
+// test half only to confirm one. New development questions take a "dev-"
+// ID and are always tune, so adding them never changes the benchmark.
+func split(id string) string {
+	if strings.HasPrefix(id, "dev-") {
+		return "tune"
+	}
+	var h uint32 = 2166136261
+	for i := 0; i < len(id); i++ {
+		h = (h ^ uint32(id[i])) * 16777619
+	}
+	if h%2 == 0 {
+		return "tune"
+	}
+	return "test"
+}
+
+// equivalent reports whether chunk id is as good an answer as one of the
+// right ones: it is one, or has the same qualified symbol, or shares at
+// least 80% of its words (the same doc repeated, e.g. in a README and a
+// package doc).
+func (c *corpus) equivalent(id string, right []domain.Chunk) bool {
+	got, ok := c.chunks[id]
+	if !ok {
+		return false
+	}
+	for _, r := range right {
+		if r.ID == id {
+			return true
+		}
+		if s := got.Metadata["symbol"]; s != "" && s == r.Metadata["symbol"] && got.Metadata["package"] == r.Metadata["package"] {
+			return true
+		}
+		if jaccard(string(got.Content), string(r.Content)) >= 0.8 {
+			return true
+		}
+	}
+	return false
+}
+
+func jaccard(a, b string) float64 {
+	set := func(s string) map[string]bool {
+		m := map[string]bool{}
+		for _, w := range strings.Fields(strings.ToLower(s)) {
+			m[w] = true
+		}
+		return m
+	}
+	x, y := set(a), set(b)
+	inter := 0
+	for w := range x {
+		if y[w] {
+			inter++
+		}
+	}
+	union := len(x) + len(y) - inter
+	if union == 0 {
+		return 0
+	}
+	return float64(inter) / float64(union)
+}
+
+// buildIndex embeds every corpus chunk for one eval index.
+func buildIndex(c *corpus, ix evalIndex) error {
 	ctx := context.Background()
 	dir := filepath.Dir(c.cfg.Storage.Control.Path)
-	path := filepath.Join(dir, "vectors-prefixed.db")
-	os.Remove(path)
-	store := embedded.New(path)
-	emb := ollama.New(c.cfg.Embedding.Endpoint, c.cfg.Embedding.Model)
-	dims, err := emb.Dimensions(ctx)
-	if err != nil {
-		return err
+	base := filepath.Join(dir, "eval-"+ix.Name)
+	os.Remove(base + ".db")
+	store := embedded.New(base + ".db")
+	emb := ollama.New(c.cfg.Embedding.Endpoint, ix.Model)
+	dims := ix.Dims
+	if dims == 0 {
+		full, err := emb.Dimensions(ctx)
+		if err != nil {
+			return err
+		}
+		dims = full
 	}
 	ns := backend.Namespace{Name: c.cfg.Vector.Collection, Dimensions: dims, Distance: "cosine"}
 	if err := store.EnsureNamespace(ctx, ns); err != nil {
@@ -480,7 +660,7 @@ func embedPrefixed(c *corpus) error {
 			batch := chunks[start:min(start+64, len(chunks))]
 			texts := make([]string, len(batch))
 			for i, ch := range batch {
-				texts[i] = "search_document: " + string(ch.Content)
+				texts[i] = strings.NewReplacer("{title}", title(ch), "{text}", string(ch.Content)).Replace(ix.DocFormat)
 			}
 			vecs, err := emb.Embed(ctx, texts)
 			if err != nil {
@@ -488,7 +668,7 @@ func embedPrefixed(c *corpus) error {
 			}
 			points := make([]backend.Point, len(batch))
 			for i, ch := range batch {
-				points[i] = backend.Point{ID: ch.ID, Vector: vecs[i], Metadata: backend.PointMetadata{Ecosystem: f.Ecosystem, Dependency: f.Dependency, Version: f.Version, Generation: f.Generation}}
+				points[i] = backend.Point{ID: ch.ID, Vector: truncate(vecs[i], ix.Dims), Metadata: backend.PointMetadata{Ecosystem: f.Ecosystem, Dependency: f.Dependency, Version: f.Version, Generation: f.Generation}}
 			}
 			if err := store.Upsert(ctx, backend.UpsertRequest{Namespace: ns.Name, Points: points}); err != nil {
 				return err
@@ -496,7 +676,32 @@ func embedPrefixed(c *corpus) error {
 		}
 		log.Printf("%-42s %5d chunks  (%s elapsed)", dep, len(chunks), time.Since(t0).Round(time.Second))
 	}
-	return nil
+	spec, _ := json.MarshalIndent(ix, "", "  ")
+	return os.WriteFile(base+".json", spec, 0o644)
+}
+
+// title is a chunk's {title} for document prompts: its qualified symbol,
+// else its source path, else "none".
+func title(ch domain.Chunk) string {
+	if s := ch.Metadata["symbol"]; s != "" {
+		if p := ch.Metadata["package"]; p != "" {
+			return p + "." + s
+		}
+		return s
+	}
+	if p := ch.Metadata["source_path"]; p != "" {
+		return p
+	}
+	return "none"
+}
+
+// truncate keeps a Matryoshka embedding's first dims values (0 = all).
+// No renormalizing: cosine similarity divides by length anyway.
+func truncate(v []float32, dims int) []float32 {
+	if dims == 0 || dims >= len(v) {
+		return v
+	}
+	return v[:dims]
 }
 
 func (c *corpus) isGold(id string, g Gold) bool {

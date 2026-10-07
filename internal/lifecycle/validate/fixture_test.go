@@ -13,6 +13,7 @@ import (
 	"aleutian-ai/ragctl/internal/data/badger"
 	"aleutian-ai/ragctl/internal/data/generation"
 	"aleutian-ai/ragctl/internal/domain"
+	"aleutian-ai/ragctl/internal/embedding"
 	"aleutian-ai/ragctl/internal/registry"
 	"aleutian-ai/ragctl/internal/source/git"
 )
@@ -115,7 +116,7 @@ func buildAndReplicate(t *testing.T, ctx context.Context, store *bbolt.Store, ba
 	if err := generation.Build(ctx, gen, sources, gitCache, store, badgerStore, ""); err != nil {
 		t.Fatalf("Build: %v", err)
 	}
-	if err := generation.Replicate(ctx, gen, sources, embedder, vb, ns, store, badgerStore); err != nil {
+	if err := generation.Replicate(ctx, gen, sources, &embedding.Prompted{Embedder: embedder}, vb, ns, store, badgerStore); err != nil {
 		t.Fatalf("Replicate: %v", err)
 	}
 

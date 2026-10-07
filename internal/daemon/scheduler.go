@@ -156,8 +156,15 @@ type Scheduler struct {
 // project's retention state at once, never just one project's.
 type gcState struct {
 	running bool
-	dirty   bool
-	pending bool // dry-run if any collapsed request wanted dry-run
+	// queue holds follow-up runs in arrival order: requests with the
+	// same dryRun collapse into one; a real request and a dry run never
+	// do, so a preview can't delete and a real GC can't be downgraded.
+	queue []queuedGC
+}
+
+// queuedGC is one follow-up GC run and the callers it will answer.
+type queuedGC struct {
+	dryRun  bool
 	waiters []*gcWaiter
 }
 
@@ -168,13 +175,21 @@ type gcWaiter struct {
 	done chan GCOutcome
 }
 
+// queuedSync is one follow-up sync run and the callers it will answer.
+type queuedSync struct {
+	opts    SyncOptions
+	waiters []*waiter
+}
+
 // projectState is one project's place in the state machine: idle (absent
 // or !syncing), syncing, and syncing with a change already queued.
 type projectState struct {
 	syncing bool
-	dirty   bool
-	pending SyncOptions
-	waiters []*waiter
+	// queue holds follow-up runs in arrival order. A request merges into
+	// a queued run it's compatible with (see compatible); otherwise it
+	// queues its own, so a rebuild is never lost by merging into a plain
+	// sync, or vice versa.
+	queue []queuedSync
 	// priority is the currently-running sync's live SyncPriority, set by
 	// start and cleared by finish — nil whenever no sync is running for
 	// this project, which is exactly what BumpPriority checks.
@@ -246,13 +261,14 @@ func (s *Scheduler) Request(projectID string, opts SyncOptions, out io.Writer) <
 		s.projects[projectID] = st
 	}
 	if st.syncing {
-		if st.dirty {
-			st.pending = mergeOptions(st.pending, opts)
-		} else {
-			st.dirty = true
-			st.pending = opts
+		for i := range st.queue {
+			if compatible(st.queue[i].opts, opts) {
+				st.queue[i].opts = mergeOptions(st.queue[i].opts, opts)
+				st.queue[i].waiters = append(st.queue[i].waiters, w)
+				return w.done
+			}
 		}
-		st.waiters = append(st.waiters, w)
+		st.queue = append(st.queue, queuedSync{opts: opts, waiters: []*waiter{w}})
 		return w.done
 	}
 
@@ -315,19 +331,13 @@ func (s *Scheduler) RequestGC(dryRun bool, out io.Writer) <-chan GCOutcome {
 	}
 
 	if s.gc.running {
-		if s.gc.dirty {
-			// OR, not AND: a caller who explicitly asked for a preview must
-			// never have that silently escalate into a real delete just
-			// because it collapsed with someone else's non-dry-run request.
-			// The reverse (a real request folded into a dry-run, so nothing
-			// gets deleted) is the safe direction to err in — recoverable by
-			// asking again, unlike a surprise deletion.
-			s.gc.pending = s.gc.pending || dryRun
-		} else {
-			s.gc.dirty = true
-			s.gc.pending = dryRun
+		for i := range s.gc.queue {
+			if s.gc.queue[i].dryRun == dryRun {
+				s.gc.queue[i].waiters = append(s.gc.queue[i].waiters, w)
+				return w.done
+			}
 		}
-		s.gc.waiters = append(s.gc.waiters, w)
+		s.gc.queue = append(s.gc.queue, queuedGC{dryRun: dryRun, waiters: []*gcWaiter{w}})
 		return w.done
 	}
 
@@ -384,7 +394,7 @@ func (s *Scheduler) States() map[string]string {
 	states := make(map[string]string, len(s.projects))
 	for id, st := range s.projects {
 		switch {
-		case st.syncing && st.dirty:
+		case st.syncing && len(st.queue) > 0:
 			states[id] = "syncing+dirty"
 		case st.syncing:
 			states[id] = "syncing"
@@ -401,13 +411,15 @@ func (s *Scheduler) Shutdown() {
 	s.mu.Lock()
 	s.stopped = true
 	for _, st := range s.projects {
-		st.dirty = false
-		deliver(st.waiters, Result{Err: ErrShuttingDown})
-		st.waiters = nil
+		for _, q := range st.queue {
+			deliver(q.waiters, Result{Err: ErrShuttingDown})
+		}
+		st.queue = nil
 	}
-	s.gc.dirty = false
-	deliverGC(s.gc.waiters, GCOutcome{Err: ErrShuttingDown})
-	s.gc.waiters = nil
+	for _, q := range s.gc.queue {
+		deliverGC(q.waiters, GCOutcome{Err: ErrShuttingDown})
+	}
+	s.gc.queue = nil
 	s.mu.Unlock()
 }
 
@@ -569,18 +581,19 @@ func (s *Scheduler) finish(projectID string) {
 	// nothing new to sync still really ran (see everRan's own doc
 	// comment on projectState).
 	st.everRan = true
-	if st.dirty && !s.stopped {
-		st.dirty = false
-		opts, waiters := st.pending, st.waiters
-		st.pending, st.waiters = SyncOptions{}, nil
-		s.start(projectID, opts, waiters)
+	if len(st.queue) > 0 && !s.stopped {
+		next := st.queue[0]
+		st.queue = st.queue[1:]
+		s.start(projectID, next.opts, next.waiters)
 		return
 	}
 	st.syncing = false
 	st.priority = nil
-	if s.stopped && len(st.waiters) > 0 {
-		deliver(st.waiters, Result{Err: ErrShuttingDown})
-		st.waiters = nil
+	if s.stopped {
+		for _, q := range st.queue {
+			deliver(q.waiters, Result{Err: ErrShuttingDown})
+		}
+		st.queue = nil
 	}
 }
 
@@ -632,31 +645,43 @@ func (s *Scheduler) finishGC() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if s.gc.dirty && !s.stopped {
-		s.gc.dirty = false
-		dryRun, waiters := s.gc.pending, s.gc.waiters
-		s.gc.pending, s.gc.waiters = false, nil
-		s.startGC(dryRun, waiters)
+	if len(s.gc.queue) > 0 && !s.stopped {
+		next := s.gc.queue[0]
+		s.gc.queue = s.gc.queue[1:]
+		s.startGC(next.dryRun, next.waiters)
 		return
 	}
 	s.gc.running = false
-	if s.stopped && len(s.gc.waiters) > 0 {
-		deliverGC(s.gc.waiters, GCOutcome{Err: ErrShuttingDown})
-		s.gc.waiters = nil
+	if s.stopped {
+		for _, q := range s.gc.queue {
+			deliverGC(q.waiters, GCOutcome{Err: ErrShuttingDown})
+		}
+		s.gc.queue = nil
 	}
 }
 
-// mergeOptions folds a request into the pending follow-up: anything one
-// caller asked to force or re-resolve happens, offline only survives if
-// every caller wanted it, and dependency filters union — but a caller
+// compatible reports whether two sync requests can share one run. A
+// rebuild applies only to its named dependencies, so merging it with a
+// plain sync would either narrow the other caller's sync to those names
+// or lose the rebuild; rebuilds only merge with rebuilds.
+func compatible(a, b SyncOptions) bool {
+	return a.Rebuild == b.Rebuild
+}
+
+// mergeOptions folds a request into a compatible queued run: anything
+// one caller asked to force or re-resolve happens, offline only survives
+// if every caller wanted it, and dependency filters union — but a caller
 // with no filter wants everything, which absorbs any named set.
 func mergeOptions(pending, next SyncOptions) SyncOptions {
 	merged := SyncOptions{
 		Offline: pending.Offline && next.Offline,
 		Force:   pending.Force || next.Force,
+		Rebuild: pending.Rebuild && next.Rebuild,
 		Resolve: pending.Resolve || next.Resolve,
 	}
-	if len(pending.Dependencies) > 0 && len(next.Dependencies) > 0 {
+	// A rebuild only means something for named dependencies, so for
+	// rebuilds the names always combine; otherwise no filter absorbs any.
+	if merged.Rebuild || len(pending.Dependencies) > 0 && len(next.Dependencies) > 0 {
 		merged.Dependencies = unionNames(pending.Dependencies, next.Dependencies)
 	}
 	return merged

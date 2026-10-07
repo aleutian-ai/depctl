@@ -15,6 +15,7 @@ import (
 	"aleutian-ai/ragctl/internal/daemon"
 	badgerstore "aleutian-ai/ragctl/internal/data/badger"
 	"aleutian-ai/ragctl/internal/domain"
+	"aleutian-ai/ragctl/internal/embedding"
 	"aleutian-ai/ragctl/internal/planner"
 	"aleutian-ai/ragctl/internal/registry"
 	"aleutian-ai/ragctl/internal/source/git"
@@ -184,7 +185,7 @@ func TestCrossProjectJITNotStrandedBehindBulkSync(t *testing.T) {
 	bDone := make(chan error, 1)
 	go func() {
 		bDone <- f.coordinator.Build(depB, func() error {
-			return syncVersion(ctx, f.store, f.badgerStore, f.gitCache, blockedEmbedder, f.vb, f.ns, regB, actionB, false)
+			return syncVersion(ctx, f.store, f.badgerStore, f.gitCache, &embedding.Prompted{Embedder: blockedEmbedder}, f.vb, f.ns, regB, actionB, false)
 		})
 	}()
 
@@ -199,7 +200,7 @@ func TestCrossProjectJITNotStrandedBehindBulkSync(t *testing.T) {
 	aDone := make(chan error, 1)
 	go func() {
 		aDone <- f.coordinator.Build(depA, func() error {
-			return syncVersion(ctx, f.store, f.badgerStore, f.gitCache, fastEmbedder, f.vb, f.ns, regA, actionA, false)
+			return syncVersion(ctx, f.store, f.badgerStore, f.gitCache, &embedding.Prompted{Embedder: fastEmbedder}, f.vb, f.ns, regA, actionA, false)
 		})
 	}()
 
@@ -254,7 +255,7 @@ func TestSameDependencyAcrossProjectsCoalescesIntoOneRealBuild(t *testing.T) {
 	firstDone := make(chan error, 1)
 	go func() {
 		firstDone <- f.coordinator.Build(dep, func() error {
-			return syncVersion(ctx, f.store, f.badgerStore, f.gitCache, blocked, f.vb, f.ns, reg, actionFromA, false)
+			return syncVersion(ctx, f.store, f.badgerStore, f.gitCache, &embedding.Prompted{Embedder: blocked}, f.vb, f.ns, reg, actionFromA, false)
 		})
 	}()
 
@@ -273,7 +274,7 @@ func TestSameDependencyAcrossProjectsCoalescesIntoOneRealBuild(t *testing.T) {
 	secondDone := make(chan error, 1)
 	go func() {
 		secondDone <- f.coordinator.Build(dep, func() error {
-			return syncVersion(ctx, f.store, f.badgerStore, f.gitCache, blocked, f.vb, f.ns, reg, actionFromB, false)
+			return syncVersion(ctx, f.store, f.badgerStore, f.gitCache, &embedding.Prompted{Embedder: blocked}, f.vb, f.ns, reg, actionFromB, false)
 		})
 	}()
 
@@ -341,7 +342,7 @@ func TestSameDependencyAcrossProjectsSequentialRaceProducesOneGeneration(t *test
 	// no second call is even in flight yet, so there is nothing for
 	// singleflight to coalesce.
 	if err := f.coordinator.Build(dep, func() error {
-		return syncVersion(ctx, f.store, f.badgerStore, f.gitCache, fastEmbedder, f.vb, f.ns, reg, actionFromA, false)
+		return syncVersion(ctx, f.store, f.badgerStore, f.gitCache, &embedding.Prompted{Embedder: fastEmbedder}, f.vb, f.ns, reg, actionFromA, false)
 	}); err != nil {
 		t.Fatalf("project A's build: %v", err)
 	}
@@ -354,7 +355,7 @@ func TestSameDependencyAcrossProjectsSequentialRaceProducesOneGeneration(t *test
 	// Project B's request arrives after A has already fully returned —
 	// the exact non-overlapping shape singleflight cannot help with.
 	if err := f.coordinator.Build(dep, func() error {
-		return syncVersion(ctx, f.store, f.badgerStore, f.gitCache, fastEmbedder, f.vb, f.ns, reg, actionFromB, false)
+		return syncVersion(ctx, f.store, f.badgerStore, f.gitCache, &embedding.Prompted{Embedder: fastEmbedder}, f.vb, f.ns, reg, actionFromB, false)
 	}); err != nil {
 		t.Fatalf("project B's build: %v", err)
 	}
@@ -410,7 +411,7 @@ func TestSyncVersionPhaseTimingsReflectRealDelay(t *testing.T) {
 	}
 	t.Cleanup(func() { onSyncPhaseTimings = originalHook })
 
-	if err := syncVersion(ctx, f.store, f.badgerStore, f.gitCache, slow, f.vb, f.ns, reg, action, false); err != nil {
+	if err := syncVersion(ctx, f.store, f.badgerStore, f.gitCache, &embedding.Prompted{Embedder: slow}, f.vb, f.ns, reg, action, false); err != nil {
 		t.Fatalf("syncVersion: %v", err)
 	}
 

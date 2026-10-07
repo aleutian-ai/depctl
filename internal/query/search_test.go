@@ -8,6 +8,7 @@ import (
 	"aleutian-ai/ragctl/internal/backend"
 	"aleutian-ai/ragctl/internal/backend/backendtest"
 	"aleutian-ai/ragctl/internal/domain"
+	"aleutian-ai/ragctl/internal/embedding"
 )
 
 // fakeEmbedder returns a fixed vector regardless of text, so tests can
@@ -159,7 +160,7 @@ func newTestEnv(t *testing.T) *testEnv {
 	if err := vb.EnsureNamespace(context.Background(), ns); err != nil {
 		t.Fatalf("EnsureNamespace: %v", err)
 	}
-	svc := New(control, data, vb, &fakeEmbedder{dims: 4}, ns, "qdrant")
+	svc := New(control, data, vb, &embedding.Prompted{Embedder: &fakeEmbedder{dims: 4}}, ns, "qdrant")
 	return &testEnv{control: control, data: data, vb: vb, ns: ns, svc: svc}
 }
 

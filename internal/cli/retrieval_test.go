@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"aleutian-ai/ragctl/internal/backend"
@@ -35,16 +36,35 @@ func searchIndexFixture(t *testing.T) (*searchIndex, backend.Namespace) {
 	return idx, ns
 }
 
-func TestSearchIndexUsesVectorsWhenTheGenerationHasThem(t *testing.T) {
-	idx, ns := searchIndexFixture(t)
-	res, err := idx.Query(context.Background(), backend.QueryRequest{Namespace: ns.Name, Vector: []float32{1, 0}, Text: "random", Filter: &backend.Filter{Generation: "both"}})
-	if err != nil || len(res.Points) != 1 || res.Points[0].ID != "a" {
-		t.Fatalf("Query = %+v, %v; want point a", res.Points, err)
+// With a query vector and both indexes (auto mode, embedder ready), the
+// result is the two rankings fused: a doc both rank well comes first,
+// and a doc only one of them finds still appears.
+func TestSearchIndexFusesKeywordAndVectorRankings(t *testing.T) {
+	ctx := context.Background()
+	idx := &searchIndex{name: "embedded", vector: backendtest.New(), keyword: keyword.New(filepath.Join(t.TempDir(), "keyword.db"))}
+	ns := backend.Namespace{Name: "ragctl-test", Dimensions: 2, Distance: "cosine"}
+	if err := idx.EnsureNamespace(ctx, ns); err != nil {
+		t.Fatal(err)
 	}
-	// The fake vector store scores cosine in [0,1]; BM25 scores here are
-	// well under 1, so a 1.0 score shows the vector store answered.
-	if res.Points[0].Score < 0.99 {
-		t.Errorf("score = %v, want the vector store's cosine 1.0", res.Points[0].Score)
+	m := backend.PointMetadata{Ecosystem: "go", Dependency: "d", Version: "v1", Generation: "g"}
+	points := []backend.Point{
+		{ID: "both", Vector: []float32{0.9, 0.1}, Text: "random uuid random uuid", Metadata: m},                  // keyword #1, vector #2
+		{ID: "keyword-only", Vector: []float32{0, 1}, Text: "random uuid plus several other words", Metadata: m}, // keyword #2, vector #3
+		{ID: "vector-only", Vector: []float32{1, 0}, Text: "nothing in common", Metadata: m},                     // vector #1 only
+	}
+	if err := idx.Upsert(ctx, backend.UpsertRequest{Namespace: ns.Name, Points: points}); err != nil {
+		t.Fatal(err)
+	}
+	res, err := idx.Query(ctx, backend.QueryRequest{Namespace: ns.Name, Vector: []float32{1, 0}, Text: "random uuid", TopK: 3, Filter: &backend.Filter{Generation: "g"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, p := range res.Points {
+		got = append(got, p.ID)
+	}
+	if want := []string{"both", "keyword-only", "vector-only"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("fused ranking = %v, want %v", got, want)
 	}
 }
 

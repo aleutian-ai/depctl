@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"aleutian-ai/ragctl/internal/embedding"
 )
 
 // ErrConfigNotFound is returned by Load when the config file does not
@@ -243,6 +245,19 @@ type EmbeddingConfig struct {
 	Provider string `yaml:"provider"`
 	Model    string `yaml:"model"`
 	Endpoint string `yaml:"endpoint"`
+	// QueryPrompt and DocumentPrompt wrap search questions ("{q}") and
+	// chunks ("{title}", "{text}") the way the model was trained, and
+	// Dimensions keeps only the first N values of each vector (0 = all).
+	// A config written before these existed has none, which embeds text
+	// as is at full size: exactly the earlier behavior.
+	QueryPrompt    string `yaml:"query_prompt,omitempty"`
+	DocumentPrompt string `yaml:"document_prompt,omitempty"`
+	Dimensions     int    `yaml:"dimensions,omitempty"`
+}
+
+// Prompts is the embedding prompts and vector size this config asks for.
+func (e EmbeddingConfig) Prompts() embedding.Prompts {
+	return embedding.Prompts{Query: e.QueryPrompt, Document: e.DocumentPrompt, Dimensions: e.Dimensions}
 }
 
 // VectorConfig selects the vector store: embedded, qdrant, pgvector or weaviate.
@@ -265,8 +280,8 @@ type VectorConfig struct {
 type RetrievalConfig struct {
 	// Mode is "auto", "vector" or "keyword". auto (the default for fresh
 	// installs) always builds a keyword index and adds vectors when the
-	// embedder is ready; search uses vectors when it can and keyword
-	// search otherwise. vector requires the embedder, as before; keyword
+	// embedder is ready; search combines keyword and vector rankings
+	// (hybrid) when vectors exist and uses keyword search otherwise. vector requires the embedder, as before; keyword
 	// never uses it. Empty, in a config written before this existed,
 	// means vector, so nothing changes for an existing install.
 	Mode string `yaml:"mode,omitempty"`
@@ -414,10 +429,18 @@ func Default(dataDir string) Config {
 			Control: ControlStoreConfig{Type: "bbolt", Path: dataDir + "/control.db"},
 			Data:    DataStoreConfig{Type: "badger", Path: dataDir + "/badger"},
 		},
+		// EmbeddingGemma 2's text model with its code-retrieval prompts,
+		// cut to 256 dimensions: on ragctl's retrieval eval this beat
+		// nomic-embed-text-v2-moe (hybrid MRR 0.583 vs 0.528 on held-out
+		// questions, at 256 dimensions, which cost nothing measurable;
+		// docs/retrieval-eval.md).
 		Embedding: EmbeddingConfig{
-			Provider: "ollama",
-			Model:    "nomic-embed-text-v2-moe",
-			Endpoint: "http://127.0.0.1:11434",
+			Provider:       "ollama",
+			Model:          "embeddinggemma-2:270m",
+			Endpoint:       "http://127.0.0.1:11434",
+			QueryPrompt:    "task: code retrieval | query: {q}",
+			DocumentPrompt: "title: {title} | text: {text}",
+			Dimensions:     256,
 		},
 		// The embedded backend (VEC-015) is the default: one file in the
 		// data dir, no vector service or container to run. QdrantDefaults
@@ -504,6 +527,9 @@ func (c Config) Validate() error {
 	}
 	if c.Observability.OTel.Enabled && c.Observability.OTel.Endpoint == "" {
 		return errors.New("observability.otel.endpoint: must be set when observability.otel.enabled is true")
+	}
+	if c.Embedding.Dimensions < 0 {
+		return errors.New("embedding.dimensions: must be 0 (all) or a positive number")
 	}
 	switch c.Retrieval.Mode {
 	case "", RetrievalAuto, RetrievalVector, RetrievalKeyword:

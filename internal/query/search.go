@@ -312,11 +312,11 @@ func (s *Service) search(ctx context.Context, text string, topK int, filter *bac
 	}
 	var vector []float32
 	if s.embedder != nil {
-		vectors, err := s.embedder.Embed(ctx, []string{text})
+		v, err := s.embedder.EmbedQuery(ctx, text)
 		if err != nil {
 			return SearchResult{}, fmt.Errorf("query: embed query text: %w", err)
 		}
-		vector = vectors[0]
+		vector = v
 	}
 	result, err := s.backend.Query(ctx, backend.QueryRequest{
 		Namespace: s.namespace.Name,

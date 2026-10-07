@@ -711,7 +711,9 @@ func checkEmbeddingModel(ctx context.Context, env *doctorEnv) (Severity, string)
 	if !ok {
 		return sev, detail
 	}
-	want := env.cfg.Embedding.Model
+	// The identity includes prompts and vector size when configured:
+	// vectors made with different prompts or sizes don't mix either.
+	want := env.cfg.Embedding.Prompts().Identity(env.cfg.Embedding.Model)
 	var mismatched []string
 	keywordOnly := 0
 	for _, p := range pointers {

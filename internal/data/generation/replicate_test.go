@@ -10,6 +10,7 @@ import (
 	"aleutian-ai/ragctl/internal/backend/backendtest"
 	"aleutian-ai/ragctl/internal/backend/keyword"
 	"aleutian-ai/ragctl/internal/domain"
+	"aleutian-ai/ragctl/internal/embedding"
 	"aleutian-ai/ragctl/internal/registry"
 	"aleutian-ai/ragctl/internal/source/git"
 )
@@ -70,7 +71,7 @@ func TestReplicateEmbedsAndUpsertsAllChunks(t *testing.T) {
 	vb := backendtest.New()
 	ns := backend.Namespace{Name: "ragctl", Dimensions: 4, Distance: "cosine"}
 
-	if err := Replicate(ctx, gen, sources, embedder, vb, ns, store, badgerStore); err != nil {
+	if err := Replicate(ctx, gen, sources, &embedding.Prompted{Embedder: embedder}, vb, ns, store, badgerStore); err != nil {
 		t.Fatalf("Replicate: %v", err)
 	}
 
@@ -131,7 +132,7 @@ func TestReplicateFailureMarksReplicaFailedWithError(t *testing.T) {
 	vb := backendtest.New()
 	ns := backend.Namespace{Name: "ragctl", Dimensions: 4}
 
-	err = Replicate(ctx, gen, sources, embedder, vb, ns, store, badgerStore)
+	err = Replicate(ctx, gen, sources, &embedding.Prompted{Embedder: embedder}, vb, ns, store, badgerStore)
 	if err == nil {
 		t.Fatal("Replicate succeeded, want error")
 	}
@@ -183,7 +184,7 @@ func TestReplicateWithNoChunksCompletesWithZeroPoints(t *testing.T) {
 	vb := backendtest.New()
 	ns := backend.Namespace{Name: "ragctl", Dimensions: 4}
 
-	if err := Replicate(ctx, gen, nil, embedder, vb, ns, store, badgerStore); err != nil {
+	if err := Replicate(ctx, gen, nil, &embedding.Prompted{Embedder: embedder}, vb, ns, store, badgerStore); err != nil {
 		t.Fatalf("Replicate: %v", err)
 	}
 
@@ -257,7 +258,7 @@ func TestReplicatePointsUseGenerationVersionNotStaleObjectVersion(t *testing.T) 
 	embedder := &fakeEmbedder{dims: 4}
 	vb := backendtest.New()
 	ns := backend.Namespace{Name: "ragctl", Dimensions: 4}
-	if err := Replicate(ctx, gen2, sources, embedder, vb, ns, store, badgerStore); err != nil {
+	if err := Replicate(ctx, gen2, sources, &embedding.Prompted{Embedder: embedder}, vb, ns, store, badgerStore); err != nil {
 		t.Fatalf("Replicate gen2: %v", err)
 	}
 
@@ -329,7 +330,7 @@ func TestReplicatePointsUseCurrentSourceAuthorityNotStaleObjectAuthority(t *test
 	embedder := &fakeEmbedder{dims: 4}
 	vb := backendtest.New()
 	ns := backend.Namespace{Name: "ragctl", Dimensions: 4}
-	if err := Replicate(ctx, gen2, updatedSources, embedder, vb, ns, store, badgerStore); err != nil {
+	if err := Replicate(ctx, gen2, updatedSources, &embedding.Prompted{Embedder: embedder}, vb, ns, store, badgerStore); err != nil {
 		t.Fatalf("Replicate gen2: %v", err)
 	}
 
@@ -432,7 +433,7 @@ func TestAddToIndexFailureLeavesNothingAndNeverTouchesTheGeneration(t *testing.T
 	inner := backendtest.New()
 	ns := backend.Namespace{Name: "ragctl", Dimensions: 4, Distance: "cosine"}
 
-	err = AddToIndex(ctx, before, sources, &fakeEmbedder{dims: 4}, partialUpsert{inner}, ns, badgerStore)
+	err = AddToIndex(ctx, before, sources, &embedding.Prompted{Embedder: &fakeEmbedder{dims: 4}}, partialUpsert{inner}, ns, badgerStore)
 	if err == nil {
 		t.Fatal("AddToIndex succeeded, want the simulated failure")
 	}

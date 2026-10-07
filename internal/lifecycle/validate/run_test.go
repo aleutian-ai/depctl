@@ -7,6 +7,7 @@ import (
 	"aleutian-ai/ragctl/internal/backend"
 	"aleutian-ai/ragctl/internal/backend/backendtest"
 	"aleutian-ai/ragctl/internal/domain"
+	"aleutian-ai/ragctl/internal/embedding"
 	"aleutian-ai/ragctl/internal/source/git"
 )
 
@@ -27,7 +28,7 @@ func TestRunThenPromoteEndToEnd(t *testing.T) {
 
 	gen, manifest, replica := buildAndReplicate(t, ctx, store, badgerStore, gitCache, repoDir, testDependency("v1.0.0"), embedder, vb, ns)
 
-	gen, report, err := Run(ctx, gen, manifest, replica, nil, nil, DefaultSanityConfig(), embedder, vb, ns, store, badgerStore)
+	gen, report, err := Run(ctx, gen, manifest, replica, nil, nil, DefaultSanityConfig(), &embedding.Prompted{Embedder: embedder}, vb, ns, store, badgerStore)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -77,7 +78,7 @@ func TestRunFailsWhenReplicaIsIncomplete(t *testing.T) {
 	gen, manifest, replica := buildAndReplicate(t, ctx, store, badgerStore, gitCache, repoDir, testDependency("v1.0.0"), embedder, vb, ns)
 	replica.PointCount = 0 // simulate an interrupted/incomplete replication
 
-	gen, report, err := Run(ctx, gen, manifest, replica, nil, nil, DefaultSanityConfig(), embedder, vb, ns, store, badgerStore)
+	gen, report, err := Run(ctx, gen, manifest, replica, nil, nil, DefaultSanityConfig(), &embedding.Prompted{Embedder: embedder}, vb, ns, store, badgerStore)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -122,7 +123,7 @@ func TestRunSanityBlocksImplausibleCollapse(t *testing.T) {
 	candGen, candManifest, candReplica := buildAndReplicate(t, ctx, store, badgerStore, gitCache, repoDir, testDependency("v1.0.0"), embedder, vb, ns)
 	candManifest.ObjectCount = 1 // simulate an implausible collapse from prior's real count
 
-	candGen, report, err := Run(ctx, candGen, candManifest, candReplica, &priorGen, &priorManifest, DefaultSanityConfig(), embedder, vb, ns, store, badgerStore)
+	candGen, report, err := Run(ctx, candGen, candManifest, candReplica, &priorGen, &priorManifest, DefaultSanityConfig(), &embedding.Prompted{Embedder: embedder}, vb, ns, store, badgerStore)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}

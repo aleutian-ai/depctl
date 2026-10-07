@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"sort"
 	"time"
 
 	"aleutian-ai/ragctl/internal/backend"
@@ -96,22 +97,75 @@ func (s *searchIndex) Delete(ctx context.Context, req backend.DeleteRequest) err
 	return nil
 }
 
-// Query uses the vector store when the request has a vector, and keyword
-// search otherwise. A vector search that finds nothing falls back to
-// keyword search too: a filtered vector search always returns the
-// nearest points that exist, so finding none means the generation was
-// built without vectors (while the embedder was unavailable).
+// Query searches every index the request can use. With a query vector
+// and both indexes (auto mode with the embedder ready), it runs a hybrid
+// search: each index's top candidates merged by reciprocal rank fusion,
+// which measured better than either alone (docs/retrieval-eval.md).
+// Score is then the fused score, comparable only within one result. A
+// generation built without vectors contributes no vector candidates, so
+// its results are keyword search's. With only one usable index, that
+// index answers alone.
 func (s *searchIndex) Query(ctx context.Context, req backend.QueryRequest) (backend.QueryResult, error) {
-	if s.vector != nil && req.Vector != nil {
-		res, err := s.vector.Query(ctx, req)
-		if err != nil || len(res.Points) > 0 || s.keyword == nil {
-			return res, err
-		}
-	}
-	if s.keyword == nil {
+	useVector := s.vector != nil && req.Vector != nil
+	switch {
+	case useVector && s.keyword != nil:
+		return s.hybrid(ctx, req)
+	case useVector:
+		return s.vector.Query(ctx, req)
+	case s.keyword != nil:
+		return s.keyword.Query(ctx, req)
+	default:
 		return backend.QueryResult{}, fmt.Errorf("retrieval.mode is vector, but no query vector was given (is the embedder ready?)")
 	}
-	return s.keyword.Query(ctx, req)
+}
+
+// hybridCandidates is how many results each index contributes to fusion,
+// and rrfK the usual reciprocal-rank-fusion constant; both as evaluated.
+const (
+	hybridCandidates = 50
+	rrfK             = 60
+)
+
+// hybrid fuses the keyword and vector rankings: each point scores the sum
+// of 1/(rrfK + rank) over the lists it appears in.
+func (s *searchIndex) hybrid(ctx context.Context, req backend.QueryRequest) (backend.QueryResult, error) {
+	topK := req.TopK
+	if topK <= 0 {
+		topK = 10
+	}
+	wide := req
+	wide.TopK = max(topK, hybridCandidates)
+	type key struct{ generation, id string }
+	fused := map[key]*backend.ScoredPoint{}
+	for _, b := range []backend.VectorBackend{s.keyword, s.vector} {
+		res, err := b.Query(ctx, wide)
+		if err != nil {
+			return backend.QueryResult{}, err
+		}
+		for rank, p := range res.Points {
+			k := key{p.Metadata.Generation, p.ID}
+			if fused[k] == nil {
+				p := p
+				p.Score = 0
+				fused[k] = &p
+			}
+			fused[k].Score += float32(1 / float64(rrfK+rank+1))
+		}
+	}
+	out := make([]backend.ScoredPoint, 0, len(fused))
+	for _, p := range fused {
+		out = append(out, *p)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Score != out[j].Score {
+			return out[i].Score > out[j].Score
+		}
+		return out[i].ID < out[j].ID
+	})
+	if len(out) > topK {
+		out = out[:topK]
+	}
+	return backend.QueryResult{Points: out}, nil
 }
 
 // Count is the largest count across the indexes: a generation is
@@ -250,7 +304,7 @@ func hasKeywordOnlyGenerations(ctx context.Context, store *bboltstore.Store, cfg
 // so this only embeds and writes vectors: nothing is fetched or rebuilt.
 // A generation built without vectors is the one whose replica records no
 // embedding model.
-func backfillVectors(ctx context.Context, store *bboltstore.Store, badgerStore *badgerstore.Store, cfg config.Config, reg *registry.Registry, embedder embedding.Embedder, vb backend.VectorBackend, ns backend.Namespace, out io.Writer) error {
+func backfillVectors(ctx context.Context, store *bboltstore.Store, badgerStore *badgerstore.Store, cfg config.Config, reg *registry.Registry, embedder *embedding.Prompted, vb backend.VectorBackend, ns backend.Namespace, out io.Writer) error {
 	pointers, err := store.ListActivePointers(ctx, cfg.Vector.Backend)
 	if err != nil {
 		return fmt.Errorf("list active generations: %w", err)
