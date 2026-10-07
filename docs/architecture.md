@@ -118,7 +118,7 @@ flowchart LR
     subgraph daemon["ragctl daemon run (one process)"]
         S1["openControlStoreForDaemonRun<br/>(200ms lock timeout)"] -->|ErrLocked| S2["ownershipError:<br/>probe socket, report who owns it"]
         S1 -->|acquired| S3["bind unix socket, HTTP API"]
-        S3 --> S4["Scheduler: sync + GC share one global lock,<br/>collapse queued requests of the same kind;<br/>scan gets a per-project lock"]
+        S3 --> S4["Scheduler: sync + GC share one global lock,<br/>collapse compatible queued requests;<br/>scan gets a per-project lock"]
         S3 --> S5["watch subsystem (if enabled)"]
         S3 --> S7["query.Service (MCP), doctor checks,<br/>project/describe reads — all daemon-side now"]
         S3 -->|Shutdown RPC or signal| S6["close listener, scheduler.Wait(),<br/>closeWithTimeout both stores"]
@@ -806,10 +806,31 @@ flowchart LR
 
 - **One `VectorBackend` for every mode.** `searchIndex` (`internal/cli/retrieval.go`) wraps the indexes a mode writes. Upsert and Delete reach all of them, and Count is the largest across them. Its name is the existing active-generation key, so planning, validation, promotion and GC are unchanged, and a generation's lifecycle is the same however it's searched. Points carry `Text` as well as `Vector`, and with no embedder `Replicate`, the version-correctness check and `query.Service` all use text.
 - **Keyword index.** `internal/backend/keyword` is BM25 computed at query time over the one dependency version a search is filtered to (that version's generation is read directly), so no inverted index is kept. The tokenizer keeps identifiers whole and split (`pgxpool.newwithconfig`, `pgxpool`, `new`, `with`, `config`). API-doc chunks are indexed under their qualified symbol (`pgxpool.New`).
-- **Readiness.** `keyword` mode starts no Ollama probe, no model pull and no managed container. `auto` decides per build and per search: vectors only when the embedder and the vector store are both ready, waiting up to 10 s for a probe that's still running.
+- **Readiness.** `keyword` mode starts no Ollama probe, no model pull and no managed container. `auto` decides per build and per search: vectors only when the embedder and the vector store are both ready. A build waits up to 10 s for a probe that's still running, a search up to 3 s.
 - **Backfill.** At the start of every sync, active generations missing from the keyword index get keyword entries (local, no model). Generations built without vectors (their replica records no embedding model) get vectors once the embedder is ready. `generation.AddToIndex` never changes a serving generation's state, and on failure removes what it wrote.
 - **Conformance**, now 17 checks: a backend may support keyword search instead of vector search, every point has text, and deleting from or counting in a namespace that was never created is a no-op or 0.
 - **Index files** (`keyword.db`, and `vectors.db` by default) sit next to the configured `control.db`.
+
+## Hybrid search and EmbeddingGemma 2 (2026-10-07)
+
+In `auto` mode with vectors available, search fuses the keyword and vector rankings instead of using vectors alone. Fresh installs embed with `embeddinggemma-2:270m`, prompted for code retrieval and truncated to 256 dimensions. Both choices come from `hack/retrieval-eval` (`docs/retrieval-eval.md`): hybrid with this model scores 0.583 MRR on the frozen held-out benchmark, against 0.528 for hybrid with nomic and 0.513 for keyword alone.
+
+```mermaid
+flowchart LR
+  q[question] --> p["Prompted.EmbedQuery<br/>task: code retrieval | query: {q}<br/>first 256 values"]
+  q --> kw[("keyword.db<br/>top 50")]
+  p --> vs[("vector store<br/>top 50")]
+  kw --> rrf["reciprocal rank fusion<br/>k = 60, keyed by (generation, chunk ID)"]
+  vs --> rrf
+  rrf --> top[top K]
+  c[chunk at sync] --> d["Prompted.EmbedDocuments<br/>title: {qualified symbol or path} | text: {chunk}"] --> vs
+```
+
+- **`embedding.Prompted`** wraps every embedder the pipeline builds (`buildEmbedder`). Search embeds questions with `EmbedQuery`; replication, backfill and the version-correctness check embed chunks with `EmbedDocuments`, titled by `generation.ChunkTitle`.
+- **Identity.** A replica records `Prompts.Identity(model)`: the plain model name when no prompts or size are set (every install before this), else the model plus the size and a prompt hash. `doctor` compares it with the config, so a prompt or size change is flagged like a model change.
+- **Existing installs** keep the model their config names, with no prompts. Moving one to the new default needs its vectors rebuilt; there's no command for that yet.
+- **Without vectors** (keyword mode, Ollama down, or a generation built without them) search is keyword-only, as before.
+- **Scheduler queueing.** A request that arrives while its project is syncing joins a queued run only if it's compatible: a `--rebuild` never merges into a plain sync. Real and dry-run GC requests queue separately, so a real GC is never turned into a dry run.
 
 ## Embedded and keyword storage layout (2026-10-07)
 
