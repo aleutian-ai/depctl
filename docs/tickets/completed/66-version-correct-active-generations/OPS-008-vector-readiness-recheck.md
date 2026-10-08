@@ -6,7 +6,7 @@
 **Estimated size:** small
 
 ## Goal
-If the vector backend was down when the daemon started, ragctl recovers on its own once the backend comes back. Live-found in `VEC-016`: the daemon probed once at startup, cached "unreachable", and failed every sync after the user's Qdrant came back, until a manual `ragctl daemon stop`. That's a realistic state after a reboot, when ragctl's daemon autostarts before the user's own Qdrant. (Embedding readiness turned out to have the same bug, despite its message promising a recheck; see the note below.)
+If the vector backend was down when the daemon started, depctl recovers on its own once the backend comes back. Live-found in `VEC-016`: the daemon probed once at startup, cached "unreachable", and failed every sync after the user's Qdrant came back, until a manual `depctl daemon stop`. That's a realistic state after a reboot, when depctl's daemon autostarts before the user's own Qdrant. (Embedding readiness turned out to have the same bug, despite its message promising a recheck; see the note below.)
 
 ## Design
 When a caller needs the vector backend and the cached state is unreachable or error, `checkReady` re-probes (bounded, a few seconds) before answering. A success updates the cached state to ready and proceeds; a failure returns the same typed "vector backend unreachable" error as today. A short cooldown stops a burst of calls from probing a down backend on every request.

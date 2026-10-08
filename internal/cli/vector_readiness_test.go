@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"aleutian-ai/ragctl/internal/config"
+	"github.com/aleutian-ai/depctl/internal/config"
 )
 
 func TestVectorReadinessCheckReadyNilIsAlwaysReady(t *testing.T) {
@@ -97,7 +97,7 @@ func TestCheckVectorReadinessBootstrapsManagedContainerWhenRuntimeFound(t *testi
 	if !strings.Contains(detail, "did not become healthy") {
 		t.Errorf("detail = %q, want it to explain the health-probe timeout, proving ensureManagedQdrant actually ran", detail)
 	}
-	if !strings.Contains(readFileString(t, logPath), "run -d --name ragctl-qdrant") {
+	if !strings.Contains(readFileString(t, logPath), "run -d --name depctl-qdrant") {
 		t.Error("fake runtime was never invoked with a run command — managed bootstrap branch was not taken")
 	}
 }

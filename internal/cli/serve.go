@@ -9,11 +9,11 @@ import (
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/cobra"
 
-	"aleutian-ai/ragctl/internal/daemon/client"
-	"aleutian-ai/ragctl/internal/mcp"
-	"aleutian-ai/ragctl/internal/observability"
-	"aleutian-ai/ragctl/internal/symbolgraph"
-	"aleutian-ai/ragctl/internal/symbolgraph/gopackages"
+	"github.com/aleutian-ai/depctl/internal/daemon/client"
+	"github.com/aleutian-ai/depctl/internal/mcp"
+	"github.com/aleutian-ai/depctl/internal/observability"
+	"github.com/aleutian-ai/depctl/internal/symbolgraph"
+	"github.com/aleutian-ai/depctl/internal/symbolgraph/gopackages"
 )
 
 func newServeCmd() *cobra.Command {
@@ -40,7 +40,7 @@ func newServeCmd() *cobra.Command {
 // config.yaml was edited after it started, this process's own fresh
 // read of it is not.
 func runServe(cmd *cobra.Command) error {
-	cfg, err := loadRagctlConfig()
+	cfg, err := loadDepctlConfig()
 	if err != nil {
 		return err
 	}
@@ -71,7 +71,7 @@ func runServe(cmd *cobra.Command) error {
 	}
 
 	deps := mcp.Deps{
-		Version:        ragctlVersion,
+		Version:        depctlVersion,
 		Query:          &daemonQueryService{c: c},
 		Sync:           &daemonSyncTrigger{c: c},
 		EnableSyncTool: health.EnableSyncTool,
@@ -105,7 +105,7 @@ func serveMCP(ctx context.Context, deps mcp.Deps, stderr io.Writer, transport sd
 
 	server := mcp.New(deps)
 
-	fmt.Fprintln(stderr, "ragctl MCP server starting (stdio transport)")
+	fmt.Fprintln(stderr, "depctl MCP server starting (stdio transport)")
 	return server.Run(ctx, transport)
 }
 
@@ -131,7 +131,7 @@ func startupScan(ctx context.Context, stderr io.Writer, scan mcp.ScanTrigger, q 
 	}
 	ids, summary, err := scan.ScanProject(ctx, ".", nil)
 	if err != nil {
-		fmt.Fprintf(stderr, "ragctl: startup scan failed (%v) — call scan_project manually\n", err)
+		fmt.Fprintf(stderr, "depctl: startup scan failed (%v) — call scan_project manually\n", err)
 		return
 	}
 	if summary != "" {
@@ -142,10 +142,10 @@ func startupScan(ctx context.Context, stderr io.Writer, scan mcp.ScanTrigger, q 
 	}
 	status, err := q.Status(ctx)
 	if err != nil {
-		fmt.Fprintf(stderr, "ragctl: startup status check failed (%v)\n", err)
+		fmt.Fprintf(stderr, "depctl: startup status check failed (%v)\n", err)
 		return
 	}
-	fmt.Fprintf(stderr, "ragctl: %d project(s), %d dependencies, %d/%d already synced\n",
+	fmt.Fprintf(stderr, "depctl: %d project(s), %d dependencies, %d/%d already synced\n",
 		status.TotalProjects, status.TotalDependencies, status.WithActiveGeneration, status.TotalDependencies)
 }
 

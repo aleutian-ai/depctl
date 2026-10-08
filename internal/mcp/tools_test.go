@@ -12,11 +12,11 @@ import (
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"aleutian-ai/ragctl/internal/backend"
-	"aleutian-ai/ragctl/internal/backend/backendtest"
-	"aleutian-ai/ragctl/internal/domain"
-	"aleutian-ai/ragctl/internal/embedding"
-	"aleutian-ai/ragctl/internal/query"
+	"github.com/aleutian-ai/depctl/internal/backend"
+	"github.com/aleutian-ai/depctl/internal/backend/backendtest"
+	"github.com/aleutian-ai/depctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/embedding"
+	"github.com/aleutian-ai/depctl/internal/query"
 )
 
 // --- minimal fakes, same shape as internal/query's own test fakes ---
@@ -226,7 +226,7 @@ func newTestEnv(t *testing.T) *testEnv {
 	control := newFakeControlStore()
 	data := newFakeDataStore()
 	vb := backendtest.New()
-	ns := backend.Namespace{Name: "ragctl", Dimensions: 4}
+	ns := backend.Namespace{Name: "depctl", Dimensions: 4}
 	if err := vb.EnsureNamespace(context.Background(), ns); err != nil {
 		t.Fatalf("EnsureNamespace: %v", err)
 	}
@@ -238,7 +238,7 @@ func (e *testEnv) seedChunk(t *testing.T, ecosystem domain.Ecosystem, pkg, versi
 	t.Helper()
 	ctx := context.Background()
 	err := e.vb.Upsert(ctx, backend.UpsertRequest{
-		Namespace: "ragctl",
+		Namespace: "depctl",
 		Points: []backend.Point{{
 			ID: chunkID, Vector: []float32{1, 0, 0, 0},
 			Metadata: backend.PointMetadata{Ecosystem: string(ecosystem), Dependency: pkg, Version: version, Generation: generationID, SourceType: "git", Authority: 100},

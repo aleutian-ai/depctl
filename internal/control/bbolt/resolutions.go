@@ -7,7 +7,7 @@ import (
 
 	bolt "go.etcd.io/bbolt"
 
-	"aleutian-ai/ragctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/domain"
 )
 
 // resolutionsBucket stores one domain.Resolution per project, keyed by

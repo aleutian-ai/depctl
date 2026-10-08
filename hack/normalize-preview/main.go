@@ -1,4 +1,4 @@
-// Command normalize-preview runs ragctl's normalization pipeline
+// Command normalize-preview runs depctl's normalization pipeline
 // (internal/normalize) against a single real file or Go package
 // directory and prints the resulting KnowledgeObject(s) as JSON. It's a
 // dev tool for eyeballing normalizer output against real content (e.g.
@@ -14,12 +14,12 @@ import (
 	"os"
 	"path/filepath"
 
-	"aleutian-ai/ragctl/internal/domain"
-	"aleutian-ai/ragctl/internal/normalize"
-	"aleutian-ai/ragctl/internal/normalize/godoc"
-	"aleutian-ai/ragctl/internal/normalize/markdown"
-	"aleutian-ai/ragctl/internal/normalize/plaintext"
-	"aleutian-ai/ragctl/internal/normalize/releasenotes"
+	"github.com/aleutian-ai/depctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/normalize"
+	"github.com/aleutian-ai/depctl/internal/normalize/godoc"
+	"github.com/aleutian-ai/depctl/internal/normalize/markdown"
+	"github.com/aleutian-ai/depctl/internal/normalize/plaintext"
+	"github.com/aleutian-ai/depctl/internal/normalize/releasenotes"
 )
 
 // maxContentPreview bounds how much of a KnowledgeObject's Content this

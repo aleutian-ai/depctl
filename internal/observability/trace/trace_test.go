@@ -7,7 +7,7 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 
-	"aleutian-ai/ragctl/internal/config"
+	"github.com/aleutian-ai/depctl/internal/config"
 )
 
 // TestStartSpanDisabledIsSafe covers this ticket's own smoke-test
@@ -15,7 +15,7 @@ import (
 // at all, matching a real process that never enables it), StartSpan/end
 // must be safe to call and never panic or block.
 func TestStartSpanDisabledIsSafe(t *testing.T) {
-	ctx, end := StartSpan(context.Background(), "resolve", attribute.String("ragctl.dependency", "example"))
+	ctx, end := StartSpan(context.Background(), "resolve", attribute.String("depctl.dependency", "example"))
 	if ctx == nil {
 		t.Fatal("StartSpan returned nil context")
 	}

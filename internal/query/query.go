@@ -9,9 +9,9 @@ import (
 	"context"
 	"errors"
 
-	"aleutian-ai/ragctl/internal/backend"
-	"aleutian-ai/ragctl/internal/domain"
-	"aleutian-ai/ragctl/internal/embedding"
+	"github.com/aleutian-ai/depctl/internal/backend"
+	"github.com/aleutian-ai/depctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/embedding"
 )
 
 // QueryMode selects how SearchKnowledge resolves which version(s) to
@@ -158,7 +158,7 @@ type ReleaseChange struct {
 	Excerpt   string
 }
 
-// Service is ragctl's query business logic — one struct, plain methods,
+// Service is depctl's query business logic — one struct, plain methods,
 // no generic pipeline/middleware framework.
 //
 // embedder turns Query.Text into a query vector for a vector search; it

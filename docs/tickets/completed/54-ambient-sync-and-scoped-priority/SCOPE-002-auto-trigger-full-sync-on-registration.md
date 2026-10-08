@@ -6,7 +6,7 @@
 **Estimated size:** small
 
 ## Goal
-Make a full, untargeted sync start automatically the first time a project is registered (`ragctl scan`), instead of requiring an operator to separately remember to run `ragctl sync --all`. Watch mode already correctly re-syncs when a manifest changes *later* — this closes the other half: the *first* sync, on registration itself.
+Make a full, untargeted sync start automatically the first time a project is registered (`depctl scan`), instead of requiring an operator to separately remember to run `depctl sync --all`. Watch mode already correctly re-syncs when a manifest changes *later* — this closes the other half: the *first* sync, on registration itself.
 
 ## Non-goals
 - No change to watch mode's existing change-triggered re-sync (`internal/daemon/watch.go`'s `watchLoop`) — already correct, this is additive.
@@ -25,12 +25,12 @@ Make a full, untargeted sync start automatically the first time a project is reg
 - If the daemon is unreachable/embedder not ready, this fails the same way any other sync attempt does today (readiness-gated, logged) — not a new failure mode.
 
 ## Tests
-- A freshly-scanned project with no prior sync history gets a sync request fired automatically, without any explicit `ragctl sync` call.
+- A freshly-scanned project with no prior sync history gets a sync request fired automatically, without any explicit `depctl sync` call.
 - Re-scanning an already-known project does *not* fire a duplicate first-sight trigger — only genuinely new registrations do.
 - A JIT request for a specific dependency, issued while the ambient full sync is still running, is provably faster than waiting for the full batch (reuse COORD-002's own cross-project regression test shape, adapted to same-project priority instead of cross-project isolation).
 
 ## Acceptance criteria
-- [x] A newly-scanned project starts syncing automatically, with no separate `ragctl sync` invocation.
+- [x] A newly-scanned project starts syncing automatically, with no separate `depctl sync` invocation.
 - [x] Re-registering an already-known project never fires a duplicate ambient trigger.
 - [x] An agent's JIT ask during an in-flight ambient sync is still fast, not queued behind the whole batch.
 
@@ -41,4 +41,4 @@ Make a full, untargeted sync start automatically the first time a project is reg
 - **Risk worth its own ticket:** the trigger fires per project, and each project's sync has its own `MaxConcurrency` workers. Scanning a directory that registers many projects (terraform: 11) starts that many syncs at once, so total concurrency is projects x workers, not one bound. Cross-project builds of the *same* dependency coalesce, but distinct ones don't. A daemon-wide cap is the natural fix; not built.
   - **2026-09: fixed.** Confirmed as a real risk, not just theoretical, once mem0 (22 sub-projects) was scanned. `internal/config.SyncConfig.MaxTotalConcurrency` (default 4) sizes a semaphore held on the daemon's single `engine` instance (`internal/cli/daemon.go`'s `newEngine`), threaded into every `RunSync` call as `daemonSem`; a worker acquires it only around the actual action (build+replicate, the network/GPU-bound work), never around the cheap local queue pop, so total concurrent action processing across the whole daemon stays bounded regardless of how many projects are syncing at once. Regression-tested directly (`TestRunSyncDaemonSemBoundsConcurrencyAcrossSeparateCalls`, `internal/cli/sync_test.go`): two separate `RunSync` calls sharing a size-1 semaphore never overlap; the same test with a nil semaphore (pre-fix behavior) does overlap, proving the test exercises real concurrency, not an accidental serialization.
 - Projects registered before this shipped, and never synced, are not swept up — only new registrations trigger.
-- Tested with a fake engine driving `refreshProjects` (startup load does not sync; a new registration syncs exactly that project, with resolve, unscoped; re-seeing known projects does not re-sync; the opt-out suppresses it). **Not verified live** against a real `ragctl scan`.
+- Tested with a fake engine driving `refreshProjects` (startup load does not sync; a new registration syncs exactly that project, with resolve, unscoped; re-seeing known projects does not re-sync; the opt-out suppresses it). **Not verified live** against a real `depctl scan`.

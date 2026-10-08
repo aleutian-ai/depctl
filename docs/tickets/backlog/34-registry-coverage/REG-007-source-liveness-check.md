@@ -2,7 +2,7 @@
 
 **Epic:** Registry Coverage
 **Status:** planned
-**Depends on:** REG-002 (registry loader), OPS-002 (`ragctl doctor`), DESC-001 (`ragctl describe`)
+**Depends on:** REG-002 (registry loader), OPS-002 (`depctl doctor`), DESC-001 (`depctl describe`)
 **Estimated size:** small
 
 ## Goal
@@ -32,8 +32,8 @@ func CheckLiveness(ctx context.Context, source registry.Source) LivenessResult
 ```
 
 Wire into:
-- `ragctl doctor --check-registry-liveness` (opt-in flag, since OPS-002's fixed check list is otherwise fully local/offline).
-- `ragctl describe --check-liveness` (opt-in, annotates each `SourceEntry` with reachability).
+- `depctl doctor --check-registry-liveness` (opt-in flag, since OPS-002's fixed check list is otherwise fully local/offline).
+- `depctl describe --check-liveness` (opt-in, annotates each `SourceEntry` with reachability).
 
 ## Inputs / Outputs
 - Input: one `registry.Source`.
@@ -54,5 +54,5 @@ Wire into:
 - [x] No liveness network call happens without the explicit flag.
 
 ## Post-implementation note
-`CheckLiveness`/`LivenessResult` landed in `internal/registry` (not a separate `internal/registry/liveness` package — small enough to keep with the type it checks). `doctor --check-registry-liveness` is not wired in because `ragctl doctor` itself doesn't exist yet (epic 18, still a stub) — out of scope to build here. `describe --check-liveness` is wired in as DESC-ADV-001, landed separately right after this ticket.
+`CheckLiveness`/`LivenessResult` landed in `internal/registry` (not a separate `internal/registry/liveness` package — small enough to keep with the type it checks). `doctor --check-registry-liveness` is not wired in because `depctl doctor` itself doesn't exist yet (epic 18, still a stub) — out of scope to build here. `describe --check-liveness` is wired in as DESC-ADV-001, landed separately right after this ticket.
 

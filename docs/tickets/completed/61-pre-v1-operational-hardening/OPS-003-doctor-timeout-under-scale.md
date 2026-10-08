@@ -1,4 +1,4 @@
-# OPS-003: `ragctl doctor` times out at real scale against a degraded backend
+# OPS-003: `depctl doctor` times out at real scale against a degraded backend
 
 **Epic:** Pre-v1.0 Operational Hardening
 **Status:** done — 2026-09-28
@@ -6,7 +6,7 @@
 **Estimated size:** small
 
 ## Problem, confirmed by reading the real code (root-caused, not just observed)
-Found live during epic 55/POINT-004's full-scale re-measurement: `ragctl doctor` timed out (`context deadline exceeded`) against a 558-generation isolated collection under real disk pressure, while `ragctl status` against the same daemon returned instantly. Not root-caused at the time — root-caused now.
+Found live during epic 55/POINT-004's full-scale re-measurement: `depctl doctor` timed out (`context deadline exceeded`) against a 558-generation isolated collection under real disk pressure, while `depctl status` against the same daemon returned instantly. Not root-caused at the time — root-caused now.
 
 `checkEmptyActiveGenerations` (`internal/cli/doctor.go:476-515`) loops over every active pointer with a non-empty manifest and calls `vb.Count(ctx, env.cfg.Vector.Collection, &backend.Filter{Generation: p.GenerationID})` — **one real network round-trip to the vector backend per generation, entirely serial, no batching, no per-call timeout distinct from the whole `doctor` request's own timeout.** At small scale (a handful of generations) this is invisible. At real scale (558 generations, one query each) against a healthy backend it's merely slow; against a *degraded* backend (the `optimizer_status: red` / WAL-pressure condition doctor exists partly to help diagnose) each individual `Count` call is itself slower, and the accumulated serial latency exceeds the daemon-routed request's timeout before the check can finish — the exact scenario observed.
 
@@ -33,7 +33,7 @@ Likely shape: bound the check's total time explicitly (a sub-timeout shorter tha
 
 ## Acceptance criteria
 - [x] `checkEmptyActiveGenerations` (or its replacement) completes within a bounded time regardless of generation count, verified with a fake backend at a scale larger than what caused the original timeout (500+).
-- [x] A bounded/skipped result is reported honestly and distinctly from a real pass/fail, in `ragctl doctor`'s text output — corrected from the original ticket text: `ragctl doctor` has no `--json` flag at all (only `ragctl status` does), so that half of this box didn't apply.
+- [x] A bounded/skipped result is reported honestly and distinctly from a real pass/fail, in `depctl doctor`'s text output — corrected from the original ticket text: `depctl doctor` has no `--json` flag at all (only `depctl status` does), so that half of this box didn't apply.
 - [x] Live-verified against a real backend at real scale — not with a synthetic 558-generation collection as originally planned, but with something better: this exact fix, running against real production data, is what surfaced and let `doctor` finish diagnosing a genuine, previously-invisible 132-generation incident (see Implementation notes) — the strongest possible proof it completes and reports honestly under real conditions.
 
 ## Implementation notes (2026-09-28)

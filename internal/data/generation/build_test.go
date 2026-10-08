@@ -10,11 +10,11 @@ import (
 	"strings"
 	"testing"
 
-	"aleutian-ai/ragctl/internal/control/bbolt"
-	"aleutian-ai/ragctl/internal/data/badger"
-	"aleutian-ai/ragctl/internal/domain"
-	"aleutian-ai/ragctl/internal/registry"
-	"aleutian-ai/ragctl/internal/source/git"
+	"github.com/aleutian-ai/depctl/internal/control/bbolt"
+	"github.com/aleutian-ai/depctl/internal/data/badger"
+	"github.com/aleutian-ai/depctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/registry"
+	"github.com/aleutian-ai/depctl/internal/source/git"
 )
 
 func requireGit(t *testing.T) {
@@ -43,8 +43,8 @@ func runGit(t *testing.T, dir string, args ...string) {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(),
-		"GIT_AUTHOR_NAME=ragctl-test", "GIT_AUTHOR_EMAIL=ragctl-test@example.com",
-		"GIT_COMMITTER_NAME=ragctl-test", "GIT_COMMITTER_EMAIL=ragctl-test@example.com",
+		"GIT_AUTHOR_NAME=depctl-test", "GIT_AUTHOR_EMAIL=depctl-test@example.com",
+		"GIT_COMMITTER_NAME=depctl-test", "GIT_COMMITTER_EMAIL=depctl-test@example.com",
 	)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git %v: %v\n%s", args, err, out)

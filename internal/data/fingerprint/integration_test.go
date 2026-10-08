@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"aleutian-ai/ragctl/internal/data/fingerprint"
-	"aleutian-ai/ragctl/internal/domain"
-	"aleutian-ai/ragctl/internal/normalize/markdown"
+	"github.com/aleutian-ai/depctl/internal/data/fingerprint"
+	"github.com/aleutian-ai/depctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/normalize/markdown"
 )
 
 // TestCRLFAndLFNormalizeToIdenticalFingerprint is the integration test

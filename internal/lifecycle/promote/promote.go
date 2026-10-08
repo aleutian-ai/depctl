@@ -10,11 +10,11 @@ import (
 	"fmt"
 	"time"
 
-	"aleutian-ai/ragctl/internal/control/bbolt"
-	"aleutian-ai/ragctl/internal/domain"
-	"aleutian-ai/ragctl/internal/lifecycle/validate"
-	"aleutian-ai/ragctl/internal/observability"
-	"aleutian-ai/ragctl/internal/observability/trace"
+	"github.com/aleutian-ai/depctl/internal/control/bbolt"
+	"github.com/aleutian-ai/depctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/lifecycle/validate"
+	"github.com/aleutian-ai/depctl/internal/observability"
+	"github.com/aleutian-ai/depctl/internal/observability/trace"
 )
 
 // ErrValidationFailed is returned when any supplied validate.StructuralResult

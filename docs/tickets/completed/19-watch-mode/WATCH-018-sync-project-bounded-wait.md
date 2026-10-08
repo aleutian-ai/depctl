@@ -6,10 +6,10 @@
 **Estimated size:** small
 
 ## Goal
-Live-found gap, running a real project (`xwing-keyfile`, one sizable dependency — `cloudflare/circl`) through opencode end to end: `sync_project`'s MCP tool call exceeded opencode's own client-side tool-call timeout on a first sync, and the agent had no way to know the sync was still succeeding server-side (it was — confirmed via `ragctl describe` immediately afterward: 1418 chunks, `status=complete`). The agent gave up, answered from general knowledge, and only recovered because a human manually told it to check again. `sync_project` should never make a calling MCP client wait indefinitely for a result that can legitimately take up to `maxActionDuration` (30 minutes, `internal/daemon/scheduler.go:25`) — it should return within a small, predictable window every time, with a response shape that tells the agent whether the sync is done or still working, so it knows to check back rather than assume failure.
+Live-found gap, running a real project (`xwing-keyfile`, one sizable dependency — `cloudflare/circl`) through opencode end to end: `sync_project`'s MCP tool call exceeded opencode's own client-side tool-call timeout on a first sync, and the agent had no way to know the sync was still succeeding server-side (it was — confirmed via `depctl describe` immediately afterward: 1418 chunks, `status=complete`). The agent gave up, answered from general knowledge, and only recovered because a human manually told it to check again. `sync_project` should never make a calling MCP client wait indefinitely for a result that can legitimately take up to `maxActionDuration` (30 minutes, `internal/daemon/scheduler.go:25`) — it should return within a small, predictable window every time, with a response shape that tells the agent whether the sync is done or still working, so it knows to check back rather than assume failure.
 
 ## Non-goals
-- No change to `ragctl sync` (the CLI command) — it should keep blocking until completion; that's the correct, expected behavior for a terminal command a human is watching.
+- No change to `depctl sync` (the CLI command) — it should keep blocking until completion; that's the correct, expected behavior for a terminal command a human is watching.
 - No change to `internal/daemon/handlers.go`'s `handleSync`, the `Scheduler`, `RunSync`, or `SyncTrigger`'s interface signature (`internal/mcp/server.go:43`) — the daemon already does the right thing (a sync survives its triggering request disconnecting, via `context.WithoutCancel(s.base)` at `scheduler.go:328`; the client's own `longRunningRequestTimeout`, 35 minutes, already comfortably exceeds `maxActionDuration`). The entire fix lives in `internal/mcp/tools.go` — a client-side (from the daemon's perspective) wait-bound, not a server-side behavior change.
 - No new daemon HTTP endpoint, no polling API. The existing read-only tools (`list_project_dependencies`, `knowledge_status`) are already the correct way to check a sync's current state — this ticket doesn't duplicate that, it just tells the agent to use them.
 - No attempt to report a precise `synced`/`failed`/`skipped` breakdown in a partial (still-running) response — deriving that would mean parsing `RunSync`'s human-readable log lines (`internal/cli/sync.go`'s `"OK    %s %s\n"`/`"FAIL  %s %s: %v\n"` etc.) as a data contract, which is exactly the kind of brittle coupling (breaks silently if the log wording ever changes) this codebase avoids. A partial response reports only a coarse "N of M dependency actions reported so far" — the authoritative per-dependency state is always the existing read tools, not a parsed approximation.
@@ -42,7 +42,7 @@ type SyncProjectOut struct {
 // takes (up to maxActionDuration, internal/daemon/scheduler.go).
 //
 // Live-found calibration: opencode's own tool-call timeout (unrelated
-// to anything ragctl controls — the MCP spec doesn't standardize one)
+// to anything depctl controls — the MCP spec doesn't standardize one)
 // was observed at roughly 5 minutes in the session that found this gap.
 // 90s sits well under that with real margin, while still being long
 // enough that a typical sync of a handful of small-to-medium

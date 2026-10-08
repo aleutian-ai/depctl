@@ -15,18 +15,18 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"aleutian-ai/ragctl/internal/backend"
-	"aleutian-ai/ragctl/internal/config"
-	bboltstore "aleutian-ai/ragctl/internal/control/bbolt"
-	"aleutian-ai/ragctl/internal/daemon/client"
-	badgerstore "aleutian-ai/ragctl/internal/data/badger"
-	"aleutian-ai/ragctl/internal/data/generation"
-	"aleutian-ai/ragctl/internal/domain"
-	"aleutian-ai/ragctl/internal/registry"
+	"github.com/aleutian-ai/depctl/internal/backend"
+	"github.com/aleutian-ai/depctl/internal/config"
+	bboltstore "github.com/aleutian-ai/depctl/internal/control/bbolt"
+	"github.com/aleutian-ai/depctl/internal/daemon/client"
+	badgerstore "github.com/aleutian-ai/depctl/internal/data/badger"
+	"github.com/aleutian-ai/depctl/internal/data/generation"
+	"github.com/aleutian-ai/depctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/registry"
 )
 
 // staleJobAge is how long a job may sit in RUNNING before doctor flags
-// it. ragctl has no job leases, so a RUNNING job this old means the
+// it. depctl has no job leases, so a RUNNING job this old means the
 // daemon running it died or was stopped mid-run.
 const staleJobAge = time.Hour
 
@@ -171,7 +171,7 @@ func runDoctor(cmd *cobra.Command) error {
 // answers.
 func runDoctorDirect(ctx context.Context) []CheckResult {
 	env := &doctorEnv{lookPath: exec.LookPath, now: time.Now()}
-	env.cfg, env.cfgErr = loadRagctlConfig()
+	env.cfg, env.cfgErr = loadDepctlConfig()
 	env.store, env.storeErr = openControlStore()
 	env.badger, env.badgerErr = openDataStore()
 	env.registry, env.registryErr = loadRegistryForCLI(ctx)
@@ -232,8 +232,8 @@ func checkVersionFreshness(ctx context.Context, c *client.Client) (Severity, str
 	if err != nil {
 		return SeverityUnhealthy, err.Error()
 	}
-	if versionStaleWarning(health.PID, health.Version, ragctlVersion) != "" {
-		return SeverityWarning, fmt.Sprintf("daemon build %s, this command's build %s; run `ragctl daemon stop` to pick it up", health.Version, ragctlVersion)
+	if versionStaleWarning(health.PID, health.Version, depctlVersion) != "" {
+		return SeverityWarning, fmt.Sprintf("daemon build %s, this command's build %s; run `depctl daemon stop` to pick it up", health.Version, depctlVersion)
 	}
 	return SeverityOK, "matches"
 }
@@ -253,7 +253,7 @@ func checkConfigFreshness(ctx context.Context, c *client.Client) (Severity, stri
 		return SeverityUnhealthy, err.Error()
 	}
 	if stale {
-		return SeverityWarning, fmt.Sprintf("config.yaml has changed since the daemon (pid %d) started; run `ragctl daemon stop` to pick it up", health.PID)
+		return SeverityWarning, fmt.Sprintf("config.yaml has changed since the daemon (pid %d) started; run `depctl daemon stop` to pick it up", health.PID)
 	}
 	return SeverityOK, "matches"
 }
@@ -324,7 +324,7 @@ func checkControlDB(ctx context.Context, env *doctorEnv) (Severity, string) {
 		return SeverityOK, ""
 	}
 	if errors.Is(env.storeErr, fs.ErrNotExist) {
-		return SeverityUnhealthy, env.storeErr.Error() + " (run `ragctl init`)"
+		return SeverityUnhealthy, env.storeErr.Error() + " (run `depctl init`)"
 	}
 	return SeverityUnhealthy, env.storeErr.Error()
 }
@@ -368,7 +368,7 @@ func checkStaleJobs(ctx context.Context, env *doctorEnv) (Severity, string) {
 		}
 	}
 	if len(stale) > 0 {
-		return SeverityWarning, fmt.Sprintf("%d job(s) stuck in RUNNING for over %s, likely from an interrupted run (re-run `ragctl gc`): %s", len(stale), staleJobAge, summarize(stale))
+		return SeverityWarning, fmt.Sprintf("%d job(s) stuck in RUNNING for over %s, likely from an interrupted run (re-run `depctl gc`): %s", len(stale), staleJobAge, summarize(stale))
 	}
 	return SeverityOK, fmt.Sprintf("none stuck (%d total)", len(jobs))
 }
@@ -401,7 +401,7 @@ func checkActiveGenerations(ctx context.Context, env *doctorEnv) (Severity, stri
 		return sev, detail
 	}
 	if len(pointers) == 0 {
-		return SeverityWarning, fmt.Sprintf("no active generations for backend %q yet (run `ragctl scan` then `ragctl sync`)", env.cfg.Vector.Backend)
+		return SeverityWarning, fmt.Sprintf("no active generations for backend %q yet (run `depctl scan` then `depctl sync`)", env.cfg.Vector.Backend)
 	}
 	var broken []string
 	for _, p := range pointers {
@@ -606,7 +606,7 @@ func checkEmptyActiveGenerations(ctx context.Context, env *doctorEnv) (Severity,
 	}
 
 	if len(empty) > 0 {
-		msg := fmt.Sprintf("%d active generation(s) have zero points despite a non-empty manifest — `ragctl sync --force` will NOT fix this (the planner skips a dependency whose version hasn't changed, regardless of its real backend content); run `ragctl sync --rebuild --dependency <name>` for each (OPS-004): %s", len(empty), summarize(empty))
+		msg := fmt.Sprintf("%d active generation(s) have zero points despite a non-empty manifest — `depctl sync --force` will NOT fix this (the planner skips a dependency whose version hasn't changed, regardless of its real backend content); run `depctl sync --rebuild --dependency <name>` for each (OPS-004): %s", len(empty), summarize(empty))
 		if skipped > 0 {
 			msg += fmt.Sprintf(" (%d of %d generations skipped within the %s check budget — re-run to check the rest)", skipped, len(targets), emptyGenerationsCheckBudget)
 		}
@@ -632,7 +632,7 @@ var referencedButNeverBuiltGrace = 5 * time.Minute
 // sync retries them, so one still listed here keeps failing to build; one
 // recorded as having no docs source is only a warning. No other check
 // sees this state: there is no active generation to inspect, and
-// `ragctl describe` only shows active generations.
+// `depctl describe` only shows active generations.
 func checkReferencedButNeverBuilt(ctx context.Context, env *doctorEnv) (Severity, string) {
 	if env.store == nil {
 		return notChecked("control DB")
@@ -670,11 +670,11 @@ func checkReferencedButNeverBuilt(ctx context.Context, env *doctorEnv) (Severity
 			stuck = append(stuck, label)
 		}
 	}
-	// PLAN-005: a plain `ragctl sync` now retries every one of these, so
+	// PLAN-005: a plain `depctl sync` now retries every one of these, so
 	// one still listed means its build keeps failing — the daemon log has
 	// the per-dependency error.
 	if len(stuck) > 0 {
-		return SeverityUnhealthy, fmt.Sprintf("%d dependency(ies) referenced but not built; each `ragctl sync` retries them, so these keep failing — see the daemon log for why: %s", len(stuck), summarize(stuck))
+		return SeverityUnhealthy, fmt.Sprintf("%d dependency(ies) referenced but not built; each `depctl sync` retries them, so these keep failing — see the daemon log for why: %s", len(stuck), summarize(stuck))
 	}
 	if len(noSource) > 0 {
 		return SeverityWarning, fmt.Sprintf("%d checked; %d have no known docs source (no registry manifest or fallback) and aren't retried: %s", checked, len(noSource), summarize(noSource))
@@ -732,7 +732,7 @@ func checkEmbeddingModel(ctx context.Context, env *doctorEnv) (Severity, string)
 		}
 	}
 	if len(mismatched) > 0 {
-		return SeverityUnhealthy, fmt.Sprintf("%d active generation(s) were embedded with a different model than the configured %q: %s; search doesn't use vectors until `ragctl sync` re-embeds them", len(mismatched), want, summarize(mismatched))
+		return SeverityUnhealthy, fmt.Sprintf("%d active generation(s) were embedded with a different model than the configured %q: %s; search doesn't use vectors until `depctl sync` re-embeds them", len(mismatched), want, summarize(mismatched))
 	}
 	if keywordOnly > 0 {
 		return SeverityOK, fmt.Sprintf("the rest use %q; %d searched by keyword until the next sync with embeddings available adds their vectors", want, keywordOnly)
@@ -825,7 +825,7 @@ func checkRegistry(ctx context.Context, env *doctorEnv) (Severity, string) {
 func checkGit(ctx context.Context, env *doctorEnv) (Severity, string) {
 	path, err := env.lookPath("git")
 	if err != nil {
-		return SeverityUnhealthy, "git not found on PATH; `ragctl sync` cannot acquire any source"
+		return SeverityUnhealthy, "git not found on PATH; `depctl sync` cannot acquire any source"
 	}
 	return SeverityOK, path
 }

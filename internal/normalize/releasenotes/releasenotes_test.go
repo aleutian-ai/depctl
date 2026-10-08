@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"aleutian-ai/ragctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/domain"
 )
 
 func writeFixture(t *testing.T, name, content string) string {

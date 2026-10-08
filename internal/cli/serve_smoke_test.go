@@ -11,7 +11,7 @@ import (
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// VERIFY-001: a real ragctl serve subprocess, spawned over stdio, driven
+// VERIFY-001: a real depctl serve subprocess, spawned over stdio, driven
 // by a real MCP client — the exact shape of session that caught
 // WATCH-019/020's sentinel-identity bug and GRAPH-003's module-path bug,
 // neither of which the existing sdkmcp.NewInMemoryTransports()-based
@@ -70,7 +70,7 @@ func TestServeOverRealStdioTransport(t *testing.T) {
 	noAmbientSync(t) // this test exercises the just-in-time path against a never-synced dependency
 	requireGo(t)
 	runInitForTest(t)
-	useRealRagctlBinary(t)
+	useRealDepctlBinary(t)
 
 	root := scanDepFixture(t) // registers example.com/app depending on example.com/foo (local replace)
 	writeFile(t, root, "main.go", `package main
@@ -85,7 +85,7 @@ func main() {
 func helper() {}
 `)
 
-	bin := requireRagctlBinary(t)
+	bin := requireDepctlBinary(t)
 	cmd := exec.Command(bin, "serve")
 	cmd.Dir = root
 
@@ -95,7 +95,7 @@ func helper() {}
 
 	session, err := client.Connect(ctx, &sdkmcp.CommandTransport{Command: cmd}, nil)
 	if err != nil {
-		t.Fatalf("connect to real ragctl serve subprocess: %v", err)
+		t.Fatalf("connect to real depctl serve subprocess: %v", err)
 	}
 	defer session.Close()
 
@@ -159,7 +159,7 @@ func helper() {}
 
 	// explain_call_site against a stdlib call (fmt.Println, line 7):
 	// resolves as an external symbol, then fails to match anything in
-	// the project's resolved dependencies (ragctl doesn't track the
+	// the project's resolved dependencies (depctl doesn't track the
 	// standard library as a dependency) — a tool-level error naming
 	// that, not a panic or a hang. This exact join (external-symbol
 	// resolution -> matched-dependency lookup) is where GRAPH-003's

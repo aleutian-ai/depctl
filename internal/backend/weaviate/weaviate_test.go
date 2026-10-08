@@ -11,8 +11,8 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 
-	"aleutian-ai/ragctl/internal/backend"
-	"aleutian-ai/ragctl/internal/backend/conformance"
+	"github.com/aleutian-ai/depctl/internal/backend"
+	"github.com/aleutian-ai/depctl/internal/backend/conformance"
 )
 
 const testAPIKey = "weaviate-test-key"
@@ -38,7 +38,7 @@ func startWeaviate(t *testing.T, queryLimit string) string {
 		"AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED": "false",
 		"AUTHENTICATION_APIKEY_ENABLED":           "true",
 		"AUTHENTICATION_APIKEY_ALLOWED_KEYS":      testAPIKey,
-		"AUTHENTICATION_APIKEY_USERS":             "ragctl",
+		"AUTHENTICATION_APIKEY_USERS":             "depctl",
 		"DEFAULT_VECTORIZER_MODULE":               "none",
 		"PERSISTENCE_DATA_PATH":                   "/var/lib/weaviate",
 		"CLUSTER_HOSTNAME":                        "node1",
@@ -87,7 +87,7 @@ func TestWeaviateSpecifics(t *testing.T) {
 	endpoint := startWeaviate(t, "5")
 	ctx := context.Background()
 	c := New(endpoint, testAPIKey)
-	ns := backend.Namespace{Name: "ragctl-specifics", Dimensions: 4, Distance: "cosine"}
+	ns := backend.Namespace{Name: "depctl-specifics", Dimensions: 4, Distance: "cosine"}
 	if err := c.EnsureNamespace(ctx, ns); err != nil {
 		t.Fatalf("EnsureNamespace: %v", err)
 	}
@@ -128,7 +128,7 @@ func TestWeaviateSpecifics(t *testing.T) {
 	})
 
 	t.Run("DeleteByFilterPagesPastTheQueryLimit", func(t *testing.T) {
-		paged := backend.Namespace{Name: "ragctl-paged", Dimensions: 4, Distance: "cosine"}
+		paged := backend.Namespace{Name: "depctl-paged", Dimensions: 4, Distance: "cosine"}
 		if err := c.EnsureNamespace(ctx, paged); err != nil {
 			t.Fatalf("EnsureNamespace: %v", err)
 		}
@@ -148,7 +148,7 @@ func TestWeaviateSpecifics(t *testing.T) {
 	})
 
 	t.Run("UnsupportedDistanceIsRejected", func(t *testing.T) {
-		if err := c.EnsureNamespace(ctx, backend.Namespace{Name: "ragctl-dot", Dimensions: 4, Distance: "dot"}); err == nil {
+		if err := c.EnsureNamespace(ctx, backend.Namespace{Name: "depctl-dot", Dimensions: 4, Distance: "dot"}); err == nil {
 			t.Fatal("EnsureNamespace with distance \"dot\" succeeded, want an error")
 		}
 	})
@@ -156,16 +156,16 @@ func TestWeaviateSpecifics(t *testing.T) {
 
 func TestClassName(t *testing.T) {
 	for in, want := range map[string]string{
-		"ragctl-d7b3d605":  "Ragctl_d7b3d605",
+		"depctl-d7b3d605":  "Depctl_d7b3d605",
 		"conformance_ab12": "Conformance_ab12",
-		"Ragctl_d7b3d605":  "Ragctl_d7b3d605",
-		"ragctl.v2-a1":     "Ragctl_v2_a1",
+		"Depctl_d7b3d605":  "Depctl_d7b3d605",
+		"depctl.v2-a1":     "Depctl_v2_a1",
 	} {
 		if got, err := className(in); err != nil || got != want {
 			t.Errorf("className(%q) = %q, %v; want %q", in, got, err, want)
 		}
 	}
-	for _, bad := range []string{"", "1ragctl", "ragctl space", "ragctl/x"} {
+	for _, bad := range []string{"", "1depctl", "depctl space", "depctl/x"} {
 		if _, err := className(bad); err == nil {
 			t.Errorf("className(%q) succeeded, want an error", bad)
 		}

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"aleutian-ai/ragctl/internal/daemon"
+	"github.com/aleutian-ai/depctl/internal/daemon"
 )
 
 // TestRunSyncExhaustedBudgetStopsCleanlyInsteadOfCascading is BATCH-001
@@ -22,7 +22,7 @@ func TestRunSyncExhaustedBudgetStopsCleanlyInsteadOfCascading(t *testing.T) {
 	isolateEnv(t)
 	requireGo(t)
 	runInitForTest(t)
-	useRealRagctlBinary(t)
+	useRealDepctlBinary(t)
 	scanDepFixture(t)
 
 	stopRunningDaemon(t)
@@ -37,9 +37,9 @@ func TestRunSyncExhaustedBudgetStopsCleanlyInsteadOfCascading(t *testing.T) {
 	defer store.Close()
 	defer badgerStore.Close()
 
-	cfg, err := loadRagctlConfig()
+	cfg, err := loadDepctlConfig()
 	if err != nil {
-		t.Fatalf("loadRagctlConfig: %v", err)
+		t.Fatalf("loadDepctlConfig: %v", err)
 	}
 
 	// Already-cancelled — simulates the shared batch context having run

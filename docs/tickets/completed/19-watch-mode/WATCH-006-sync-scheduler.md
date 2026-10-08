@@ -6,7 +6,7 @@
 **Estimated size:** small
 
 ## Goal
-Add a tiny in-memory scheduler inside the daemon. Every sync request goes through it, whether it comes from a watched file change (WATCH-007) or from `ragctl sync` / MCP `sync_project` (WATCH-008, WATCH-010). It guarantees one sync per project at a time, collapses repeated requests, and runs exactly one follow-up when something changes mid-sync.
+Add a tiny in-memory scheduler inside the daemon. Every sync request goes through it, whether it comes from a watched file change (WATCH-007) or from `depctl sync` / MCP `sync_project` (WATCH-008, WATCH-010). It guarantees one sync per project at a time, collapses repeated requests, and runs exactly one follow-up when something changes mid-sync.
 
 ## Non-goals
 - Durability. Pending work is lost when the daemon stops, and that's fine: the next start (or next file change) resyncs. No bbolt jobs, Redis, Kafka, or durable queue.
@@ -56,7 +56,7 @@ Rules:
   - `Dependency` is kept only if every request named the same one; otherwise it's `""` (whole project).
 - **Global serialization:** a run takes the global lock before calling the sync function. Two projects can both be "syncing" from the scheduler's point of view, but only one run executes at a time. The lock is a separate concern from per-project state, so allowing concurrency later only means removing it.
 - **Isolation:** runs execute in their own goroutine with `recover`. A sync that returns an error or panics is logged with the project ID and delivered to its waiters as an error, and the project returns to idle (or runs its follow-up). The daemon keeps running.
-- **Shutdown:** the scheduler stops starting new runs, and the running one finishes with a context detached from the shutdown signal (`context.WithoutCancel`, as `ragctl watch` does today). Queued follow-ups and their waiters get `ErrShuttingDown`.
+- **Shutdown:** the scheduler stops starting new runs, and the running one finishes with a context detached from the shutdown signal (`context.WithoutCancel`, as `depctl watch` does today). Queued follow-ups and their waiters get `ErrShuttingDown`.
 - `api.Status` gains a per-project `sync_state` (`idle` / `syncing` / `syncing+dirty`) from the scheduler's snapshot.
 
 ## Inputs / Outputs

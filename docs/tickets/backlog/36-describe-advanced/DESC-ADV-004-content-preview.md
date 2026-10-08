@@ -6,7 +6,7 @@
 **Estimated size:** small
 
 ## Goal
-`ragctl describe <ecosystem>/<package> --preview` shows 1-2 sample chunks per source, so a human can sanity-check what's actually in the corpus without a separate MCP `search_dependency_docs` call.
+`depctl describe <ecosystem>/<package> --preview` shows 1-2 sample chunks per source, so a human can sanity-check what's actually in the corpus without a separate MCP `search_dependency_docs` call.
 
 ## Non-goals
 No relevance ranking/query — this is "show me any representative sample," not search. A real query still goes through MCP.

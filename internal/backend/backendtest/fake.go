@@ -10,7 +10,7 @@ import (
 	"sort"
 	"sync"
 
-	"aleutian-ai/ragctl/internal/backend"
+	"github.com/aleutian-ai/depctl/internal/backend"
 )
 
 // Backend is an in-memory backend.VectorBackend: one map of points per

@@ -3,7 +3,7 @@ package golang
 import (
 	"testing"
 
-	"aleutian-ai/ragctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/domain"
 )
 
 func TestNormalizeExcludesMainModule(t *testing.T) {

@@ -1,7 +1,7 @@
 // Package weaviate implements backend.VectorBackend against Weaviate's
 // HTTP API (VEC-011): REST for schema, writes and deletes, GraphQL for
 // search and counts (Weaviate has no REST search endpoint). Each
-// namespace is its own Weaviate collection ("class"), so ragctl never
+// namespace is its own Weaviate collection ("class"), so depctl never
 // shares one with anything else on the same server.
 package weaviate
 
@@ -19,7 +19,7 @@ import (
 
 	"github.com/zeebo/blake3"
 
-	"aleutian-ai/ragctl/internal/backend"
+	"github.com/aleutian-ai/depctl/internal/backend"
 )
 
 const (
@@ -67,7 +67,7 @@ func New(endpoint, apiKey string) *Client {
 func (c *Client) Name() string { return "weaviate" }
 
 // Capabilities reports vector search, metadata filtering, and
-// delete-by-filter. No keyword or hybrid search: ragctl stores no text
+// delete-by-filter. No keyword or hybrid search: depctl stores no text
 // in Weaviate for BM25 to search.
 func (c *Client) Capabilities(ctx context.Context) (backend.Capabilities, error) {
 	return backend.Capabilities{VectorSearch: true, MetadataFilter: true, DeleteByFilter: true}, nil
@@ -100,7 +100,7 @@ func (c *Client) EnsureNamespace(ctx context.Context, ns backend.Namespace) erro
 	}
 	body := map[string]any{
 		"class":             class,
-		"description":       "ragctl dependency docs index; managed by ragctl, do not edit",
+		"description":       "depctl dependency docs index; managed by depctl, do not edit",
 		"vectorizer":        "none",
 		"vectorIndexConfig": map[string]any{"distance": "cosine"},
 		"properties":        properties,
@@ -379,8 +379,8 @@ func statusError(resp *http.Response) error {
 	return fmt.Errorf("weaviate: HTTP %d: %s", resp.StatusCode, bytes.TrimSpace(msg))
 }
 
-// className maps a ragctl namespace (e.g. "ragctl-d7b3d605") to a valid
-// Weaviate collection name ("Ragctl_d7b3d605"): Weaviate requires a
+// className maps a depctl namespace (e.g. "depctl-d7b3d605") to a valid
+// Weaviate collection name ("Depctl_d7b3d605"): Weaviate requires a
 // leading capital and allows only letters, digits and underscores.
 func className(namespace string) (string, error) {
 	var b strings.Builder

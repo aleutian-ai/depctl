@@ -1,4 +1,4 @@
-// Package bbolt is ragctl's control-plane store (control.db): small,
+// Package bbolt is depctl's control-plane store (control.db): small,
 // strongly structured state such as projects, resolutions, generations,
 // active-generation pointers, jobs and references.
 package bbolt
@@ -47,7 +47,7 @@ func Open(path string) (*Store, error) {
 }
 
 // OpenWithTimeout is Open with an explicit file-lock wait, for callers
-// that want to fail faster (or slower) than the default: `ragctl daemon
+// that want to fail faster (or slower) than the default: `depctl daemon
 // run` racing another auto-started candidate for the same control.db
 // wants near-zero, so a losing candidate exits before the winner could
 // plausibly have already been asked to shut down (see internal/cli's

@@ -1,6 +1,6 @@
-# ragctl — Tickets
+# depctl — Tickets
 
-Source: `ragctl_implementation_plan.md` + `ragctl_design_spec.md`.
+Source: `depctl_implementation_plan.md` + `depctl_design_spec.md`.
 
 Tickets are split into three directories:
 

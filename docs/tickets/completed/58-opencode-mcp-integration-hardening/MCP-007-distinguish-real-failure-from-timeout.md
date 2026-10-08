@@ -37,6 +37,6 @@ This satisfies the ticket's own "reproduce the specific failure mode" gate diffe
 - [x] `daemonSyncTrigger.SyncProject`'s error is classified via `wrapQueryError`, same as `daemonQueryService`'s methods.
 - [x] `syncProjectHandler` and `prioritizeFileHandler` route real errors through `toolError`, same as every other MCP tool handler.
 - [x] `computePlans`'s project-not-found error is classified as `query.ErrProjectNotFound`.
-- [x] Live-verified against a real daemon over the actual HTTP boundary: `TestDaemonSyncTriggerProjectNotFoundIsClassified` (`internal/cli/query_client_test.go`) — a real `ragctl daemon run` subprocess, a real `sync_project`-shaped RPC against an unregistered `project_id`, asserting `errors.Is(err, query.ErrProjectNotFound)`.
+- [x] Live-verified against a real daemon over the actual HTTP boundary: `TestDaemonSyncTriggerProjectNotFoundIsClassified` (`internal/cli/query_client_test.go`) — a real `depctl daemon run` subprocess, a real `sync_project`-shaped RPC against an unregistered `project_id`, asserting `errors.Is(err, query.ErrProjectNotFound)`.
 - [x] Unit-verified at the handler level: `TestSyncProjectHandlerClassifiesSentinelErrors` (`internal/mcp/tools_test.go`).
 - [x] Full native and Linux (`hack/test-linux.sh`) suites pass.

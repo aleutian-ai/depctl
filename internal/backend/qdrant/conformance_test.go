@@ -9,8 +9,8 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 
-	"aleutian-ai/ragctl/internal/backend"
-	"aleutian-ai/ragctl/internal/backend/conformance"
+	"github.com/aleutian-ai/depctl/internal/backend"
+	"github.com/aleutian-ai/depctl/internal/backend/conformance"
 )
 
 // TestQdrantConformance runs the shared VectorBackend suite (VEC-010)

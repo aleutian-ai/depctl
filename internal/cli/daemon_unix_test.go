@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	bboltstore "aleutian-ai/ragctl/internal/control/bbolt"
+	bboltstore "github.com/aleutian-ai/depctl/internal/control/bbolt"
 )
 
 func TestDaemonExitsCleanlyOnSIGTERM(t *testing.T) {
@@ -68,7 +68,7 @@ func TestProcessAliveDistinguishesLiveFromReaped(t *testing.T) {
 }
 
 // TestStopOutcomeMessage is OPS-006's regression coverage for the real
-// bug STRESS-017 found live: `ragctl daemon stop` used to declare
+// bug STRESS-017 found live: `depctl daemon stop` used to declare
 // "stopped" the moment the daemon's *socket* went away, even though the
 // process itself (still finishing an in-flight sync/GC, bounded only by
 // its own 30-minute maxActionDuration, decoupled from the daemon's own
@@ -99,7 +99,7 @@ func TestStopOutcomeMessage(t *testing.T) {
 }
 
 // TestDaemonStopReportsStoppedForARealSeparateProcess is OPS-006's
-// end-to-end happy-path coverage: `ragctl daemon stop` against a real,
+// end-to-end happy-path coverage: `depctl daemon stop` against a real,
 // separate daemon OS process (not the in-process test harness
 // TestDaemonStatusAndStop uses, which shares its own PID with the
 // simulated "daemon" and can never observe a real process exit) — the
@@ -125,7 +125,7 @@ func TestStopOutcomeMessage(t *testing.T) {
 func TestDaemonStopReportsStoppedForARealSeparateProcess(t *testing.T) {
 	isolateEnv(t)
 	runInitForTest(t)
-	useRealRagctlBinary(t)
+	useRealDepctlBinary(t)
 
 	c, err := ensureDaemon(context.Background())
 	if err != nil {

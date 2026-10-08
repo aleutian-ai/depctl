@@ -13,10 +13,10 @@ import (
 	"math"
 	"sync"
 
-	dchunk "aleutian-ai/ragctl/internal/data/chunk"
-	"aleutian-ai/ragctl/internal/embedding"
+	dchunk "github.com/aleutian-ai/depctl/internal/data/chunk"
+	"github.com/aleutian-ai/depctl/internal/embedding"
 
-	"aleutian-ai/ragctl/internal/data/badger"
+	"github.com/aleutian-ai/depctl/internal/data/badger"
 )
 
 // CachingEmbedder implements embedding.Embedder by checking a Badger

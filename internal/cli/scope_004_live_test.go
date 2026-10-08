@@ -18,22 +18,22 @@ import (
 // both built and unit/integration tested against fakes, but — per both
 // tickets' own post-implementation notes — never exercised against a
 // real daemon and a real agent client. This is that exercise: a real
-// `ragctl serve` subprocess, a real MCP client over stdio (matching
+// `depctl serve` subprocess, a real MCP client over stdio (matching
 // VERIFY-001's own established shape), and two genuinely different real
 // Go modules so prioritize_file's *set* mechanism (not just a single
 // dependency) gets exercised for real. Needs real network, a running
 // Ollama, and a running Qdrant — same live-dependency shape as VALID-003's
 // benchmark, same opt-in gate.
 func TestPrioritizeFileAndExplainCallSiteOverARealDaemon(t *testing.T) {
-	if os.Getenv("RAGCTL_LIVE_BENCHMARK") == "" {
-		t.Skip("set RAGCTL_LIVE_BENCHMARK=1 to run this live verification (needs network, a running Ollama, and a running Qdrant on 127.0.0.1:6333)")
+	if os.Getenv("DEPCTL_LIVE_BENCHMARK") == "" {
+		t.Skip("set DEPCTL_LIVE_BENCHMARK=1 to run this live verification (needs network, a running Ollama, and a running Qdrant on 127.0.0.1:6333)")
 	}
 	isolateEnv(t)
 	noAmbientSync(t) // this test drives sync explicitly via the MCP tools under test
 	requireGo(t)
 	t.Setenv("GOPROXY", "https://proxy.golang.org,direct")
 	runInitForTest(t)
-	useRealRagctlBinary(t)
+	useRealDepctlBinary(t)
 
 	root := t.TempDir()
 	writeGoMod(t, root, "module example.com/scope004app\n\ngo 1.21\n")
@@ -73,7 +73,7 @@ func main() {
 		t.Skipf("scan failed (likely offline or module resolution issue): %v", err)
 	}
 
-	bin := requireRagctlBinary(t)
+	bin := requireDepctlBinary(t)
 	cmd := exec.Command(bin, "serve")
 	cmd.Dir = root
 
@@ -83,7 +83,7 @@ func main() {
 
 	session, err := client.Connect(ctx, &sdkmcp.CommandTransport{Command: cmd}, nil)
 	if err != nil {
-		t.Fatalf("connect to real ragctl serve subprocess: %v", err)
+		t.Fatalf("connect to real depctl serve subprocess: %v", err)
 	}
 	defer session.Close()
 

@@ -1,4 +1,4 @@
-// Package pydoc implements ragctl's Python static signature/docstring
+// Package pydoc implements depctl's Python static signature/docstring
 // normalizer (NORM-009): structured, per-symbol API documentation
 // extracted from a Python package's own source — the Python analog of
 // internal/normalize/godoc and internal/normalize/tsdoc, syntactic
@@ -7,7 +7,7 @@
 // — the central constraint this ticket exists to satisfy, not a v1
 // shortcut to revisit later (Sphinx/autodoc/pydoc both import the
 // target module to introspect it, which is unacceptable for a private
-// or unfamiliar dependency ragctl doesn't control).
+// or unfamiliar dependency depctl doesn't control).
 //
 // Extraction runs as a small, dependency-free Python script embedded in
 // this package (extract.py) — stdlib `ast` only, no third-party Python
@@ -20,7 +20,7 @@ package pydoc
 import (
 	"os/exec"
 
-	"aleutian-ai/ragctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/domain"
 )
 
 // Normalizer implements normalize.Normalizer for a Python package

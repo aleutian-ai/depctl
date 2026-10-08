@@ -14,7 +14,7 @@ Before `EnsureMirror` falls back to a network clone for a URL it hasn't mirrored
 
 ## Simplicity constraints
 - Search paths are explicit config (`LocalSearchPaths []string`, e.g. `["~/offline-knowledge"]`), never an implicit scan of the whole filesystem.
-- Matching is by asking git itself, not parsing `.git` internals by hand — a worktree-linked directory (e.g. `hack/fetch-corpus`'s own checkouts, which point `.git` at a *file*, not a directory, into ragctl's own mirror cache) still resolves correctly through `git -C <dir> remote get-url origin`, which hand-rolled `.git/config` parsing would get wrong.
+- Matching is by asking git itself, not parsing `.git` internals by hand — a worktree-linked directory (e.g. `hack/fetch-corpus`'s own checkouts, which point `.git` at a *file*, not a directory, into depctl's own mirror cache) still resolves correctly through `git -C <dir> remote get-url origin`, which hand-rolled `.git/config` parsing would get wrong.
 
 ## Design options
 
@@ -23,7 +23,7 @@ Before `EnsureMirror` falls back to a network clone for a URL it hasn't mirrored
   - *Cost:* one `git` subprocess per candidate directory, once per not-yet-mirrored URL. For `~/offline-knowledge`'s ~200 top-level checkouts, worst case (no match found) is ~200 fast subprocess calls — noticeable but not slow (candidate git calls are local, not network).
   - *Benefit:* fully automatic — any repo that happens to already be cloned under a search path is found with zero per-package configuration, including repos nobody thought to register as a corpus entry.
 
-**Option B — explicit mapping file, no directory walk.** A small local file (or `ragctl registry hint <url> <local-path>` command) records known `<url> -> <local path>` pairs directly; `EnsureMirror` checks this map before falling back to network. No git subprocess calls, no directory walking, trivially fast.
+**Option B — explicit mapping file, no directory walk.** A small local file (or `depctl registry hint <url> <local-path>` command) records known `<url> -> <local path>` pairs directly; `EnsureMirror` checks this map before falling back to network. No git subprocess calls, no directory walking, trivially fast.
 
   - *Cost:* nothing auto-discovered — only repos someone explicitly registered get the benefit.
   - *Benefit:* dramatically simpler implementation (a lookup table, not a search), and explicit is arguably more honest than a filesystem scan that might match the wrong fork/mirror of a repo by coincidence.

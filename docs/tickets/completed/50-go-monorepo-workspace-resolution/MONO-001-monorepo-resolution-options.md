@@ -6,7 +6,7 @@
 **Estimated size:** unknown until an option below is picked (ranges small→medium)
 
 ## Goal
-Pick and scope a real fix for the gap [STRESS-001](../../planned/49-full-loop-stress-testing/STRESS-001-real-dependency-heavy-project-scan.md) found: `ragctl scan` fails to resolve any nested submodule of a Go monorepo shaped like `hashicorp/terraform` (10/10 submodules failed with `invalid version: unknown revision 000000000000`), because each submodule's `go.mod` `replace` block only covers *its own* known siblings, and no `go.work` is checked into the repo to fill the rest in.
+Pick and scope a real fix for the gap [STRESS-001](../../planned/49-full-loop-stress-testing/STRESS-001-real-dependency-heavy-project-scan.md) found: `depctl scan` fails to resolve any nested submodule of a Go monorepo shaped like `hashicorp/terraform` (10/10 submodules failed with `invalid version: unknown revision 000000000000`), because each submodule's `go.mod` `replace` block only covers *its own* known siblings, and no `go.work` is checked into the repo to fill the rest in.
 
 This ticket is the decision point, not the implementation — write the chosen option up as a real `Design` section (replacing this ticket's own content, or split into a new ticket) once one is picked.
 
@@ -16,10 +16,10 @@ This ticket is the decision point, not the implementation — write the chosen o
 ## Options
 
 **Option A — Leave as-is, document the limitation.**
-Treat this as an accepted, documented gap: ragctl resolves each `go.mod` root scan discovers independently; a submodule whose own `go.mod` can't self-resolve (because it depends on local-only placeholder versions its own `replace` block doesn't fully cover) surfaces a clear `resolve error`, is skipped, and the rest of the scan proceeds normally (already true today — the other resolvable submodules/root aren't blocked by one failing). Lowest cost, but means ragctl silently under-covers real dependencies for any project shaped like terraform's plugin submodules — an agent asking about `internal/backend/remote-state/azure`'s dependencies gets nothing.
+Treat this as an accepted, documented gap: depctl resolves each `go.mod` root scan discovers independently; a submodule whose own `go.mod` can't self-resolve (because it depends on local-only placeholder versions its own `replace` block doesn't fully cover) surfaces a clear `resolve error`, is skipped, and the rest of the scan proceeds normally (already true today — the other resolvable submodules/root aren't blocked by one failing). Lowest cost, but means depctl silently under-covers real dependencies for any project shaped like terraform's plugin submodules — an agent asking about `internal/backend/remote-state/azure`'s dependencies gets nothing.
 
 **Option B — Synthesize a temporary `go.work` per scan, scoped to the repo.**
-When `ragctl scan` discovers multiple `go.mod` roots under one repository root, generate an in-memory/temp-file `go.work` listing all of them (`go work init` + `go work use` for each discovered root, written to a scratch dir), and pass `GOWORK=<temp path>` instead of `GOWORK=off` specifically for resolving submodules that fail standalone. This directly targets the observed failure (Go's own module resolver, given a workspace covering all the sibling directories, can resolve the placeholder pseudo-versions via the workspace's local module set, same mechanism `replace` uses but complete instead of partial). Needs care: only apply this as a *fallback* after a standalone resolve fails (avoid changing behavior for the common single-module or complete-`go.work` case), and needs a real test against a small hand-built two-sibling-module fixture, not just terraform.
+When `depctl scan` discovers multiple `go.mod` roots under one repository root, generate an in-memory/temp-file `go.work` listing all of them (`go work init` + `go work use` for each discovered root, written to a scratch dir), and pass `GOWORK=<temp path>` instead of `GOWORK=off` specifically for resolving submodules that fail standalone. This directly targets the observed failure (Go's own module resolver, given a workspace covering all the sibling directories, can resolve the placeholder pseudo-versions via the workspace's local module set, same mechanism `replace` uses but complete instead of partial). Needs care: only apply this as a *fallback* after a standalone resolve fails (avoid changing behavior for the common single-module or complete-`go.work` case), and needs a real test against a small hand-built two-sibling-module fixture, not just terraform.
 
 **Option C — Detect and report the failure mode distinctly, without fixing resolution.**
 Have `list.go` recognize the specific `invalid version: unknown revision 000000000000` pattern and surface a distinct, clearer error/warning (e.g. "submodule requires workspace-mode resolution (go.work), not supported standalone") instead of today's generic `go list exited 1` wrapped error — better diagnostics for Option A's limitation, without attempting Option B's fix. Could be a fast, small first step regardless of whether B is ever built.
@@ -36,7 +36,7 @@ Have `list.go` recognize the specific `invalid version: unknown revision 0000000
 
 ## Acceptance criteria
 - [x] An option (A/B/C, or a combination) is chosen and written up as a real, buildable `Design` section.
-- [x] If B is chosen: `ragctl scan` against `hashicorp/terraform` resolves all 11 discovered Go projects (root + 10 submodules), not just the root.
+- [x] If B is chosen: `depctl scan` against `hashicorp/terraform` resolves all 11 discovered Go projects (root + 10 submodules), not just the root.
 
 ## Design (as implemented — Option B)
 

@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"aleutian-ai/ragctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/domain"
 )
 
 // fakeResolver is an in-memory Resolver for testing Registry behavior,

@@ -33,7 +33,7 @@ The primary regression test, reproducing this epic's own traced bug precisely:
 2. Issue project A's JIT request (an MCP `search_dependency_docs` call, or the equivalent `Scheduler.Request`-level call if testing below the MCP layer) for an unrelated, uncached dependency.
 3. Assert A reaches its own acquisition step *before* B's barrier is released — proving A was never blocked by B.
 4. Assert A returns correct, version-scoped evidence (or a bounded, honest progress response if A's own work genuinely isn't done yet — never a wrong-version substitution).
-5. Release B's barrier; assert both runs complete with correct, non-corrupted state (`ragctl gc --dry-run` afterward shows no orphaned or double-built generations).
+5. Release B's barrier; assert both runs complete with correct, non-corrupted state (`depctl gc --dry-run` afterward shows no orphaned or double-built generations).
 
 Additional required tests:
 - A and B requesting the *identical* dependency/version concurrently: exactly one coordinated build (COORD-001's own test, re-exercised here at the `execute`-level integration point, not just the coordinator in isolation).

@@ -5,15 +5,15 @@ import (
 	"fmt"
 	"time"
 
-	"aleutian-ai/ragctl/internal/backend"
-	"aleutian-ai/ragctl/internal/control/bbolt"
-	"aleutian-ai/ragctl/internal/data/badger"
-	"aleutian-ai/ragctl/internal/domain"
-	"aleutian-ai/ragctl/internal/embedding"
-	"aleutian-ai/ragctl/internal/observability"
-	"aleutian-ai/ragctl/internal/observability/metrics"
-	"aleutian-ai/ragctl/internal/observability/trace"
-	"aleutian-ai/ragctl/internal/registry"
+	"github.com/aleutian-ai/depctl/internal/backend"
+	"github.com/aleutian-ai/depctl/internal/control/bbolt"
+	"github.com/aleutian-ai/depctl/internal/data/badger"
+	"github.com/aleutian-ai/depctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/embedding"
+	"github.com/aleutian-ai/depctl/internal/observability"
+	"github.com/aleutian-ai/depctl/internal/observability/metrics"
+	"github.com/aleutian-ai/depctl/internal/observability/trace"
+	"github.com/aleutian-ai/depctl/internal/registry"
 )
 
 // defaultReplicateBatchSize bounds how many chunks are embedded and

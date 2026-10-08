@@ -14,22 +14,22 @@ import (
 	"sync"
 	"testing"
 
-	"aleutian-ai/ragctl/internal/backend"
-	"aleutian-ai/ragctl/internal/backend/qdrant"
-	bboltstore "aleutian-ai/ragctl/internal/control/bbolt"
-	badgerstore "aleutian-ai/ragctl/internal/data/badger"
-	"aleutian-ai/ragctl/internal/domain"
-	"aleutian-ai/ragctl/internal/embedding"
-	"aleutian-ai/ragctl/internal/embedding/ollama"
-	"aleutian-ai/ragctl/internal/planner"
-	"aleutian-ai/ragctl/internal/source/git"
+	"github.com/aleutian-ai/depctl/internal/backend"
+	"github.com/aleutian-ai/depctl/internal/backend/qdrant"
+	bboltstore "github.com/aleutian-ai/depctl/internal/control/bbolt"
+	badgerstore "github.com/aleutian-ai/depctl/internal/data/badger"
+	"github.com/aleutian-ai/depctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/embedding"
+	"github.com/aleutian-ai/depctl/internal/embedding/ollama"
+	"github.com/aleutian-ai/depctl/internal/planner"
+	"github.com/aleutian-ai/depctl/internal/source/git"
 )
 
 // SEC-005: no-telemetry invariant, enforced not just claimed. See
 // docs/tickets/backlog/29-security-hardening/SEC-005-no-telemetry-invariant.md.
 
 // deniedTelemetryModuleSubstrings names known analytics/telemetry SDKs
-// that must never enter ragctl's module graph. Matched against the
+// that must never enter depctl's module graph. Matched against the
 // lowercased import path of every module actually linked into the
 // binary (via runtime/debug.ReadBuildInfo, which reflects real imports,
 // not just anything sitting unused in go.sum).
@@ -48,14 +48,14 @@ func TestNoTelemetrySDKInDependencyGraph(t *testing.T) {
 		lower := strings.ToLower(dep.Path)
 		for _, denied := range deniedTelemetryModuleSubstrings {
 			if strings.Contains(lower, denied) {
-				t.Errorf("found disallowed analytics/telemetry dependency in the real module graph: %s (matched %q) — ragctl promises no telemetry by default; a new dependency like this needs its own explicit ticket, not a quiet addition", dep.Path, denied)
+				t.Errorf("found disallowed analytics/telemetry dependency in the real module graph: %s (matched %q) — depctl promises no telemetry by default; a new dependency like this needs its own explicit ticket, not a quiet addition", dep.Path, denied)
 			}
 		}
 	}
 }
 
 // deniedTelemetryHostSubstrings names known telemetry-collector
-// hostnames that must never appear as a string literal in ragctl's own
+// hostnames that must never appear as a string literal in depctl's own
 // source — the sibling check to the module-graph one above: a hardcoded
 // endpoint could exist even without importing a named SDK for it (a
 // bare net/http POST to a collector URL).
@@ -94,7 +94,7 @@ func TestNoTelemetryHostLiteralsInSource(t *testing.T) {
 		lower := strings.ToLower(string(data))
 		for _, host := range deniedTelemetryHostSubstrings {
 			if strings.Contains(lower, host) {
-				t.Errorf("%s: contains a known telemetry-collector hostname literal (%q) — ragctl promises no telemetry by default", path, host)
+				t.Errorf("%s: contains a known telemetry-collector hostname literal (%q) — depctl promises no telemetry by default", path, host)
 			}
 		}
 		return nil

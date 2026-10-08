@@ -8,7 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"aleutian-ai/ragctl/internal/backend"
+	"github.com/aleutian-ai/depctl/internal/backend"
 )
 
 func TestEnsureNamespaceCreatesCollectionWhenMissing(t *testing.T) {
@@ -27,12 +27,12 @@ func TestEnsureNamespaceCreatesCollectionWhenMissing(t *testing.T) {
 	defer srv.Close()
 
 	c := New(srv.URL)
-	err := c.EnsureNamespace(context.Background(), backend.Namespace{Name: "ragctl", Dimensions: 768, Distance: "cosine"})
+	err := c.EnsureNamespace(context.Background(), backend.Namespace{Name: "depctl", Dimensions: 768, Distance: "cosine"})
 	if err != nil {
 		t.Fatalf("EnsureNamespace: %v", err)
 	}
 	if !putCalled {
-		t.Fatal("PUT /collections/ragctl was never called")
+		t.Fatal("PUT /collections/depctl was never called")
 	}
 	if gotCreate.Vectors.Size != 768 || gotCreate.Vectors.Distance != "Cosine" {
 		t.Errorf("create request = %+v, want size=768 distance=Cosine", gotCreate.Vectors)
@@ -52,7 +52,7 @@ func TestEnsureNamespaceIsNoOpWhenCollectionExists(t *testing.T) {
 	defer srv.Close()
 
 	c := New(srv.URL)
-	if err := c.EnsureNamespace(context.Background(), backend.Namespace{Name: "ragctl", Dimensions: 768}); err != nil {
+	if err := c.EnsureNamespace(context.Background(), backend.Namespace{Name: "depctl", Dimensions: 768}); err != nil {
 		t.Fatalf("EnsureNamespace: %v", err)
 	}
 	if putCalled {
@@ -63,7 +63,7 @@ func TestEnsureNamespaceIsNoOpWhenCollectionExists(t *testing.T) {
 func TestUpsertSendsPointsWithPayload(t *testing.T) {
 	var got upsertRequest
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/collections/ragctl/points" {
+		if r.URL.Path != "/collections/depctl/points" {
 			t.Errorf("path = %s", r.URL.Path)
 		}
 		json.NewDecoder(r.Body).Decode(&got)
@@ -73,7 +73,7 @@ func TestUpsertSendsPointsWithPayload(t *testing.T) {
 
 	c := New(srv.URL)
 	err := c.Upsert(context.Background(), backend.UpsertRequest{
-		Namespace: "ragctl",
+		Namespace: "depctl",
 		Points: []backend.Point{
 			{ID: "chk_abc", Vector: []float32{1, 2}, Metadata: backend.PointMetadata{Ecosystem: "go", Dependency: "grpc-go", Version: "v1.67.0", Generation: "gen_1", Authority: 100}},
 		},
@@ -114,7 +114,7 @@ func TestUpsertGivesEachGenerationItsOwnPointForIdenticalContent(t *testing.T) {
 
 	c := New(srv.URL)
 	err := c.Upsert(context.Background(), backend.UpsertRequest{
-		Namespace: "ragctl",
+		Namespace: "depctl",
 		Points: []backend.Point{
 			{ID: "chk_same", Vector: []float32{1}, Metadata: backend.PointMetadata{Dependency: "billing", Generation: "gen_A"}},
 			{ID: "chk_same", Vector: []float32{1}, Metadata: backend.PointMetadata{Dependency: "workflows", Generation: "gen_B"}},
@@ -146,7 +146,7 @@ func TestUpsertBatchesRequests(t *testing.T) {
 	for i := range points {
 		points[i] = backend.Point{ID: "chk_" + string(rune('a'+i)), Vector: []float32{1}}
 	}
-	if err := c.Upsert(context.Background(), backend.UpsertRequest{Namespace: "ragctl", Points: points}); err != nil {
+	if err := c.Upsert(context.Background(), backend.UpsertRequest{Namespace: "depctl", Points: points}); err != nil {
 		t.Fatalf("Upsert: %v", err)
 	}
 	want := []int{2, 2, 1}
@@ -174,7 +174,7 @@ func TestQueryAppliesFilterAndParsesResults(t *testing.T) {
 
 	c := New(srv.URL)
 	result, err := c.Query(context.Background(), backend.QueryRequest{
-		Namespace: "ragctl",
+		Namespace: "depctl",
 		Vector:    []float32{1, 2, 3},
 		TopK:      5,
 		Filter:    &backend.Filter{Version: "v1.67.0"},
@@ -195,7 +195,7 @@ func TestQueryAppliesFilterAndParsesResults(t *testing.T) {
 	}
 	got := result.Points[0]
 	if got.ID != "chk_abc" {
-		t.Errorf("ID = %s, want chk_abc (original ragctl ID, not the Qdrant UUID)", got.ID)
+		t.Errorf("ID = %s, want chk_abc (original depctl ID, not the Qdrant UUID)", got.ID)
 	}
 	if got.Score != 0.9 {
 		t.Errorf("Score = %v, want 0.9", got.Score)
@@ -218,14 +218,14 @@ func TestCountAppliesFilterAndRequestsExact(t *testing.T) {
 	defer srv.Close()
 
 	c := New(srv.URL)
-	n, err := c.Count(context.Background(), "ragctl", &backend.Filter{Generation: "gen_abc"})
+	n, err := c.Count(context.Background(), "depctl", &backend.Filter{Generation: "gen_abc"})
 	if err != nil {
 		t.Fatalf("Count: %v", err)
 	}
 	if n != 7 {
 		t.Errorf("Count = %d, want 7", n)
 	}
-	if gotPath != "/collections/ragctl/points/count" {
+	if gotPath != "/collections/depctl/points/count" {
 		t.Errorf("path = %q, want the dedicated points/count endpoint", gotPath)
 	}
 	if !gotReq.Exact {
@@ -247,7 +247,7 @@ func TestCountWithNilFilterCountsWholeNamespace(t *testing.T) {
 	defer srv.Close()
 
 	c := New(srv.URL)
-	n, err := c.Count(context.Background(), "ragctl", nil)
+	n, err := c.Count(context.Background(), "depctl", nil)
 	if err != nil {
 		t.Fatalf("Count: %v", err)
 	}
@@ -280,7 +280,7 @@ func TestDeleteByIDsAndFilterSendsTwoSeparateRequests(t *testing.T) {
 
 	c := New(srv.URL)
 	err := c.Delete(context.Background(), backend.DeleteRequest{
-		Namespace: "ragctl",
+		Namespace: "depctl",
 		IDs:       []string{"chk_abc"},
 		Filter:    &backend.Filter{Generation: "gen_old"},
 	})
@@ -309,7 +309,7 @@ func TestDeleteWithOnlyIDsSendsOneRequest(t *testing.T) {
 	defer srv.Close()
 
 	c := New(srv.URL)
-	if err := c.Delete(context.Background(), backend.DeleteRequest{Namespace: "ragctl", IDs: []string{"chk_abc"}}); err != nil {
+	if err := c.Delete(context.Background(), backend.DeleteRequest{Namespace: "depctl", IDs: []string{"chk_abc"}}); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
 	if calls != 1 {
@@ -340,7 +340,7 @@ func Test4xxIsBackendRequest(t *testing.T) {
 	defer srv.Close()
 
 	c := New(srv.URL)
-	err := c.Upsert(context.Background(), backend.UpsertRequest{Namespace: "ragctl", Points: []backend.Point{{ID: "chk_1"}}})
+	err := c.Upsert(context.Background(), backend.UpsertRequest{Namespace: "depctl", Points: []backend.Point{{ID: "chk_1"}}})
 	if err == nil {
 		t.Fatal("Upsert succeeded, want error")
 	}
@@ -351,7 +351,7 @@ func Test4xxIsBackendRequest(t *testing.T) {
 
 func TestHealthCollectionSucceedsWhenCollectionExists(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/collections/ragctl" {
+		if r.URL.Path == "/collections/depctl" {
 			w.WriteHeader(http.StatusOK)
 			return
 		}
@@ -360,7 +360,7 @@ func TestHealthCollectionSucceedsWhenCollectionExists(t *testing.T) {
 	defer srv.Close()
 
 	c := New(srv.URL)
-	if err := c.HealthCollection(context.Background(), "ragctl"); err != nil {
+	if err := c.HealthCollection(context.Background(), "depctl"); err != nil {
 		t.Fatalf("HealthCollection: %v", err)
 	}
 }

@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"aleutian-ai/ragctl/internal/control/bbolt"
-	"aleutian-ai/ragctl/internal/domain"
-	"aleutian-ai/ragctl/internal/lifecycle/validate"
+	"github.com/aleutian-ai/depctl/internal/control/bbolt"
+	"github.com/aleutian-ai/depctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/lifecycle/validate"
 )
 
 func openTestStore(t *testing.T) *bbolt.Store {

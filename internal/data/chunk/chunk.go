@@ -14,7 +14,7 @@ import (
 
 	"github.com/zeebo/blake3"
 
-	"aleutian-ai/ragctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/domain"
 )
 
 // chunkIDEncoding is lowercase, unpadded base32 — matches

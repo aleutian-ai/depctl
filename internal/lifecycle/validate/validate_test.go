@@ -4,11 +4,11 @@ import (
 	"context"
 	"testing"
 
-	"aleutian-ai/ragctl/internal/backend"
-	"aleutian-ai/ragctl/internal/backend/backendtest"
-	"aleutian-ai/ragctl/internal/data/generation"
-	"aleutian-ai/ragctl/internal/domain"
-	"aleutian-ai/ragctl/internal/source/git"
+	"github.com/aleutian-ai/depctl/internal/backend"
+	"github.com/aleutian-ai/depctl/internal/backend/backendtest"
+	"github.com/aleutian-ai/depctl/internal/data/generation"
+	"github.com/aleutian-ai/depctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/source/git"
 )
 
 func TestStructuralPassesForFullyValidGeneration(t *testing.T) {
@@ -20,7 +20,7 @@ func TestStructuralPassesForFullyValidGeneration(t *testing.T) {
 
 	embedder := &fakeEmbedder{dims: 4}
 	vb := backendtest.New()
-	ns := backend.Namespace{Name: "ragctl", Dimensions: 4}
+	ns := backend.Namespace{Name: "depctl", Dimensions: 4}
 
 	gen, manifest, replica := buildAndReplicate(t, ctx, store, badgerStore, gitCache, repoDir, testDependency("v1.0.0"), embedder, vb, ns)
 
@@ -71,7 +71,7 @@ func TestStructuralFailsOnPointCountMismatch(t *testing.T) {
 
 	embedder := &fakeEmbedder{dims: 4}
 	vb := backendtest.New()
-	ns := backend.Namespace{Name: "ragctl", Dimensions: 4}
+	ns := backend.Namespace{Name: "depctl", Dimensions: 4}
 
 	gen, manifest, replica := buildAndReplicate(t, ctx, store, badgerStore, gitCache, repoDir, testDependency("v1.0.0"), embedder, vb, ns)
 	replica.PointCount = manifest.ChunkCount + 1 // simulate a mismatched replica
@@ -94,7 +94,7 @@ func TestStructuralFailsWhenManifestDoesNotMatchGeneration(t *testing.T) {
 
 	embedder := &fakeEmbedder{dims: 4}
 	vb := backendtest.New()
-	ns := backend.Namespace{Name: "ragctl", Dimensions: 4}
+	ns := backend.Namespace{Name: "depctl", Dimensions: 4}
 
 	gen, manifest, replica := buildAndReplicate(t, ctx, store, badgerStore, gitCache, repoDir, testDependency("v1.0.0"), embedder, vb, ns)
 	manifest.ID = "gen_someone_else"

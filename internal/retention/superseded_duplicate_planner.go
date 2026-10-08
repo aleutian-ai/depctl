@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"aleutian-ai/ragctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/domain"
 )
 
 // SupersededDuplicateCandidate is one SUPERSEDED generation whose own

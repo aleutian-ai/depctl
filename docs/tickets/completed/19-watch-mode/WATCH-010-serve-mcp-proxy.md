@@ -1,4 +1,4 @@
-# WATCH-010: `ragctl serve` as a stdio MCP proxy
+# WATCH-010: `depctl serve` as a stdio MCP proxy
 
 **Epic:** Watch Mode
 **Status:** done
@@ -6,7 +6,7 @@
 **Estimated size:** medium
 
 ## Goal
-`ragctl serve` stays the command agents launch over stdio, with the same tool names, inputs, and outputs. It stops opening any persistent store: every tool call is translated into a daemon API call, so any number of agent sessions can connect at once without lock contention.
+`depctl serve` stays the command agents launch over stdio, with the same tool names, inputs, and outputs. It stops opening any persistent store: every tool call is translated into a daemon API call, so any number of agent sessions can connect at once without lock contention.
 
 ## Non-goals
 - An MCP endpoint on the daemon itself, or HTTP MCP transport.
@@ -51,7 +51,7 @@ Run over StdioTransport
 ```
 There are no store, embedder, or vector-backend builders in `serve` any more; the daemon does embedding.
 
-Daemon connection drop mid-session: tool calls return an MCP tool error ("ragctl daemon is not reachable") rather than crashing `serve`. The proxy doesn't try to reconnect by itself; the next call dials again.
+Daemon connection drop mid-session: tool calls return an MCP tool error ("depctl daemon is not reachable") rather than crashing `serve`. The proxy doesn't try to reconnect by itself; the next call dials again.
 
 ## Inputs / Outputs
 - Input: MCP JSON-RPC over stdio (unchanged).
@@ -69,7 +69,7 @@ Daemon connection drop mid-session: tool calls return an MCP tool error ("ragctl
 - `serve` with no daemon exits 1 with the message, and creates no `control.db`.
 
 ## Acceptance criteria
-- [x] `ragctl serve` opens no persistent store and builds no embedder or backend.
+- [x] `depctl serve` opens no persistent store and builds no embedder or backend.
 - [x] Every MCP tool behaves exactly as before, with the same names.
 - [x] The query/search API operation exists; the MCP query path goes through the daemon.
 - [x] Multiple simultaneous `serve` sessions work (they always shared one daemon via `ensureDaemon`/`spawnDaemonOnce`; this ticket just made `serve` itself join that path).
@@ -84,4 +84,4 @@ Built to this design's intent, with a few deliberate shape differences worth rec
 - **The query.Service an MCP session searches against is split into two lazily-built halves**, not built once at daemon startup as this design's "the daemon does embedding" phrasing might suggest: `engine.baseQueryService()` (stores only, used by everything except search) and `engine.fullQueryService(ctx)` (adds the embedder/vector backend, memoized, built only on a session's first actual search). This wasn't in the original design — it exists so a daemon started for `scan`/`sync`/`gc` alone never has to reach a live embedder just to answer `knowledge_status`/`list_project_dependencies`/etc.
 - **The `server.mcp.enabled`/`enable_sync_tool` daemon-authoritative check is implemented**, per this design's "ownership of that config setting" note — `runServe` still does a cheap local config check first (so a deliberately-disabled MCP server never pays the cost of auto-starting a daemon), but the actual gating value comes from `GET /v1/health` once connected.
 - **Not updated:** `docs/internal/mcp.md` and ADR-006's Related section, since neither's actual content changed (the tool definitions, schemas, and MCP-SDK-only-import invariant ADR-006 describes are all still true; only `Deps.Query`'s type changed, already covered in `docs/internal/daemon.md`/`cli.md`).
-- Tests: real-daemon integration tests (`internal/cli/query_client_test.go`) exercise `daemonQueryService`/`daemonSyncTrigger` against a genuinely separate `ragctl daemon run` process, not an in-memory transport pair — the existing `internal/mcp` protocol-level tests (`offline_test.go`, `tools_test.go`) were confirmed to keep passing unchanged, proving the interface swap was a pure refactor as this design intended.
+- Tests: real-daemon integration tests (`internal/cli/query_client_test.go`) exercise `daemonQueryService`/`daemonSyncTrigger` against a genuinely separate `depctl daemon run` process, not an in-memory transport pair — the existing `internal/mcp` protocol-level tests (`offline_test.go`, `tools_test.go`) were confirmed to keep passing unchanged, proving the interface swap was a pure refactor as this design intended.

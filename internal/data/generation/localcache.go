@@ -10,8 +10,8 @@ import (
 
 	"golang.org/x/mod/module"
 
-	"aleutian-ai/ragctl/internal/domain"
-	"aleutian-ai/ragctl/internal/executil"
+	"github.com/aleutian-ai/depctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/executil"
 )
 
 // localCacheProbeTimeout bounds the cheap, purely local probes below

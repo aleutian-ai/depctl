@@ -7,14 +7,14 @@ import (
 	"strings"
 	"testing"
 
-	"aleutian-ai/ragctl/internal/domain"
-	"aleutian-ai/ragctl/internal/embedding"
-	"aleutian-ai/ragctl/internal/planner"
-	"aleutian-ai/ragctl/internal/query"
-	"aleutian-ai/ragctl/internal/registry"
+	"github.com/aleutian-ai/depctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/embedding"
+	"github.com/aleutian-ai/depctl/internal/planner"
+	"github.com/aleutian-ai/depctl/internal/query"
+	"github.com/aleutian-ai/depctl/internal/registry"
 )
 
-const twoRepoManifestYAML = `apiVersion: ragctl.dev/v1alpha1
+const twoRepoManifestYAML = `apiVersion: depctl.dev/v1alpha1
 kind: KnowledgePackage
 metadata:
   name: %[1]s

@@ -1,10 +1,10 @@
 package cli
 
 import (
-	"aleutian-ai/ragctl/internal/daemon/api"
 	"bytes"
 	"context"
 	"encoding/json"
+	"github.com/aleutian-ai/depctl/internal/daemon/api"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -14,10 +14,10 @@ import (
 	"testing"
 	"time"
 
-	"aleutian-ai/ragctl/internal/config"
-	bboltstore "aleutian-ai/ragctl/internal/control/bbolt"
-	badgerstore "aleutian-ai/ragctl/internal/data/badger"
-	"aleutian-ai/ragctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/config"
+	bboltstore "github.com/aleutian-ai/depctl/internal/control/bbolt"
+	badgerstore "github.com/aleutian-ai/depctl/internal/data/badger"
+	"github.com/aleutian-ai/depctl/internal/domain"
 )
 
 // statusTestStores opens fresh stores and also returns their on-disk
@@ -197,7 +197,7 @@ func TestProbeBackend(t *testing.T) {
 }
 
 // writeTestConfig saves cfg at the isolated default config path and
-// creates the data dir, as `ragctl init` would.
+// creates the data dir, as `depctl init` would.
 // noAmbientSync writes the default test config (ambient sync disabled) for
 // a test that doesn't otherwise customize its config.
 func noAmbientSync(t *testing.T) {
@@ -236,7 +236,7 @@ func writeTestConfig(t *testing.T, mutate func(*config.Config)) {
 func TestStatusCommandReportsDownBackendWithoutFailing(t *testing.T) {
 	isolateEnv(t)
 	runInitForTest(t)
-	useRealRagctlBinary(t)
+	useRealDepctlBinary(t)
 	endpoint := deadBackendURL(t)
 	writeTestConfig(t, func(c *config.Config) { c.Vector.QdrantDefaults(); c.Vector.Endpoint = endpoint })
 

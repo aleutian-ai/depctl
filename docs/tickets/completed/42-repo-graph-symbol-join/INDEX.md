@@ -1,9 +1,9 @@
 # Epic: Repo-Graph Symbol Join
 
-The scratch doc's §14 calls this "the most compelling cross-system feature to prototype": a project's repo/code graph and ragctl's dependency knowledge share a natural join key — the dependency symbol used at a call site. Neither system needs to duplicate the other's job:
+The scratch doc's §14 calls this "the most compelling cross-system feature to prototype": a project's repo/code graph and depctl's dependency knowledge share a natural join key — the dependency symbol used at a call site. Neither system needs to duplicate the other's job:
 
 > - graph system: **what symbol is this code referring to?**
-> - ragctl: **what knowledge is valid for that dependency version?**
+> - depctl: **what knowledge is valid for that dependency version?**
 
 Flow (scratch doc §14):
 ```text
@@ -12,18 +12,18 @@ project source
  -> external symbol identity
  -> dependency/module identity
  -> exact project-resolved version
- -> ragctl exact-version source/docs
+ -> depctl exact-version source/docs
  -> evidence bundle
 ```
-Example: `client.go` calls `bbolt.(*Tx).Bucket` → graph resolves the external symbol → ragctl's resolver already knows the project resolved `go.etcd.io/bbolt@1.3.11` → ragctl fetches exact symbol/docs/source for that version.
+Example: `client.go` calls `bbolt.(*Tx).Bucket` → graph resolves the external symbol → depctl's resolver already knows the project resolved `go.etcd.io/bbolt@1.3.11` → depctl fetches exact symbol/docs/source for that version.
 
 ## Status
 
-**2026-09: pulled forward from backlog, scoped, and shipped.** A competitive review comparing ragctl against Grounded Docs and Tessl independently proposed this exact join ("code-aware retrieval": let the agent ask what a call site means under the installed version, by joining an existing code-intelligence tool's call-site resolution with ragctl's resolved dependency versions, without ragctl building its own code graph) as one of three concrete follow-on improvements worth benchmarking against a simpler baseline before building — external reaffirmation this is the right shape, not new scope. That review also settled the one thing GRAPH-001 originally deferred: which graph provider to build against first (GRAPH-003).
+**2026-09: pulled forward from backlog, scoped, and shipped.** A competitive review comparing depctl against Grounded Docs and Tessl independently proposed this exact join ("code-aware retrieval": let the agent ask what a call site means under the installed version, by joining an existing code-intelligence tool's call-site resolution with depctl's resolved dependency versions, without depctl building its own code graph) as one of three concrete follow-on improvements worth benchmarking against a simpler baseline before building — external reaffirmation this is the right shape, not new scope. That review also settled the one thing GRAPH-001 originally deferred: which graph provider to build against first (GRAPH-003).
 
 All four tickets shipped in one pass, in the build order below, each independently tested (unit tests for GRAPH-001/002, a real fixture-module test for GRAPH-003 covering plain-function/method-selector/interface-value/internal/compile-error cases, and a true end-to-end test for GRAPH-004 wiring a real `gopackages.Provider` through a real `symbolgraph.Resolver` into `explainCallSiteHandler` — not mocked at the resolver boundary).
 
-**Then reviewed and live-tested, matching the discipline WATCH-019/020 established this session.** Code review found one real bug — `ExternalSymbolRef.Module` was a package path, not a module path, silently breaking the join for any multi-package dependency (see GRAPH-003's post-implementation note) — and one untested wire-boundary adapter (`daemonResolutionStore`, now covered by `internal/cli/symbolgraph_wiring_test.go`), both fixed/covered before live testing rather than after. A real live-test session (real daemon, real `ragctl serve`, a real MCP client, a real published multi-package dependency — `github.com/stretchr/testify`) then confirmed the fix and the whole chain, including the internal-call-site and stdlib-call edge cases — see GRAPH-004's post-implementation note for the full session. `go build ./...`, `go vet ./...`, `gofmt -l .`, and the full `go test ./...` suite are clean throughout.
+**Then reviewed and live-tested, matching the discipline WATCH-019/020 established this session.** Code review found one real bug — `ExternalSymbolRef.Module` was a package path, not a module path, silently breaking the join for any multi-package dependency (see GRAPH-003's post-implementation note) — and one untested wire-boundary adapter (`daemonResolutionStore`, now covered by `internal/cli/symbolgraph_wiring_test.go`), both fixed/covered before live testing rather than after. A real live-test session (real daemon, real `depctl serve`, a real MCP client, a real published multi-package dependency — `github.com/stretchr/testify`) then confirmed the fix and the whole chain, including the internal-call-site and stdlib-call edge cases — see GRAPH-004's post-implementation note for the full session. `go build ./...`, `go vet ./...`, `gofmt -l .`, and the full `go test ./...` suite are clean throughout.
 
 ## What changed
 

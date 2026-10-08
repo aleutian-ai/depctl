@@ -10,7 +10,7 @@ import (
 
 	bolt "go.etcd.io/bbolt"
 
-	"aleutian-ai/ragctl/internal/backend"
+	"github.com/aleutian-ai/depctl/internal/backend"
 )
 
 // writeLegacy builds a file in the v0.3.0 layout: a "points" bucket keyed
@@ -24,7 +24,7 @@ func writeLegacy(t *testing.T, path string, points map[string]string) {
 	}
 	defer db.Close()
 	err = db.Update(func(tx *bolt.Tx) error {
-		ns, _ := tx.CreateBucketIfNotExists([]byte("ragctl-old"))
+		ns, _ := tx.CreateBucketIfNotExists([]byte("depctl-old"))
 		pb, _ := ns.CreateBucketIfNotExists([]byte("points"))
 		ib, _ := ns.CreateBucketIfNotExists([]byte("ids"))
 		for key, text := range points {
@@ -67,7 +67,7 @@ func TestLegacyFileIsConvertedOnOpen(t *testing.T) {
 
 	s := New(path)
 	f := &backend.Filter{Dependency: "github.com/google/uuid", Version: "v1.6.0"}
-	res, err := s.Query(ctx, backend.QueryRequest{Namespace: "ragctl-old", Text: "NewRandom", TopK: 5, Filter: f})
+	res, err := s.Query(ctx, backend.QueryRequest{Namespace: "depctl-old", Text: "NewRandom", TopK: 5, Filter: f})
 	if err != nil {
 		t.Fatalf("Query after conversion: %v", err)
 	}
@@ -79,7 +79,7 @@ func TestLegacyFileIsConvertedOnOpen(t *testing.T) {
 			t.Errorf("point %s from %s, want only v1.6.0", p.ID, p.Metadata.Version)
 		}
 	}
-	if n, err := s.Count(ctx, "ragctl-old", nil); err != nil || n != 3 {
+	if n, err := s.Count(ctx, "depctl-old", nil); err != nil || n != 3 {
 		t.Errorf("Count after conversion = %d, %v; want 3", n, err)
 	}
 
@@ -88,7 +88,7 @@ func TestLegacyFileIsConvertedOnOpen(t *testing.T) {
 		t.Fatal(err)
 	}
 	db.View(func(tx *bolt.Tx) error {
-		ns := tx.Bucket([]byte("ragctl-old"))
+		ns := tx.Bucket([]byte("depctl-old"))
 		if ns.Bucket([]byte("points")) != nil || ns.Bucket([]byte("ids")) != nil {
 			t.Error("legacy buckets survived the conversion")
 		}
@@ -107,7 +107,7 @@ func TestLegacyFileIsConvertedOnOpen(t *testing.T) {
 func TestUpsertRejectsAPointThatContradictsItsGeneration(t *testing.T) {
 	ctx := context.Background()
 	s := New(filepath.Join(t.TempDir(), "keyword.db"))
-	ns := backend.Namespace{Name: "ragctl-test"}
+	ns := backend.Namespace{Name: "depctl-test"}
 	if err := s.EnsureNamespace(ctx, ns); err != nil {
 		t.Fatal(err)
 	}

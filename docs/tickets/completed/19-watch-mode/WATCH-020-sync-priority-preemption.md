@@ -47,7 +47,7 @@ func (p *syncPriority) drain() []string {
 	return pending
 }
 ```
-`SyncOptions` (`scheduler.go:29`) gains a `Priority *syncPriority` field, set by `Scheduler.start` when a run begins (`execute`, `scheduler.go:307`, reads it from the same `projectState` `Request` already looked up) and left nil for anything constructed directly (CLI's `ragctl sync`, tests) — nil is the "no live priority queue, behave exactly as today" case throughout, so this is purely additive.
+`SyncOptions` (`scheduler.go:29`) gains a `Priority *syncPriority` field, set by `Scheduler.start` when a run begins (`execute`, `scheduler.go:307`, reads it from the same `projectState` `Request` already looked up) and left nil for anything constructed directly (CLI's `depctl sync`, tests) — nil is the "no live priority queue, behave exactly as today" case throughout, so this is purely additive.
 
 `Scheduler` gains:
 ```go
@@ -108,17 +108,17 @@ This needs `SyncTrigger` (the MCP-consumer-side interface) to expose a `BumpPrio
 ## Tests
 - A fake `SyncFunc` that blocks on a channel between two dependencies, with a `syncPriority` injected: `BumpPriority` called mid-run moves the third-in-plan dependency ahead of the second, verified via the order `syncVersion` (or a fake standing in for it) is actually invoked.
 - `BumpPriority` against a project with no in-flight sync returns `false` and has no effect on a subsequent, fresh `Request`.
-- `RunSync` with a `nil` priority behaves byte-for-byte identically to today (regression guard — this must never be a behavior change for the CLI's own `ragctl sync`, which never sets one).
+- `RunSync` with a `nil` priority behaves byte-for-byte identically to today (regression guard — this must never be a behavior change for the CLI's own `depctl sync`, which never sets one).
 - End-to-end (real daemon): a background whole-project sync kicked off, then a `search_dependency_docs` call for a not-yet-synced dependency later in the plan resolves meaningfully faster than the background run's own natural arrival order would have produced — measured, not just asserted structurally.
 
 ## Acceptance criteria
 - [x] A dependency requested via WATCH-019's JIT-sync path while a background sync is already running for the same project gets prioritized within that run, rather than queued behind it.
 - [x] Nothing is interrupted mid-flight — the currently-executing action always finishes normally before any reordering takes effect.
-- [x] `ragctl sync` (CLI) and any caller that doesn't set a priority queue are entirely unaffected — `nil` is a true no-op path.
+- [x] `depctl sync` (CLI) and any caller that doesn't set a priority queue are entirely unaffected — `nil` is a true no-op path.
 - [x] A bump for a dependency not actually in the running plan (or arriving after that dependency already finished) fails cleanly with an actionable timeout, not a hang.
 
 ## Post-implementation note
-Shipped complete, including the caller-side wiring the Design section had explicitly left as an open decision. Resolved it with a new daemon HTTP endpoint (`POST /v1/sync/priority`, `api.SyncPriorityRequest`/`Response`) — needed because `Scheduler.BumpPriority` lives inside the daemon process, and `internal/mcp` runs inside the separate `ragctl serve` process (ADR-011), reachable only over the Unix socket like everything else. New consumer-side `mcp.PriorityBumper` interface (`BumpSyncPriority(ctx, projectID, dependency) (bool, error)`), implemented by `daemonPriorityBumper` (`internal/cli/query_client.go`), wired into `Deps.Priority` in `serve.go`.
+Shipped complete, including the caller-side wiring the Design section had explicitly left as an open decision. Resolved it with a new daemon HTTP endpoint (`POST /v1/sync/priority`, `api.SyncPriorityRequest`/`Response`) — needed because `Scheduler.BumpPriority` lives inside the daemon process, and `internal/mcp` runs inside the separate `depctl serve` process (ADR-011), reachable only over the Unix socket like everything else. New consumer-side `mcp.PriorityBumper` interface (`BumpSyncPriority(ctx, projectID, dependency) (bool, error)`), implemented by `daemonPriorityBumper` (`internal/cli/query_client.go`), wired into `Deps.Priority` in `serve.go`.
 
 `searchDependencyDocsHandler` now tries `PriorityBumper.BumpSyncPriority` first on a missing generation; a `true` result means a background sync is already running, so it polls (`waitForDependencyGeneration`, bounded by `jitSyncPriorityWaitBound` — 90s, matching `mcpSyncWaitBound`'s WATCH-018 calibration) instead of ever calling `SyncTrigger.SyncProject` a second time. A `false` result (the common case — nothing running) falls straight through to WATCH-019's existing plain JIT-sync path, unchanged.
 

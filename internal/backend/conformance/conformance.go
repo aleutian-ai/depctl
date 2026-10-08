@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"aleutian-ai/ragctl/internal/backend"
+	"github.com/aleutian-ai/depctl/internal/backend"
 )
 
 const dims = 4
@@ -28,7 +28,7 @@ func Run(t *testing.T, newBackend func(t *testing.T) backend.VectorBackend) {
 		}
 	})
 
-	t.Run("CapabilitiesCoverWhatRagctlRequires", func(t *testing.T) {
+	t.Run("CapabilitiesCoverWhatDepctlRequires", func(t *testing.T) {
 		caps, err := newBackend(t).Capabilities(context.Background())
 		if err != nil {
 			t.Fatalf("Capabilities: %v", err)
@@ -36,7 +36,7 @@ func Run(t *testing.T, newBackend func(t *testing.T) backend.VectorBackend) {
 		// Version-correct retrieval is impossible without a way to search
 		// and a way to filter.
 		if (!caps.VectorSearch && !caps.KeywordSearch) || !caps.MetadataFilter {
-			t.Errorf("Capabilities = %+v; ragctl requires VectorSearch or KeywordSearch, and MetadataFilter", caps)
+			t.Errorf("Capabilities = %+v; depctl requires VectorSearch or KeywordSearch, and MetadataFilter", caps)
 		}
 	})
 

@@ -1,4 +1,4 @@
-// Package git implements ragctl's local Git acquisition layer: one shared
+// Package git implements depctl's local Git acquisition layer: one shared
 // bare mirror per repository (cloned blobless via --filter=blob:none,
 // GIT-005 — full history/tags transfer, file content is fetched lazily
 // on checkout), on-demand tag fetches, ref-to-commit resolution,
@@ -14,7 +14,7 @@
 // the git binary itself, against the mirror/worktree directories git
 // itself manages — never a script or binary found within the fetched
 // content. A dependency's own repository is data to git and to every
-// normalizer that reads its checked-out files, never something ragctl
+// normalizer that reads its checked-out files, never something depctl
 // runs.
 package git
 
@@ -30,9 +30,9 @@ import (
 	"sync"
 	"time"
 
-	"aleutian-ai/ragctl/internal/config"
-	"aleutian-ai/ragctl/internal/executil"
-	"aleutian-ai/ragctl/internal/httplimit"
+	"github.com/aleutian-ai/depctl/internal/config"
+	"github.com/aleutian-ai/depctl/internal/executil"
+	"github.com/aleutian-ai/depctl/internal/httplimit"
 )
 
 // defaultCloneTimeout bounds git clone/fetch, which can be slow over the
@@ -52,7 +52,7 @@ type Cache struct {
 	// externalMirrorRoots (GIT-006) are additional directories, laid
 	// out identically to root (mirrorPath's <host>/<org>/<repo>.git
 	// convention), checked in order before EnsureMirror falls through
-	// to a network clone. Read-only from ragctl's perspective — a hit
+	// to a network clone. Read-only from depctl's perspective — a hit
 	// is seeded into root via `git clone --local`, never read from or
 	// written to in place.
 	externalMirrorRoots []string
@@ -158,7 +158,7 @@ func (c *Cache) EnsureMirror(ctx context.Context, rawURL string) (string, error)
 	}
 
 	// GIT-006: an external directory laid out exactly like c.root itself
-	// (a backup/portable copy of another machine's ragctl cache) seeds
+	// (a backup/portable copy of another machine's depctl cache) seeds
 	// repoPath via a local clone, before ever trying the network. A bad,
 	// missing, or corrupted external root — or a seed clone that fails —
 	// falls straight through to the network clone below, never an error.

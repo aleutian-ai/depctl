@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"aleutian-ai/ragctl/internal/executil"
-	"aleutian-ai/ragctl/internal/resolver"
+	"github.com/aleutian-ai/depctl/internal/executil"
+	"github.com/aleutian-ai/depctl/internal/resolver"
 )
 
 // defaultListTimeout bounds how long `go list` is allowed to run — module
@@ -40,7 +40,7 @@ func isUnresolvedLocalReplaceError(err error) bool {
 	return strings.Contains(msg, "invalid version") || strings.Contains(msg, "module lookup disabled")
 }
 
-// goModule is the subset of `go list -m -json` fields ragctl needs.
+// goModule is the subset of `go list -m -json` fields depctl needs.
 type goModule struct {
 	Path     string
 	Version  string

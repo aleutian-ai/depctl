@@ -35,7 +35,7 @@ type Source struct {
 }
 ```
 
-`Tier` is deliberately not a YAML/schema field — a manifest author never declares it, it's derived purely from which directory the manifest was loaded from, matching `sourceLabel`'s existing role. `yaml:"-" json:"-"` keeps it out of `ParseManifest`'s schema validation and out of `ragctl registry discover`'s draft-manifest YAML rendering (`internal/cli/registry.go`'s `yaml.Marshal(draft)`), so a discovered/drafted manifest never round-trips a stale tier.
+`Tier` is deliberately not a YAML/schema field — a manifest author never declares it, it's derived purely from which directory the manifest was loaded from, matching `sourceLabel`'s existing role. `yaml:"-" json:"-"` keeps it out of `ParseManifest`'s schema validation and out of `depctl registry discover`'s draft-manifest YAML rendering (`internal/cli/registry.go`'s `yaml.Marshal(draft)`), so a discovered/drafted manifest never round-trips a stale tier.
 
 `Registry.add` stamps it:
 
@@ -79,7 +79,7 @@ func trustClassFor(source registry.Source) domain.TrustClass {
 
 Note `fallbackManifest` (`internal/cli/sync.go`, REG-005) constructs a `registry.Source` directly, never through `Registry.add` — its `Tier` is `""`, so `trustClassFor` falls through to `TrustClassForSourceType` unchanged, preserving REG-005's documented `TrustRepository` result exactly.
 
-Surface in `ragctl describe` (`internal/cli/describe.go`): `SourceEntry` gains a `Tier` field next to the existing `TrustClass`:
+Surface in `depctl describe` (`internal/cli/describe.go`): `SourceEntry` gains a `Tier` field next to the existing `TrustClass`:
 
 ```go
 type SourceEntry struct {
@@ -94,11 +94,11 @@ type SourceEntry struct {
 }
 ```
 
-populated at the same call site that already builds `SourceEntry{...}` from a `registry.Source` and calls `generation.TrustClassForSourceType(s.Type)` — that call becomes the new `trustClassFor`-equivalent logic (either exported from `generation` or duplicated as a small unexported helper in `internal/cli`, matching whichever `internal/cli` already does for similar generation-package reuse — check `describe.go`'s existing import of `"aleutian-ai/ragctl/internal/data/generation"` before deciding; likely just export `trustClassFor` from `generation` alongside `TrustClassForSourceType`).
+populated at the same call site that already builds `SourceEntry{...}` from a `registry.Source` and calls `generation.TrustClassForSourceType(s.Type)` — that call becomes the new `trustClassFor`-equivalent logic (either exported from `generation` or duplicated as a small unexported helper in `internal/cli`, matching whichever `internal/cli` already does for similar generation-package reuse — check `describe.go`'s existing import of `"github.com/aleutian-ai/depctl/internal/data/generation"` before deciding; likely just export `trustClassFor` from `generation` alongside `TrustClassForSourceType`).
 
 ## Inputs / Outputs
 - Input: a `Source` as loaded by `Registry.add` (tier known from `sourceLabel`) or constructed synthetically (REG-005 fallback, no tier).
-- Output: `Source.Tier` populated for every registry-loaded source; `KnowledgeObject.TrustClass` is `domain.TrustUser` for any object built from a `user`/`project`-tier source, unchanged (`TrustClassForSourceType`-derived) for `builtin`-tier and untiered (fallback) sources; `ragctl describe`'s `SourceEntry.Tier` visible in text/JSON/HTML output.
+- Output: `Source.Tier` populated for every registry-loaded source; `KnowledgeObject.TrustClass` is `domain.TrustUser` for any object built from a `user`/`project`-tier source, unchanged (`TrustClassForSourceType`-derived) for `builtin`-tier and untiered (fallback) sources; `depctl describe`'s `SourceEntry.Tier` visible in text/JSON/HTML output.
 
 ## Failure behavior
 - No new failure mode — `Tier` is metadata, not a validated/required field. An empty `Tier` (fallback sources, or any `Source` constructed outside `Registry.add`, e.g. `runRegistryDiscover`'s draft) is a valid state and classifies via the existing `TrustClassForSourceType` path.
@@ -108,10 +108,10 @@ populated at the same call site that already builds `SourceEntry{...}` from a `r
 - A source loaded from a built-in manifest is unaffected — same `TrustClass` result as before this ticket.
 - REG-005's `fallbackManifest` path still produces `TrustClass: TrustRepository` exactly as documented in REG-005's post-implementation note — regression check that untiered sources aren't accidentally swept into `TrustUser`.
 - After REG-009's merge, a manifest with one built-in-tier source and one project-tier source (merged by ID) produces objects with the correct, per-source `TrustClass` — not a single manifest-wide trust level.
-- `ragctl describe` output (text and `--json`) shows `Tier` for a registry-loaded source and omits/empties it for a fallback source.
+- `depctl describe` output (text and `--json`) shows `Tier` for a registry-loaded source and omits/empties it for a fallback source.
 
 ## Acceptance criteria
 - [ ] `Source.Tier` is stamped by `Registry.add` from its existing `sourceLabel` parameter, never set via YAML/schema.
 - [ ] A user- or project-tier source's objects carry `domain.TrustUser`, not a `Type`-derived class.
 - [ ] Built-in-tier and untiered (REG-005 fallback) sources are classified exactly as before this ticket.
-- [ ] `ragctl describe`'s `SourceEntry` surfaces `Tier` alongside `TrustClass`.
+- [ ] `depctl describe`'s `SourceEntry` surfaces `Tier` alongside `TrustClass`.

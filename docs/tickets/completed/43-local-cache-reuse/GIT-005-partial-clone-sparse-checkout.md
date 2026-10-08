@@ -6,7 +6,7 @@
 **Estimated size:** medium
 
 ## Goal
-Cut the bandwidth/disk cost of `internal/source/git`'s `EnsureMirror` clone by fetching only the file content ragctl actually reads — doc-shaped files by default — instead of every blob in the repo's entire history, using git's own partial-clone (`--filter=blob:none`) and sparse-checkout features. Unlike GIT-004 (local package-manager cache reuse), this helps on *every* clone, not just the ones where a local cache happens to already have the resolved version, and it doesn't sacrifice the full commit/tag history cross-version diffing needs — a blobless partial clone still transfers complete history/tree metadata, it just defers blob content until something actually checks it out.
+Cut the bandwidth/disk cost of `internal/source/git`'s `EnsureMirror` clone by fetching only the file content depctl actually reads — doc-shaped files by default — instead of every blob in the repo's entire history, using git's own partial-clone (`--filter=blob:none`) and sparse-checkout features. Unlike GIT-004 (local package-manager cache reuse), this helps on *every* clone, not just the ones where a local cache happens to already have the resolved version, and it doesn't sacrifice the full commit/tag history cross-version diffing needs — a blobless partial clone still transfers complete history/tree metadata, it just defers blob content until something actually checks it out.
 
 ## Non-goals
 - No change to what gets *indexed* — this only changes what gets *fetched* to feed the same normalizers that already exist (`internal/normalize/*`). Indexing scope is explicitly out of scope for this whole conversation's changes.
@@ -32,7 +32,7 @@ Cut the bandwidth/disk cost of `internal/source/git`'s `EnsureMirror` clone by f
 - `--filter=blob:none` unsupported by the local git version or the remote host: fall back to today's unfiltered `--mirror` clone — this is a network/tooling compatibility fallback, not a per-repo content decision.
 
 ## Tests
-- A worktree checked out with the doc-pattern set contains `.md`/`.txt`/`LICENSE`-shaped files and excludes files ragctl's normalizers don't match (e.g. `.png`, `.lock` files, `node_modules/`).
+- A worktree checked out with the doc-pattern set contains `.md`/`.txt`/`LICENSE`-shaped files and excludes files depctl's normalizers don't match (e.g. `.png`, `.lock` files, `node_modules/`).
 - Measured bandwidth/blob-count reduction against a real, moderately large public repo (recorded in the post-implementation note, not just asserted) — this ticket's entire value proposition is quantitative, so it needs a real before/after number, not just "fewer files checked out."
 - A synthetic repo whose docs live under a pattern the default set doesn't match falls back to a full checkout and still produces normalized output (proves the fallback path actually recovers, not just detects the miss).
 - Release-note/cross-version diffing (which needs history, not working-tree content, for most of its work) is unaffected — full history is still present after a blobless partial clone.

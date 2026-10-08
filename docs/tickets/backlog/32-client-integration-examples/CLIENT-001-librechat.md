@@ -6,10 +6,10 @@
 **Estimated size:** small
 
 ## Goal
-Provide an example MCP configuration for connecting LibreChat to a running `ragctl serve` instance.
+Provide an example MCP configuration for connecting LibreChat to a running `depctl serve` instance.
 
 ## Non-goals
-- No LibreChat-specific code in `ragctl` core — configuration/documentation only.
+- No LibreChat-specific code in `depctl` core — configuration/documentation only.
 
 ## Simplicity constraints
 - A single example config file plus a short README; no custom LibreChat plugin or bespoke integration layer.
@@ -19,8 +19,8 @@ Directory: `examples/librechat/`
 
 ```text
 examples/librechat/
-  librechat.yaml   # MCP server entry pointing at `ragctl serve`'s stdio/HTTP MCP endpoint
-  README.md        # setup steps: run `ragctl serve`, add config, restart LibreChat
+  librechat.yaml   # MCP server entry pointing at `depctl serve`'s stdio/HTTP MCP endpoint
+  README.md        # setup steps: run `depctl serve`, add config, restart LibreChat
 ```
 
 Config should show both stdio-launch and HTTP-endpoint MCP registration forms if LibreChat supports both, matching whatever transport MCP-001 selected.
@@ -36,5 +36,5 @@ N/A.
 N/A — manually verified against a real LibreChat instance before merging; not part of the Go test suite.
 
 ## Acceptance criteria
-- [ ] Example config matches the actual MCP transport `ragctl serve` exposes.
+- [ ] Example config matches the actual MCP transport `depctl serve` exposes.
 - [ ] README walks through setup end-to-end.

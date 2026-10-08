@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"aleutian-ai/ragctl/internal/data/generation"
-	"aleutian-ai/ragctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/data/generation"
+	"github.com/aleutian-ai/depctl/internal/domain"
 )
 
 func TestSanityAutoPassesWithNoPrior(t *testing.T) {

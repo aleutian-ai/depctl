@@ -3,7 +3,7 @@
 // standalone documentation) from a plain-text manifest of URLs — the
 // raw-HTTP counterpart to hack/fetch-corpus, which only handles git
 // repos. A .zip URL is extracted; anything else (e.g. a PDF technical
-// doc) is downloaded as a plain file. Not part of the ragctl binary — a
+// doc) is downloaded as a plain file. Not part of the depctl binary — a
 // dev tool for building an offline corpus.
 package main
 

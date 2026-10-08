@@ -1,6 +1,6 @@
 # internal/domain
 
-`internal/domain` defines ragctl's core data types and lifecycle state machines, shared by every other package in the codebase. It has no dependencies on storage, network, or CLI packages — it exists purely so that resolvers, storage, normalization, chunking, generation, validation, and the CLI all agree on one shared vocabulary (`Project`, `Dependency`, `KnowledgeObject`, `Generation`, ...) without importing each other. Types are added incrementally as the commands that need them land, not sketched up front (see `docs/tickets/completed/02-core-domain-storage/CORE-001-domain-types.md`).
+`internal/domain` defines depctl's core data types and lifecycle state machines, shared by every other package in the codebase. It has no dependencies on storage, network, or CLI packages — it exists purely so that resolvers, storage, normalization, chunking, generation, validation, and the CLI all agree on one shared vocabulary (`Project`, `Dependency`, `KnowledgeObject`, `Generation`, ...) without importing each other. Types are added incrementally as the commands that need them land, not sketched up front (see `docs/tickets/completed/02-core-domain-storage/CORE-001-domain-types.md`).
 
 ## Key types and functions
 
@@ -50,7 +50,7 @@ flowchart TD
 
 ## Walkthrough
 
-Concrete scenario: a project depends on `google.golang.org/grpc@v1.67.0`, matched by the registry to a single `git` source, and `ragctl sync` drives it through a full generation lifecycle to `ACTIVE` on the `qdrant` backend (any `vector.backend` works the same way; `embedded` is the default for fresh installs).
+Concrete scenario: a project depends on `google.golang.org/grpc@v1.67.0`, matched by the registry to a single `git` source, and `depctl sync` drives it through a full generation lifecycle to `ACTIVE` on the `qdrant` backend (any `vector.backend` works the same way; `embedded` is the default for fresh installs).
 
 1. The dependency arrives as a `domain.DependencyVersion` (`internal/domain/domain.go`):
    ```go
@@ -94,7 +94,7 @@ Concrete scenario: a project depends on `google.golang.org/grpc@v1.67.0`, matche
    - looks up the prior active-generation pointer under key `"go|google.golang.org/grpc|v1.67.0|qdrant"` (`activeGenerationKey`, `internal/control/bbolt/active_generations.go`) in the `active_generations` bucket. Active generations are per dependency *version* (ADR-012), so only an earlier build of this same version is replaced; other active versions of grpc are untouched. Say it finds `gen_01M1Z8...` from an earlier rebuild of `v1.67.0`: it loads it and flips its `State` to `domain.GenSuperseded` (`"SUPERSEDED"`, the `ACTIVE -> SUPERSEDED` edge);
    - sets `candidate.State = domain.GenActive` (`"ACTIVE"`, the `READY -> ACTIVE` edge) and writes it to the `generations` bucket under key `gen_01M25QRMA23F4YSE4FNZVRYWBK`;
    - repoints `active_generations["go|google.golang.org/grpc|v1.67.0|qdrant"]` to `gen_01M25QRMA23F4YSE4FNZVRYWBK`.
-7. A later `ragctl gc` pass (`internal/retention` plans it as a superseded duplicate, `internal/lifecycle/gc` executes it) deletes the superseded `gen_01M1Z8...` from the search index, Badger and bbolt — it does not pass through `GC_ELIGIBLE`/`DELETED`. `gen_01M25...` stays `ACTIVE` until it is rebuilt or `v1.67.0` stops being referenced and is collected.
+7. A later `depctl gc` pass (`internal/retention` plans it as a superseded duplicate, `internal/lifecycle/gc` executes it) deletes the superseded `gen_01M1Z8...` from the search index, Badger and bbolt — it does not pass through `GC_ELIGIBLE`/`DELETED`. `gen_01M25...` stays `ACTIVE` until it is rebuilt or `v1.67.0` stops being referenced and is collected.
 
 ## Notes
 

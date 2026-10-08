@@ -3,7 +3,7 @@ package golang
 import (
 	"fmt"
 
-	"aleutian-ai/ragctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/domain"
 )
 
 // normalize converts raw go list modules into the domain's canonical

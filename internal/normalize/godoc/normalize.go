@@ -12,8 +12,8 @@ import (
 	"sort"
 	"strings"
 
-	"aleutian-ai/ragctl/internal/domain"
-	"aleutian-ai/ragctl/internal/normalize"
+	"github.com/aleutian-ai/depctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/normalize"
 )
 
 // Normalize parses the Go package directory at src.LocalPath and emits

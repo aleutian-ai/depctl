@@ -1,4 +1,4 @@
-# OPS-002: `ragctl doctor`
+# OPS-002: `depctl doctor`
 
 **Epic:** Status and Doctor
 **Status:** done
@@ -6,17 +6,17 @@
 **Estimated size:** small
 
 ## Goal
-Implement `ragctl doctor`, running a fixed list of health checks and reporting overall system health via output and exit code.
+Implement `depctl doctor`, running a fixed list of health checks and reporting overall system health via output and exit code.
 
 ## Non-goals
-- Auto-repair (`ragctl repair`) — mentioned in the design spec as a future command; do not build it here, only diagnose.
+- Auto-repair (`depctl repair`) — mentioned in the design spec as a future command; do not build it here, only diagnose.
 
 ## Simplicity constraints
 - Checks are a flat, ordered list of `func() CheckResult` — no plugin/registration framework needed for a dozen checks.
 - Exit-code logic is a simple max-severity reduction over check results; nothing more elaborate.
 
 ## Design
-Package: `internal/ops` (extends OPS-001) + `cmd/ragctl` `doctor` command.
+Package: `internal/ops` (extends OPS-001) + `cmd/depctl` `doctor` command.
 
 ```go
 type CheckResult struct {
@@ -71,9 +71,9 @@ Exit codes:
 Shipped in `internal/cli/doctor.go`, alongside `status` (same reasoning as OPS-001's note). `doctorChecks` is the flat ordered list the simplicity constraint asks for; each check reads a shared `doctorEnv` (config, bbolt, Badger, registry) opened once up front. Open failures are kept rather than returned: the owning check reports the error, and checks that depend on it report `not checked: <dependency> unavailable`, so a broken subsystem never aborts the run. `Severity`'s values are the exit codes, and `cli.ExitCodeError` carries the code to `main`.
 
 Checks reconciled to the code as it exists, rather than built literally:
-- **Stale job leases → stale jobs.** ragctl has no leases; jobs run synchronously inside one CLI invocation (`internal/lifecycle/gc`). A job still `RUNNING` after an hour means its process died, so that is what's flagged (Warning — re-running `ragctl gc` resumes it).
+- **Stale job leases → stale jobs.** depctl has no leases; jobs run synchronously inside one CLI invocation (`internal/lifecycle/gc`). A job still `RUNNING` after an hour means its process died, so that is what's flagged (Warning — re-running `depctl gc` resumes it).
 - **Package-manager executables** only maps ecosystems whose resolver shells out: today just `go`. The node and python resolvers parse lockfiles, so `npm`/`uv` are never required; `cargo`/`mvn`/`gradle` have no resolver yet.
-- **Active generation exists** checks pointer integrity (every configured-backend pointer resolves to a generation record in state `ACTIVE`). Zero active generations is a Warning. "Is everything referenced synced?" is `ragctl plan`'s job, and doing it here would warn forever about packages with no registry manifest.
+- **Active generation exists** checks pointer integrity (every configured-backend pointer resolves to a generation record in state `ACTIVE`). Zero active generations is a Warning. "Is everything referenced synced?" is `depctl plan`'s job, and doing it here would warn forever about packages with no registry manifest.
 - **Schema version**: an on-disk version newer than the binary is rejected by `bboltstore.Open` itself (STORE-002), so the check surfaces that open error, which names both versions.
 - **Embedding model compatibility** compares each active replica's `EmbeddingModel` with the configured `embedding.model` (Unhealthy on mismatch: queries embed with the configured model).
 

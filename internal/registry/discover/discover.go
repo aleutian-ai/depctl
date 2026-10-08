@@ -1,7 +1,7 @@
 // Package discover finds candidate knowledge sources for a package from
 // its own ecosystem's structured metadata (npm's repository field,
 // PyPI's project_urls/home_page). Results are never applied to a loaded
-// registry automatically — `ragctl registry discover` only prints them as a
+// registry automatically — `depctl registry discover` only prints them as a
 // draft manifest for a human to review.
 package discover
 
@@ -13,10 +13,10 @@ import (
 	"sort"
 	"strings"
 
-	"aleutian-ai/ragctl/internal/config"
-	"aleutian-ai/ragctl/internal/domain"
-	"aleutian-ai/ragctl/internal/httplimit"
-	"aleutian-ai/ragctl/internal/registry"
+	"github.com/aleutian-ai/depctl/internal/config"
+	"github.com/aleutian-ai/depctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/httplimit"
+	"github.com/aleutian-ai/depctl/internal/registry"
 )
 
 // npmRegistryURL/pypiURL are overridden by tests to point at a local

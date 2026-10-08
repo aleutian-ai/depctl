@@ -1,6 +1,6 @@
 # Epic: Java Resolver
 
-**Declined (2026-09-30)** — not a technical blocker, a deliberate priority call. Backlog triage confirmed the shipped `Resolver` interface (`internal/resolver`) is already fully ecosystem-agnostic and `domain.Ecosystem` already carries an unused `EcosystemJava` constant — adding Java support later is "write one more implementation of an interface that already exists," not an architecture project. See each ticket's own "Declined" note for the full reasoning. Not prioritized right now; trivial to pick back up whenever a real Java project needs ragctl.
+**Declined (2026-09-30)** — not a technical blocker, a deliberate priority call. Backlog triage confirmed the shipped `Resolver` interface (`internal/resolver`) is already fully ecosystem-agnostic and `domain.Ecosystem` already carries an unused `EcosystemJava` constant — adding Java support later is "write one more implementation of an interface that already exists," not an architecture project. See each ticket's own "Declined" note for the full reasoning. Not prioritized right now; trivial to pick back up whenever a real Java project needs depctl.
 
 Detect Maven and Gradle projects and resolve exact `group:artifact:version` dependency identities. Java is the most operationally variable of the five v1 ecosystems and should be built last; ship honest partial support rather than a fragile complete one.
 

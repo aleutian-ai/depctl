@@ -22,7 +22,7 @@ func TestAllStoreTouchingCommandsSucceedAgainstOneRealDaemon(t *testing.T) {
 	isolateEnv(t)
 	requireGo(t)
 	runInitForTest(t)
-	useRealRagctlBinary(t)
+	useRealDepctlBinary(t)
 	noAmbientSync(t) // keep this test's own command sequence in full control of when sync runs
 
 	root := scanDepFixture(t) // also registers the project — re-scanning below must be a safe no-op

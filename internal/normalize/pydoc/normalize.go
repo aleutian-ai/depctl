@@ -9,8 +9,8 @@ import (
 	"os/exec"
 	"path/filepath"
 
-	"aleutian-ai/ragctl/internal/domain"
-	"aleutian-ai/ragctl/internal/normalize"
+	"github.com/aleutian-ai/depctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/normalize"
 )
 
 //go:embed extract.py
@@ -37,7 +37,7 @@ type extractedModule struct {
 // symbol_doc object per resolved public symbol. A dependency with no
 // resolvable entry module, or no `python3` on PATH, never reaches here —
 // Supports already returned false for both. `python3` present but the
-// embedded extract.py itself failing to run is a ragctl packaging
+// embedded extract.py itself failing to run is a depctl packaging
 // defect, not this dependency's own gap — returned as a real error.
 func (n *Normalizer) Normalize(ctx context.Context, src domain.SourceSnapshot) ([]domain.KnowledgeObject, error) {
 	entry, ok := entryModuleFile(src.LocalPath)

@@ -22,7 +22,7 @@ Directory: `examples/llamaindex-sidecar/`
 examples/llamaindex-sidecar/
   main.py          # reads LLAMA-001 request JSON from stdin, writes response JSON to stdout
   requirements.txt # llama-index-core and whichever reader is demonstrated
-  README.md        # how to point ragctl's external normalizer config at this script
+  README.md        # how to point depctl's external normalizer config at this script
 ```
 
 `main.py` should map a LlamaIndex `Document`/`Node` split into the `objects` array from the LLAMA-001 response schema (`logical_path`, `title`, `content_type`, `content`, etc.).
@@ -39,5 +39,5 @@ Script exits non-zero with an error message on stderr for any parse failure; `Ex
 
 ## Acceptance criteria
 - [ ] `examples/llamaindex-sidecar/main.py` implements the LLAMA-001 protocol correctly.
-- [ ] README documents how to configure `ragctl` to use it as an external normalizer.
+- [ ] README documents how to configure `depctl` to use it as an external normalizer.
 - [ ] Clearly labeled as an example, not a supported core component.

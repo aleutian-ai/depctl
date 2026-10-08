@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"aleutian-ai/ragctl/internal/config"
+	"github.com/aleutian-ai/depctl/internal/config"
 )
 
 // vectorReprobeCooldown bounds how often a down backend is re-probed, so a
@@ -85,9 +85,9 @@ func (r *vectorReadiness) checkReady() error {
 		// answer in falling through here.
 		return nil
 	case vectorStateChecking:
-		return fmt.Errorf("ragctl is checking its vector backend — retry shortly, or run `ragctl daemon status` for progress")
+		return fmt.Errorf("depctl is checking its vector backend — retry shortly, or run `depctl daemon status` for progress")
 	case vectorStateStarting:
-		return fmt.Errorf("ragctl is starting its managed Qdrant container (%s) — retry shortly, or run `ragctl daemon status` for progress", detail)
+		return fmt.Errorf("depctl is starting its managed Qdrant container (%s) — retry shortly, or run `depctl daemon status` for progress", detail)
 	case vectorStateUnreachable:
 		return fmt.Errorf("vector backend unreachable: %s", detail)
 	case vectorStateError:
@@ -120,7 +120,7 @@ func (r *vectorReadiness) reprobeIfDown() {
 // background (called as its own goroutine from runDaemonRun) — entirely
 // off any client's request path, so no MCP tool call or CLI command
 // ever blocks on this. If it's unreachable and cfg.Vector.Managed is
-// true (WATCH-016), it attempts to start ragctl's own Qdrant container
+// true (WATCH-016), it attempts to start depctl's own Qdrant container
 // via podman/docker before giving up; otherwise it just reports the
 // failure, same as before WATCH-016.
 func checkVectorReadiness(ctx context.Context, cfg config.Config, readiness *vectorReadiness, logf func(format string, args ...any)) {

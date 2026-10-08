@@ -7,12 +7,12 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"aleutian-ai/ragctl/internal/domain"
-	"aleutian-ai/ragctl/internal/resolver"
+	"github.com/aleutian-ai/depctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/resolver"
 )
 
 // pnpmLockFile is the subset of pnpm-lock.yaml's schema (current,
-// lockfileVersion 9.x) ragctl needs.
+// lockfileVersion 9.x) depctl needs.
 type pnpmLockFile struct {
 	Importers map[string]pnpmImporter `yaml:"importers"`
 	Packages  map[string]any          `yaml:"packages"` // only key names matter

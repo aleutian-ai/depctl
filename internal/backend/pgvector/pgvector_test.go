@@ -11,8 +11,8 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 
-	"aleutian-ai/ragctl/internal/backend"
-	"aleutian-ai/ragctl/internal/backend/conformance"
+	"github.com/aleutian-ai/depctl/internal/backend"
+	"github.com/aleutian-ai/depctl/internal/backend/conformance"
 )
 
 // requireContainerRuntime skips when no Docker-API-compatible runtime is
@@ -26,7 +26,7 @@ func requireContainerRuntime(t *testing.T) {
 
 // startPostgres runs a real Postgres with pgvector available and returns
 // its DSN (without the password, which is passed separately, the way
-// ragctl's config supplies it).
+// depctl's config supplies it).
 func startPostgres(t *testing.T) (dsn, password string) {
 	t.Helper()
 	requireContainerRuntime(t)
@@ -84,7 +84,7 @@ func TestPgvectorSpecifics(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	ns := backend.Namespace{Name: "ragctl-specifics", Dimensions: 4, Distance: "cosine"}
+	ns := backend.Namespace{Name: "depctl-specifics", Dimensions: 4, Distance: "cosine"}
 	if err := a.EnsureNamespace(ctx, ns); err != nil {
 		t.Fatalf("EnsureNamespace: %v", err)
 	}
@@ -109,7 +109,7 @@ func TestPgvectorSpecifics(t *testing.T) {
 	})
 
 	t.Run("UnsupportedDistanceIsRejected", func(t *testing.T) {
-		if err := a.EnsureNamespace(ctx, backend.Namespace{Name: "ragctl-dot", Dimensions: 4, Distance: "dot"}); err == nil {
+		if err := a.EnsureNamespace(ctx, backend.Namespace{Name: "depctl-dot", Dimensions: 4, Distance: "dot"}); err == nil {
 			t.Fatal("EnsureNamespace with distance \"dot\" succeeded, want an error")
 		}
 	})

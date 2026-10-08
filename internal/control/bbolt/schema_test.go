@@ -26,7 +26,7 @@ func TestOpenRefusesFutureSchemaVersion(t *testing.T) {
 
 	// Write a schema_version ahead of what this binary understands
 	// directly via the raw bbolt handle, simulating a database left
-	// behind by a newer ragctl binary.
+	// behind by a newer depctl binary.
 	db, err := bolt.Open(path, 0o600, nil)
 	if err != nil {
 		t.Fatalf("bolt.Open: %v", err)

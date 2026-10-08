@@ -6,7 +6,7 @@
 **Estimated size:** small
 
 ## Goal
-Define a thin, narrow interface that lets ragctl ask "what dependency symbol does this call site refer to?" without ragctl building or owning any graph/LSP/symbol-indexing infrastructure itself. This ticket ships only the interface and the struct it returns — no backing implementation.
+Define a thin, narrow interface that lets depctl ask "what dependency symbol does this call site refer to?" without depctl building or owning any graph/LSP/symbol-indexing infrastructure itself. This ticket ships only the interface and the struct it returns — no backing implementation.
 
 ## Non-goals
 - **This is not a control plane.** `SymbolProvider` does not manage indexing lifecycle, does not own a symbol database, does not schedule background graph builds, and does not know anything about a project beyond answering one resolution call. If a future need for orchestration/scheduling around symbol providers emerges, that's new scope for a different ticket, not something GRAPH-001 grows into.
@@ -35,7 +35,7 @@ type ExternalSymbolRef struct {
 
 // CallSite identifies one place in project source code that a
 // SymbolProvider is asked to resolve — file + position is enough for
-// any LSP-like provider to answer; no ragctl-specific project state is
+// any LSP-like provider to answer; no depctl-specific project state is
 // threaded through it.
 type CallSite struct {
     File   string // path relative to the project root
@@ -46,7 +46,7 @@ type CallSite struct {
 // SymbolProvider resolves one call site to the external symbol it
 // refers to. Implementations back this with whatever graph/LSP/symbol
 // index they choose (SCIP, gopls, CodebaseMemory, GitNexus, ...) —
-// ragctl only depends on this interface, never on a specific provider.
+// depctl only depends on this interface, never on a specific provider.
 type SymbolProvider interface {
     // Resolve returns the ExternalSymbolRef the call site refers to, or
     // (ExternalSymbolRef{}, false, nil) if the call site resolves to
@@ -72,4 +72,4 @@ type SymbolProvider interface {
 ## Acceptance criteria
 - [x] `internal/symbolgraph.SymbolProvider`, `ExternalSymbolRef`, and `CallSite` defined exactly as above (or with only additive, non-breaking field additions if real-world provider testing during implementation reveals a genuinely necessary field).
 - [x] No backing implementation, no provider selection logic, no caching added in this ticket.
-- [x] Package compiles standalone with no dependency on `internal/query`, `internal/control/bbolt`, or `internal/registry` — this interface knows nothing about ragctl's own domain model, only about symbols and call sites.
+- [x] Package compiles standalone with no dependency on `internal/query`, `internal/control/bbolt`, or `internal/registry` — this interface knows nothing about depctl's own domain model, only about symbols and call sites.

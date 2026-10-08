@@ -9,7 +9,7 @@
 When GDAL is available on the machine running `hack/fetch-geodata`, record basic spatial facts (CRS, layer names, geometry types, feature counts, field names) into `dataset.json` — enough for a downstream tool or an LLM prompt to know "9,129 California tract polygons, NAD83, fields GEOID/NAME/ALAND/AWATER, stored here" without opening the shapefile.
 
 ## Non-goals
-- No GDAL dependency added to `ragctl` itself or to `go.mod` — this shells out to `ogrinfo`/`gdalinfo` (or uses a Go GDAL binding) only from the `hack/fetch-geodata` dev tool, and only when found on `$PATH`.
+- No GDAL dependency added to `depctl` itself or to `go.mod` — this shells out to `ogrinfo`/`gdalinfo` (or uses a Go GDAL binding) only from the `hack/fetch-geodata` dev tool, and only when found on `$PATH`.
 - No support for every OGR-readable format — shapefiles and GeoPackages (what TIGER/NOAA ENC actually use) are enough; skip silently for anything else.
 - Not a hard dependency: if GDAL isn't installed, `dataset.json` is written without the `spatial` section and the fetch still succeeds.
 

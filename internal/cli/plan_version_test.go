@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	bboltstore "aleutian-ai/ragctl/internal/control/bbolt"
-	"aleutian-ai/ragctl/internal/domain"
-	"aleutian-ai/ragctl/internal/planner"
+	bboltstore "github.com/aleutian-ai/depctl/internal/control/bbolt"
+	"github.com/aleutian-ai/depctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/planner"
 )
 
 // planVersionFixture is a real bbolt store holding one project whose

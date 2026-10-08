@@ -6,7 +6,7 @@
 **Estimated size:** small
 
 ## Goal
-Wire GC-001's `retention.PlanOrphanGC` into `ragctl gc` behind an explicit, opt-in `--orphans` flag, with the age threshold configurable via a new `config.Retention.OrphanAge` field. `ragctl gc --orphans --dry-run` prints candidates without deleting anything; `ragctl gc --orphans` prints and deletes them (once GC-003's deletion path exists). Orphan cleanup is never implicit — running plain `ragctl gc` (no `--orphans`) is completely unaffected, still only the existing reference-based `retention.PlanGC`/`gc.Run` path.
+Wire GC-001's `retention.PlanOrphanGC` into `depctl gc` behind an explicit, opt-in `--orphans` flag, with the age threshold configurable via a new `config.Retention.OrphanAge` field. `depctl gc --orphans --dry-run` prints candidates without deleting anything; `depctl gc --orphans` prints and deletes them (once GC-003's deletion path exists). Orphan cleanup is never implicit — running plain `depctl gc` (no `--orphans`) is completely unaffected, still only the existing reference-based `retention.PlanGC`/`gc.Run` path.
 
 ## Non-goals
 - No default-on behavior, ever, for v1 — matches the design doc's explicit safety note (§11.2: "Do not make orphan cleanup implicit until behavior is well tested").
@@ -72,7 +72,7 @@ func runOrphanGC(cmd *cobra.Command, dryRun bool) error {
 	}
 	defer store.Close()
 
-	cfg, err := loadRagctlConfig()
+	cfg, err := loadDepctlConfig()
 	if err != nil {
 		return err
 	}
@@ -103,7 +103,7 @@ func runOrphanGC(cmd *cobra.Command, dryRun bool) error {
 (`runOrphanDeletion` is GC-003's addition; this ticket's own acceptance criteria only require the dry-run branch to be real and complete — the non-dry-run branch may land as part of this ticket or GC-003 depending on implementation order, but the flag/report/config shape above is this ticket's full scope either way.)
 
 ## Inputs / Outputs
-- Input: `ragctl gc --orphans [--dry-run]`; `config.yaml`'s `retention.orphan_age` (duration string, e.g. `"24h"`).
+- Input: `depctl gc --orphans [--dry-run]`; `config.yaml`'s `retention.orphan_age` (duration string, e.g. `"24h"`).
 - Output: a report table (ecosystem, package, version, state, reason, generation ID) to stdout for every orphan candidate; with `--dry-run`, nothing is deleted; without it, GC-003's deletion runs and per-candidate OK/FAIL lines are printed, matching `runGC`'s existing report style.
 
 ## Failure behavior
@@ -112,21 +112,21 @@ func runOrphanGC(cmd *cobra.Command, dryRun bool) error {
 - A backend/store error during planning aborts with a non-zero exit and wrapped error, same convention as `runGC`.
 
 ## Tests
-- `ragctl gc --orphans --dry-run` against a fixture bbolt store with one `FAILED` and one healthy `ACTIVE` generation: prints exactly the `FAILED` one, deletes nothing (fixture store unchanged after the run).
-- `ragctl gc` (no `--orphans`) against the same fixture: behavior and output identical to before this ticket — orphan generations are invisible to the normal path.
-- `ragctl gc --orphans` (no `--dry-run`) against a fixture with a real orphan candidate: candidate is deleted (once GC-003 lands) and reported as `OK`, matching `runGC`'s existing per-candidate report format.
+- `depctl gc --orphans --dry-run` against a fixture bbolt store with one `FAILED` and one healthy `ACTIVE` generation: prints exactly the `FAILED` one, deletes nothing (fixture store unchanged after the run).
+- `depctl gc` (no `--orphans`) against the same fixture: behavior and output identical to before this ticket — orphan generations are invisible to the normal path.
+- `depctl gc --orphans` (no `--dry-run`) against a fixture with a real orphan candidate: candidate is deleted (once GC-003 lands) and reported as `OK`, matching `runGC`'s existing per-candidate report format.
 - Config round-trip: a `config.yaml` with `retention.orphan_age: 48h` loads into `cfg.Retention.OrphanAge == 48*time.Hour`; an absent `orphan_age` key loads the default.
 - `config.Validate()` rejects a negative `orphan_age`.
 
 ## Acceptance criteria
 - [x] `config.RetentionConfig.OrphanAge` exists, defaults to 24h, validated non-negative.
-- [x] `ragctl gc --orphans --dry-run` reports orphan candidates and deletes nothing.
-- [x] `ragctl gc --orphans` (without `--dry-run`) reports and deletes orphan candidates.
-- [x] `ragctl gc` with no `--orphans` flag is behaviorally unchanged from before this ticket.
-- [x] `--orphans` is documented in `ragctl gc --help` output (cobra flag description).
+- [x] `depctl gc --orphans --dry-run` reports orphan candidates and deletes nothing.
+- [x] `depctl gc --orphans` (without `--dry-run`) reports and deletes orphan candidates.
+- [x] `depctl gc` with no `--orphans` flag is behaviorally unchanged from before this ticket.
+- [x] `--orphans` is documented in `depctl gc --help` output (cobra flag description).
 
 ## Post-implementation note
-The design section's sketch (`openControlStore()` directly inside a CLI command) predated full awareness that `ragctl gc` had already become a thin daemon client (WATCH-008/009): `runGC` calls `ensureDaemon`/`c.GC`, and the real work (`RunGC`) runs server-side inside the daemon via `/v1/gc`. Implemented against the real architecture instead of the stale sketch — `api.GCRequest` gained an `Orphans` field, `daemon.Engine` gained an `OrphanGC` method, and `handleGC` branches on `req.Orphans` to call a new `Scheduler.RequestOrphanGC` instead of the existing `RequestGC`.
+The design section's sketch (`openControlStore()` directly inside a CLI command) predated full awareness that `depctl gc` had already become a thin daemon client (WATCH-008/009): `runGC` calls `ensureDaemon`/`c.GC`, and the real work (`RunGC`) runs server-side inside the daemon via `/v1/gc`. Implemented against the real architecture instead of the stale sketch — `api.GCRequest` gained an `Orphans` field, `daemon.Engine` gained an `OrphanGC` method, and `handleGC` branches on `req.Orphans` to call a new `Scheduler.RequestOrphanGC` instead of the existing `RequestGC`.
 
 That scheduler method was scoped deliberately narrower than reusing `RequestGC`'s dirty/pending/waiters coalescing machinery would have required: threading a second "kind" through that existing state machine (17 pre-existing tests depend on its exact shape) risked real correctness bugs in already-subtle code, for a coalescing behavior orphan GC doesn't actually need — it's manual/opt-in, never auto-fired the way sync (and therefore reference-based GC's own coalescing need) is. `RequestOrphanGC` instead reuses only the same `s.global` mutex (preserving "GC and sync never interleave") and `s.inFlight`/shutdown bookkeeping, with no coalescing at all — each caller gets its own real run. This required zero changes to `NewScheduler`'s constructor or any existing scheduler test. Caught one real bug in review before it shipped: `RequestOrphanGC` originally passed a caller's possibly-nil `out` straight to `run()`, unlike `RequestGC`'s callers, which always get a nil-safe `io.Discard` fallback via `writerForGC` — a test calling `RequestOrphanGC(..., nil)` panicked on `fmt.Fprintf(nil, ...)`. Fixed with the same nil-to-`io.Discard` default, inline.
 

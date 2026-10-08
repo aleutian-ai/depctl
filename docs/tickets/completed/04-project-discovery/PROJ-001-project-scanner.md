@@ -10,7 +10,7 @@ Implement directory walking that detects project roots for all v0.1 ecosystems b
 
 ## Non-goals
 - No dependency resolution here — detection only (resolution is RES-*/GO-*/PY-*/etc.).
-- No `.ragctl.yaml` project config parsing yet.
+- No `.depctl.yaml` project config parsing yet.
 
 ## Simplicity constraints
 - Use `filepath.WalkDir` directly with a skip-list; do not build a generic pluggable "ignore rules" engine — a fixed slice of skipped directory names is sufficient for v0.1.

@@ -8,16 +8,16 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"aleutian-ai/ragctl/internal/config"
-	bboltstore "aleutian-ai/ragctl/internal/control/bbolt"
-	badgerstore "aleutian-ai/ragctl/internal/data/badger"
+	"github.com/aleutian-ai/depctl/internal/config"
+	bboltstore "github.com/aleutian-ai/depctl/internal/control/bbolt"
+	badgerstore "github.com/aleutian-ai/depctl/internal/data/badger"
 )
 
 func newInitCmd() *cobra.Command {
 	var vectorBackend, retrievalMode string
 	cmd := &cobra.Command{
 		Use:   "init",
-		Short: "Initialize ragctl's local config and storage directories",
+		Short: "Initialize depctl's local config and storage directories",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runInit(cmd, vectorBackend, retrievalMode)
 		},
@@ -25,11 +25,11 @@ func newInitCmd() *cobra.Command {
 	cmd.Flags().StringVar(&retrievalMode, "retrieval-mode", "",
 		`how search works, for a new config: "auto" (default; hybrid keyword + semantic search when Ollama is available, keyword search otherwise), "vector" (always require Ollama), or "keyword" (never use an embedding model)`)
 	cmd.Flags().StringVar(&vectorBackend, "vector-backend", "",
-		`vector store for a new config: "embedded" (default; a file in the data dir, no service or container) or "qdrant" (a local Qdrant, which ragctl starts in a container if none is running). To use your own Qdrant, pgvector or Weaviate, edit the vector section of the config.`)
+		`vector store for a new config: "embedded" (default; a file in the data dir, no service or container) or "qdrant" (a local Qdrant, which depctl starts in a container if none is running). To use your own Qdrant, pgvector or Weaviate, edit the vector section of the config.`)
 	return cmd
 }
 
-// runInit creates everything ragctl needs to operate, if not already
+// runInit creates everything depctl needs to operate, if not already
 // present. It is safe to run repeatedly: existing files/dirs are left
 // untouched, and the summary distinguishes "created" from "already present".
 func runInit(cmd *cobra.Command, vectorBackend, retrievalMode string) error {
@@ -54,7 +54,7 @@ func runInit(cmd *cobra.Command, vectorBackend, retrievalMode string) error {
 // initStores is runInit's actual work, factored out so ensureInitialized
 // can run the identical logic silently (to os.Stderr) when a command or
 // MCP tool call needs the stores and they don't exist yet — auto-init on
-// first use rather than a hard "run `ragctl init` first" refusal, since
+// first use rather than a hard "run `depctl init` first" refusal, since
 // init asks no interactive questions and is safe to run repeatedly (even
 // racing itself: every step here is idempotent). vectorBackend, when
 // set, chooses the vector store for a newly written config; an existing

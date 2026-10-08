@@ -1,8 +1,8 @@
 package daemon
 
 import (
-	"aleutian-ai/ragctl/internal/domain"
 	"fmt"
+	"github.com/aleutian-ai/depctl/internal/domain"
 	"golang.org/x/sync/singleflight"
 	"sync"
 	"time"

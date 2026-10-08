@@ -4,11 +4,11 @@ import (
 	"errors"
 	"testing"
 
-	"aleutian-ai/ragctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/domain"
 )
 
 const validManifest = `
-apiVersion: ragctl.dev/v1alpha1
+apiVersion: depctl.dev/v1alpha1
 kind: KnowledgePackage
 metadata:
   name: grpc-go
@@ -48,7 +48,7 @@ func TestParseManifestValid(t *testing.T) {
 
 func TestParseManifestMissingPackages(t *testing.T) {
 	bad := `
-apiVersion: ragctl.dev/v1alpha1
+apiVersion: depctl.dev/v1alpha1
 kind: KnowledgePackage
 metadata:
   name: grpc-go
@@ -73,7 +73,7 @@ sources:
 
 func TestParseManifestBadTypeEnum(t *testing.T) {
 	bad := `
-apiVersion: ragctl.dev/v1alpha1
+apiVersion: depctl.dev/v1alpha1
 kind: KnowledgePackage
 metadata:
   name: grpc-go
@@ -95,7 +95,7 @@ sources:
 
 func TestParseManifestAuthorityOutOfRange(t *testing.T) {
 	bad := `
-apiVersion: ragctl.dev/v1alpha1
+apiVersion: depctl.dev/v1alpha1
 kind: KnowledgePackage
 metadata:
   name: grpc-go

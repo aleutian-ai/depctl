@@ -1,4 +1,4 @@
-// Package graphiti is a plain HTTP client for pushing ragctl's synced
+// Package graphiti is a plain HTTP client for pushing depctl's synced
 // dependency knowledge into a user's own Graphiti instance as episodes
 // (GRAPHITI-001). Used only from inside the daemon's own
 // engine.ExportGraphiti (ADR-011) — never from a CLI process directly.
@@ -56,7 +56,7 @@ type addMessagesRequest struct {
 }
 
 // AddEpisode pushes one episode to Graphiti via POST /messages, scoped
-// to groupID (ragctl's project ID). payload is marshaled to JSON and
+// to groupID (depctl's project ID). payload is marshaled to JSON and
 // sent as the episode's content — one dependency's full chunk set, per
 // GRAPHITI-001's design (an episode per generation, not per chunk:
 // Graphiti's own extraction pipeline works over a coherent document).
@@ -74,9 +74,9 @@ func (c *Client) AddEpisode(ctx context.Context, groupID, name string, payload a
 			// "system": this is reference documentation, not a
 			// conversational turn from a user or assistant.
 			RoleType:          "system",
-			Role:              "ragctl",
+			Role:              "depctl",
 			Timestamp:         time.Now().UTC().Format(time.RFC3339),
-			SourceDescription: "ragctl",
+			SourceDescription: "depctl",
 		}},
 	})
 	if err != nil {

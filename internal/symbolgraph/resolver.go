@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 
-	"aleutian-ai/ragctl/internal/domain"
-	"aleutian-ai/ragctl/internal/query"
+	"github.com/aleutian-ai/depctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/query"
 )
 
 // ErrDependencyNotResolved means a call site resolved to a real external
@@ -31,8 +31,8 @@ type QueryService interface {
 }
 
 // Resolver joins a project source call site to the exact-version
-// knowledge evidence ragctl already has for the dependency it calls
-// into (GRAPH-002) — "graph resolves symbol, ragctl resolves knowledge."
+// knowledge evidence depctl already has for the dependency it calls
+// into (GRAPH-002) — "graph resolves symbol, depctl resolves knowledge."
 type Resolver struct {
 	symbols SymbolProvider
 	control ControlStore

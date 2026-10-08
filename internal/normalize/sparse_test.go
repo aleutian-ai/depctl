@@ -3,7 +3,7 @@ package normalize
 import (
 	"testing"
 
-	"aleutian-ai/ragctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/domain"
 )
 
 func TestSparsePatternsCoversMarkdownPlaintextLicense(t *testing.T) {

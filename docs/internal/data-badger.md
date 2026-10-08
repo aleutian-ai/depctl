@@ -1,6 +1,6 @@
 # internal/data/badger
 
-`internal/data/badger` is ragctl's data-plane store: high-volume normalized content — knowledge objects, chunks, generation manifests, the content-hash dedup index, and the embedding cache. It lives in the `badger/` directory under the data dir. It is separate from `internal/control/bbolt` because this content is large, content-addressed, and mostly write-once/read-many, which suits Badger's LSM-tree design better than bbolt's B+tree, which is tuned for small strongly-consistent records.
+`internal/data/badger` is depctl's data-plane store: high-volume normalized content — knowledge objects, chunks, generation manifests, the content-hash dedup index, and the embedding cache. It lives in the `badger/` directory under the data dir. It is separate from `internal/control/bbolt` because this content is large, content-addressed, and mostly write-once/read-many, which suits Badger's LSM-tree design better than bbolt's B+tree, which is tuned for small strongly-consistent records.
 
 Search indexes (the vector store and keyword index) are not here; they are separate files or services (see [internal/backend](backend.md)).
 

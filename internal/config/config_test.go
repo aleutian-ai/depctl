@@ -155,21 +155,21 @@ func TestDefaultsAreApplied(t *testing.T) {
 
 // TestDefaultCollectionNameIsUniquePerInstall is SAFE-001's (epic 61)
 // own regression proof: every fresh Default() call must get a distinct
-// collection name, not the old plain "ragctl" literal every install
+// collection name, not the old plain "depctl" literal every install
 // shared — the actual root cause of two real live incidents this
 // session (isolated test instances silently commingling data with a
-// shared "ragctl" collection on the same machine).
+// shared "depctl" collection on the same machine).
 func TestDefaultCollectionNameIsUniquePerInstall(t *testing.T) {
 	a := Default("/data")
 	b := Default("/data")
-	if a.Vector.Collection == "ragctl" {
+	if a.Vector.Collection == "depctl" {
 		t.Errorf("Vector.Collection = %q, want a per-install-unique name, not the old shared literal", a.Vector.Collection)
 	}
 	if a.Vector.Collection == b.Vector.Collection {
 		t.Errorf("two Default() calls produced the same collection name %q, want each fresh install to get its own", a.Vector.Collection)
 	}
-	if !strings.HasPrefix(a.Vector.Collection, "ragctl-") {
-		t.Errorf("Vector.Collection = %q, want a \"ragctl-\" prefix so it's still recognizable", a.Vector.Collection)
+	if !strings.HasPrefix(a.Vector.Collection, "depctl-") {
+		t.Errorf("Vector.Collection = %q, want a \"depctl-\" prefix so it's still recognizable", a.Vector.Collection)
 	}
 }
 
@@ -182,7 +182,7 @@ func TestDefaultVectorBackendIsEmbedded(t *testing.T) {
 	}
 }
 
-// QdrantDefaults is the previous default: a local Qdrant that ragctl
+// QdrantDefaults is the previous default: a local Qdrant that depctl
 // starts itself if nothing is running (WATCH-016).
 func TestQdrantDefaultsIsManagedLocalQdrant(t *testing.T) {
 	v := Default("/data").Vector
@@ -200,7 +200,7 @@ func TestConfigWithNoManagedKeyLoadsAsFalse(t *testing.T) {
 	body := "version: 1\n" +
 		"storage:\n  control:\n    type: bbolt\n    path: " + dir + "/control.db\n  data:\n    type: badger\n    path: " + dir + "/badger\n" +
 		"embedding:\n  provider: ollama\n  model: nomic-embed-text-v2-moe\n  endpoint: http://127.0.0.1:11434\n" +
-		"vector:\n  backend: qdrant\n  endpoint: http://127.0.0.1:6333\n  collection: ragctl\n"
+		"vector:\n  backend: qdrant\n  endpoint: http://127.0.0.1:6333\n  collection: depctl\n"
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
@@ -256,10 +256,10 @@ func TestAutostartDefaultsOnWhenKeyAbsent(t *testing.T) {
 storage:
   control:
     type: bbolt
-    path: /tmp/ragctl/control.db
+    path: /tmp/depctl/control.db
   data:
     type: badger
-    path: /tmp/ragctl/badger
+    path: /tmp/depctl/badger
 `
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		t.Fatalf("write config: %v", err)

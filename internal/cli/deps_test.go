@@ -6,13 +6,13 @@ import (
 	"strings"
 	"testing"
 
-	"aleutian-ai/ragctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/domain"
 )
 
 func TestDepsUnknownProject(t *testing.T) {
 	isolateEnv(t)
 	runInitForTest(t)
-	useRealRagctlBinary(t)
+	useRealDepctlBinary(t)
 
 	cmd := NewRootCmd()
 	cmd.SetArgs([]string{"deps", "proj_missing"})
@@ -31,7 +31,7 @@ func TestDepsListsResolvedDependencies(t *testing.T) {
 	noAmbientSync(t)
 	requireGo(t)
 	runInitForTest(t)
-	useRealRagctlBinary(t)
+	useRealDepctlBinary(t)
 
 	base := t.TempDir()
 	writeGoMod(t, filepath.Join(base, "foolocal"), "module example.com/foo\n\ngo 1.21\n")
@@ -78,7 +78,7 @@ func TestDepsListsResolvedDependencies(t *testing.T) {
 func TestDepsNoResolutionYet(t *testing.T) {
 	isolateEnv(t)
 	runInitForTest(t)
-	useRealRagctlBinary(t)
+	useRealDepctlBinary(t)
 
 	// A project can be registered without ever having been resolved
 	// (e.g. its ecosystem isn't supported yet) — deps must say so clearly

@@ -1,4 +1,4 @@
-# OPS-001: `ragctl status`
+# OPS-001: `depctl status`
 
 **Epic:** Status and Doctor
 **Status:** done
@@ -6,7 +6,7 @@
 **Estimated size:** small
 
 ## Goal
-Implement `ragctl status`, giving a human (and machine, via `--json`) a snapshot of system health and activity.
+Implement `depctl status`, giving a human (and machine, via `--json`) a snapshot of system health and activity.
 
 ## Non-goals
 - Deep diagnostics/remediation — that's OPS-002 (`doctor`).
@@ -16,7 +16,7 @@ Implement `ragctl status`, giving a human (and machine, via `--json`) a snapshot
 - Text and JSON output share one internal struct — do not maintain two separate formatting code paths beyond the final marshal/print step.
 
 ## Design
-Package: `internal/ops` + `cmd/ragctl` `status` command.
+Package: `internal/ops` + `cmd/depctl` `status` command.
 
 ```go
 type Status struct {
@@ -33,7 +33,7 @@ type JobStats struct { Pending, Running, Failed int }
 type BackendStatus struct { Name string; Healthy bool }
 ```
 
-`ragctl status` prints a text table of the `Status` fields above, one row per field, following the plain `fmt.Fprintf` table style already used by `internal/cli/deps.go` (not `describe.go`'s `text/tabwriter`+template approach — this command is simpler than that). `ragctl status --json` marshals the same `Status` struct straight to JSON via `encoding/json`, field names exactly as tagged above.
+`depctl status` prints a text table of the `Status` fields above, one row per field, following the plain `fmt.Fprintf` table style already used by `internal/cli/deps.go` (not `describe.go`'s `text/tabwriter`+template approach — this command is simpler than that). `depctl status --json` marshals the same `Status` struct straight to JSON via `encoding/json`, field names exactly as tagged above.
 
 ## Inputs / Outputs
 - Input: none (reads bbolt/Badger/backend state).
@@ -53,7 +53,7 @@ type BackendStatus struct { Name string; Healthy bool }
 
 ## Post-implementation note
 
-Shipped in `internal/cli/status.go`, not a new `internal/ops` package: commands live in `internal/cli` (there is no per-command code under `cmd/ragctl`, which is just `main.go`), and every input `status` needs — `openControlStore`, `loadRagctlConfig`, `buildVectorBackend`, the data-dir path helpers — is already there. `describe` set the same precedent. The `Status`/`JobStats`/`BackendStatus` shapes and JSON tags match the design above exactly.
+Shipped in `internal/cli/status.go`, not a new `internal/ops` package: commands live in `internal/cli` (there is no per-command code under `cmd/depctl`, which is just `main.go`), and every input `status` needs — `openControlStore`, `loadDepctlConfig`, `buildVectorBackend`, the data-dir path helpers — is already there. `describe` set the same precedent. The `Status`/`JobStats`/`BackendStatus` shapes and JSON tags match the design above exactly.
 
 Decisions the design left open:
 - **Last sync** has no persisted source, and the "no new persisted state" constraint rules out adding one. It is the newest `UpdatedAt` among the configured backend's active generations — the last time a sync changed what queries see. A no-op sync changes nothing, so there's nothing better to derive from.
@@ -61,6 +61,6 @@ Decisions the design left open:
 - **Storage bytes** are allocated disk blocks (`diskusage_unix.go`, with an apparent-size fallback on non-Unix builds), not file sizes: an open Badger store has a sparse 2 GB value log, which made apparent size wrong by gigabytes.
 - **Backend health** uses `VectorBackend.Health` under a 3-second timeout; any failure, including an unsupported backend name, is `healthy: false` with exit 0, per the failure-behavior section.
 
-Found while building it: `bboltstore.Open` waited forever for the file lock, so `status` (like every command) hung while `ragctl serve` was running. `Open` now gives up after 2 seconds with `bboltstore.ErrLocked`. See `docs/architecture.md`'s status/doctor section.
+Found while building it: `bboltstore.Open` waited forever for the file lock, so `status` (like every command) hung while `depctl serve` was running. `Open` now gives up after 2 seconds with `bboltstore.ErrLocked`. See `docs/architecture.md`'s status/doctor section.
 
 Tests: `internal/cli/status_test.go` — JSON round-trip, fixture counts (including an active pointer on another backend that must not be counted), empty store, backend probe healthy/dead/unsupported, and a command-level run with the backend down that exits 0 and reports `healthy: false`.

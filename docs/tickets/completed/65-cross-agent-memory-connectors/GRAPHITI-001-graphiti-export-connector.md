@@ -6,14 +6,14 @@
 **Estimated size:** medium
 
 ## Goal
-`ragctl export graphiti --project <id> [--dependency <name>]` pushes a project's (or one dependency's) already-synced dependency knowledge into a user's own Graphiti instance as structured JSON episodes, so an agent using Graphiti's temporal knowledge graph for cross-session memory gets ragctl's exact API-shape facts (function signatures, parameters, types) represented as real graph entities/relationships, not just flat text.
+`depctl export graphiti --project <id> [--dependency <name>]` pushes a project's (or one dependency's) already-synced dependency knowledge into a user's own Graphiti instance as structured JSON episodes, so an agent using Graphiti's temporal knowledge graph for cross-session memory gets depctl's exact API-shape facts (function signatures, parameters, types) represented as real graph entities/relationships, not just flat text.
 
 ## Non-goals
 - No automatic/background export — explicit command only, same as `MEM0-001`.
-- No import path (Graphiti → ragctl).
+- No import path (Graphiti → depctl).
 - No bundling or managing Neo4j — the user supplies their own already-running Graphiti/Neo4j instance.
-- Not a dependency of ragctl's core sync/query path — same isolation guarantee as `MEM0-001`.
-- No attempt to control or second-guess Graphiti's own LLM-based entity/relationship extraction over the submitted JSON — ragctl hands over real structured facts; what Graphiti's own pipeline does with them afterward is Graphiti's concern.
+- Not a dependency of depctl's core sync/query path — same isolation guarantee as `MEM0-001`.
+- No attempt to control or second-guess Graphiti's own LLM-based entity/relationship extraction over the submitted JSON — depctl hands over real structured facts; what Graphiti's own pipeline does with them afterward is Graphiti's concern.
 
 ## Transport — confirmed (2026-09-30), plain REST, not MCP
 Graphiti has a real, separate, self-hostable REST API distinct from its MCP server and from Zep Cloud (the commercial hosted product): `server/graph_service` in `github.com/getzep/graphiti`, a FastAPI app, distributed as the `zepai/graphiti` Docker image, configured against the user's own Neo4j/FalkorDB backend + LLM key. Relevant endpoints (`server/graph_service/routers/ingest.py`/`retrieve.py`):
@@ -33,7 +33,7 @@ Same reasoning and wiring as `MEM0-001`'s own "Architecture" section: the CLI ne
 - `Engine.ExportGraphiti(ctx, req) (*api.ExportGraphitiResponse, error)` added to the `Engine` interface (`internal/daemon/server.go`), implemented on `engine` in `internal/cli/daemon.go` — reads `e.badgerStore` directly, in-process, then pushes episodes to the user's Graphiti instance from inside that method.
 - `mux.HandleFunc("POST "+api.PathExportGraphiti, s.handleExportGraphiti)` in `routes()`; `handleExportGraphiti` in `handlers.go` follows `handleSync`'s shape (streamed progress + terminal result).
 - `Client.ExportGraphiti(ctx, req, out)` in `internal/daemon/client/client.go`, using `c.stream`.
-- `ragctl export graphiti` (`internal/cli/export.go`) is a thin CLI command: parse flags, build `api.ExportGraphitiRequest`, call `Client.ExportGraphiti`, print the streamed progress/summary.
+- `depctl export graphiti` (`internal/cli/export.go`) is a thin CLI command: parse flags, build `api.ExportGraphitiRequest`, call `Client.ExportGraphiti`, print the streamed progress/summary.
 
 ## Simplicity constraints
 - New package `internal/export/graphiti` — a plain Go HTTP client against `POST /messages`, matching `MEM0-001`'s own shape exactly (same package structure, same batching/pre-flight pattern) — no `sdkmcp` client, no new transport primitive this codebase doesn't already have for HTTP. Used from inside `engine.ExportGraphiti`, not from the CLI process.
@@ -63,7 +63,7 @@ Each dependency's set of chunks is submitted as one JSON episode per generation 
 }
 ```
 
-`group_id` (Graphiti's own multi-tenant scoping field, part of the real `/messages` request body) is set to the project ID, so a user with multiple ragctl-tracked projects can scope Graphiti queries per project the same way ragctl itself does.
+`group_id` (Graphiti's own multi-tenant scoping field, part of the real `/messages` request body) is set to the project ID, so a user with multiple depctl-tracked projects can scope Graphiti queries per project the same way depctl itself does.
 
 ## Inputs / Outputs
 - Input: `--project`, optional `--dependency`; Graphiti REST base URL via config (`export.graphiti.endpoint`) or flags, plus an optional bearer-token env var (`export.graphiti.auth_token_env`) for a user-supplied reverse-proxy auth layer — never assumed present, since the service has none of its own by default.
@@ -80,31 +80,31 @@ Each dependency's set of chunks is submitted as one JSON episode per generation 
 - A daemon-level test confirming `POST /v1/export/graphiti` streams progress and a terminal summary, and that the CLI command never opens Badger itself.
 
 ## Acceptance criteria
-- [x] `ragctl export graphiti --project <id>` pushes one episode per active generation via `POST /messages`, with the JSON shape above, verified against a real fake-server request capture (`internal/cli/export_test.go`'s `TestExportGraphitiPushesOneEpisodePerDependency`).
+- [x] `depctl export graphiti --project <id>` pushes one episode per active generation via `POST /messages`, with the JSON shape above, verified against a real fake-server request capture (`internal/cli/export_test.go`'s `TestExportGraphitiPushesOneEpisodePerDependency`).
 - [x] `--dependency <name>` scopes to one dependency only (`api.ExportGraphitiRequest.Dependencies`, filtered in `engine.ExportGraphiti` via the shared `nameSet` helper).
 - [x] Partial failures are reported per-dependency, never abort the batch (one `api.ExportGraphitiResult` per dependency; a failed episode doesn't stop the loop).
-- [x] README/`--help` text plainly discloses that self-hosted Graphiti has no built-in authentication by default (`getzep/graphiti#1716`) and that exposing it beyond localhost/a private network is the user's own responsibility (`ragctl export graphiti --help`'s `Long` text, `internal/cli/export.go`).
+- [x] README/`--help` text plainly discloses that self-hosted Graphiti has no built-in authentication by default (`getzep/graphiti#1716`) and that exposing it beyond localhost/a private network is the user's own responsibility (`depctl export graphiti --help`'s `Long` text, `internal/cli/export.go`).
 
 ## Post-implementation note (2026-10-01)
-Shipped per the epic's daemon-owned architecture decision, same shape as `MEM0-001`: `POST /v1/export/graphiti` (`internal/daemon/api`, `server.go`, `handlers.go`), `engine.ExportGraphiti` (`internal/cli/daemon.go`), `Client.ExportGraphiti` (`internal/daemon/client/client.go`), `ragctl export graphiti` (`internal/cli/export.go`), and the `internal/export/graphiti` HTTP client. (Superseded by the real-container verification below: `Health()` originally used `GET /episodes/{group_id}`, on the mistaken belief Graphiti had no health endpoint.)
+Shipped per the epic's daemon-owned architecture decision, same shape as `MEM0-001`: `POST /v1/export/graphiti` (`internal/daemon/api`, `server.go`, `handlers.go`), `engine.ExportGraphiti` (`internal/cli/daemon.go`), `Client.ExportGraphiti` (`internal/daemon/client/client.go`), `depctl export graphiti` (`internal/cli/export.go`), and the `internal/export/graphiti` HTTP client. (Superseded by the real-container verification below: `Health()` originally used `GET /episodes/{group_id}`, on the mistaken belief Graphiti had no health endpoint.)
 
 ## Real-container verification (2026-10-01)
-Run against a real self-hosted `zepai/graphiti:latest` plus `neo4j:5.22.0` under Podman, with Graphiti's LLM pointed at local Ollama through its OpenAI-compatible API (`OPENAI_BASE_URL`, `MODEL_NAME=ministral-3:3b`, placeholder `OPENAI_API_KEY`). The real `ragctl` binary exported a really-synced `github.com/google/uuid` v1.6.0 generation. Findings, read from Graphiti's own source (`server/graph_service`) and confirmed live:
+Run against a real self-hosted `zepai/graphiti:latest` plus `neo4j:5.22.0` under Podman, with Graphiti's LLM pointed at local Ollama through its OpenAI-compatible API (`OPENAI_BASE_URL`, `MODEL_NAME=ministral-3:3b`, placeholder `OPENAI_API_KEY`). The real `depctl` binary exported a really-synced `github.com/google/uuid` v1.6.0 generation. Findings, read from Graphiti's own source (`server/graph_service`) and confirmed live:
 
 **Two real connector bugs, fixed. Neither was catchable by the fake-server tests, which accepted any request shape:**
-1. **Every export failed with `422`.** Graphiti's `Message` model requires `role_type` (`user`/`assistant`/`system`) and `role`, and the connector sent neither. It now sends `role_type: "system"` (reference documentation, not a conversational turn) and `role: "ragctl"`. After the fix, `POST /messages` returns `202`.
+1. **Every export failed with `422`.** Graphiti's `Message` model requires `role_type` (`user`/`assistant`/`system`) and `role`, and the connector sent neither. It now sends `role_type: "system"` (reference documentation, not a conversational turn) and `role: "depctl"`. After the fix, `POST /messages` returns `202`.
 2. **The health check never checked anything.** `GET /episodes/{group_id}` requires a `last_n` query parameter, so it always returned `422`, which "passed" only because any non-5xx counted as healthy. Graphiti has a real `GET /healthcheck` endpoint, which `Health()` now uses, and it requires an actual `200`.
 
 **Verified:** wire-level correctness. The request is accepted (`202`) by a real server, and the payload, `group_id`, and episode shape match what Graphiti expects.
 
 **Not verified: end-to-end ingestion.** `POST /messages` only *queues* the episode (a background `AsyncWorker`), so a `202` says nothing about whether it lands. In this run, Graphiti's worker called the local model, which finished within seconds, then stored nothing: zero episodes, an empty Neo4j, and no error logged. Graphiti saves an episode only after its LLM extraction succeeds, and its worker loop catches only `CancelledError`. A failed extraction therefore fails silently, and may stop the worker from processing later jobs until a restart. The likely cause is the small local 3B model failing Graphiti's structured-output extraction over one large episode, but that wasn't pinned down. Confirming ingestion end to end needs a stronger model or a real OpenAI key, and is left open.
 
-**Upstream image bug, disclosed and not worked around in ragctl:** `zepai/graphiti:latest` (arm64) runs as user `app` but launches `uv` from `/root/.local/bin`, so the container fails at start with `Permission denied`. The test ran it with `--user root`.
+**Upstream image bug, disclosed and not worked around in depctl:** `zepai/graphiti:latest` (arm64) runs as user `app` but launches `uv` from `/root/.local/bin`, so the container fails at start with `Permission denied`. The test ran it with `--user root`.
 
 **Design concern, worth revisiting:** one episode per dependency holds that dependency's *entire* chunk set. That was fine for `google/uuid`, but a large dependency (e.g. `google.golang.org/protobuf`, about 15k chunks) would produce an episode far beyond any model's context window. If Graphiti export sees real use, it should probably batch chunks into several episodes per dependency.
 
 ## Second real-container pass (2026-10-04): end-to-end ingestion confirmed
-The first pass got a `202` but nothing stored. This pass surfaced Graphiti's swallowed errors by calling `add_episode` directly inside the container, then replaying ragctl's exact captured payload. **ragctl's connector and payload were fine** (the replay stored 1 episode and 17 entities). Every failure was in Graphiti's REST server:
+The first pass got a `202` but nothing stored. This pass surfaced Graphiti's swallowed errors by calling `add_episode` directly inside the container, then replaying depctl's exact captured payload. **depctl's connector and payload were fine** (the replay stored 1 episode and 17 entities). Every failure was in Graphiti's REST server:
 
 1. **Its REST ingestion can't work as shipped.** `POST /messages` queues a job that captures the request-scoped Graphiti client, which `get_graphiti` closes as soon as the `202` goes out, so the job runs against a closed driver.
 2. **Its worker swallows errors.** The queue worker only catches `CancelledError`, so that failure kills it silently, and every later job just sits in the queue.
@@ -117,7 +117,7 @@ The first pass got a `202` but nothing stored. This pass surfaced Graphiti's swa
 
 **One connector change:** a dependency is now split into size-bounded episodes (`graphitiEpisodeMaxChars = 12000` of chunk text, header repeated in each part, named `<dep>@<version> (i/n)`), instead of one episode holding the whole chunk set. A large dependency (about 3.5 MB for `google.golang.org/protobuf`) could never fit a model's context in one episode. Smaller episodes also extract more: the same `uuid` export produced 46 entities as 2 episodes, against 17 as one. `ExportGraphitiResult.Pushed`/`Failed` now count episodes.
 
-**Verified end to end through the REST API:** `ragctl export graphiti` queued 2 episodes; both landed in Neo4j within 154s on a local 3B model, with zero worker errors; and Graphiti's own `POST /search` for "How do I generate a random UUID?" returned facts extracted from ragctl's docs ("NewRandom returns a Random (Version 4) UUID").
+**Verified end to end through the REST API:** `depctl export graphiti` queued 2 episodes; both landed in Neo4j within 154s on a local 3B model, with zero worker errors; and Graphiti's own `POST /search` for "How do I generate a random UUID?" returned facts extracted from depctl's docs ("NewRandom returns a Random (Version 4) UUID").
 
-**Not done, noted:** re-exporting adds new episodes rather than replacing the old ones (entities are deduplicated by Graphiti's own resolution, episodes aren't). Graphiti only offers deletes per episode UUID or per whole group, so a Mem0-style "replace this dependency" would need ragctl to track the episode UUIDs it created. Extraction cost is also real: about 1.5 minutes per episode on a local 3B model, so a large dependency takes a long time to ingest.
+**Not done, noted:** re-exporting adds new episodes rather than replacing the old ones (entities are deduplicated by Graphiti's own resolution, episodes aren't). Graphiti only offers deletes per episode UUID or per whole group, so a Mem0-style "replace this dependency" would need depctl to track the episode UUIDs it created. Extraction cost is also real: about 1.5 minutes per episode on a local 3B model, so a large dependency takes a long time to ingest.
 

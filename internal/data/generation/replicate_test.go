@@ -6,13 +6,13 @@ import (
 	"path/filepath"
 	"testing"
 
-	"aleutian-ai/ragctl/internal/backend"
-	"aleutian-ai/ragctl/internal/backend/backendtest"
-	"aleutian-ai/ragctl/internal/backend/keyword"
-	"aleutian-ai/ragctl/internal/domain"
-	"aleutian-ai/ragctl/internal/embedding"
-	"aleutian-ai/ragctl/internal/registry"
-	"aleutian-ai/ragctl/internal/source/git"
+	"github.com/aleutian-ai/depctl/internal/backend"
+	"github.com/aleutian-ai/depctl/internal/backend/backendtest"
+	"github.com/aleutian-ai/depctl/internal/backend/keyword"
+	"github.com/aleutian-ai/depctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/embedding"
+	"github.com/aleutian-ai/depctl/internal/registry"
+	"github.com/aleutian-ai/depctl/internal/source/git"
 )
 
 // fakeEmbedder is a minimal deterministic embedding.Embedder for tests —
@@ -69,7 +69,7 @@ func TestReplicateEmbedsAndUpsertsAllChunks(t *testing.T) {
 
 	embedder := &fakeEmbedder{dims: 4}
 	vb := backendtest.New()
-	ns := backend.Namespace{Name: "ragctl", Dimensions: 4, Distance: "cosine"}
+	ns := backend.Namespace{Name: "depctl", Dimensions: 4, Distance: "cosine"}
 
 	if err := Replicate(ctx, gen, sources, &embedding.Prompted{Embedder: embedder}, vb, ns, store, badgerStore); err != nil {
 		t.Fatalf("Replicate: %v", err)
@@ -130,7 +130,7 @@ func TestReplicateFailureMarksReplicaFailedWithError(t *testing.T) {
 
 	embedder := &fakeEmbedder{dims: 4, failAfter: 1} // fails on the very first Embed call
 	vb := backendtest.New()
-	ns := backend.Namespace{Name: "ragctl", Dimensions: 4}
+	ns := backend.Namespace{Name: "depctl", Dimensions: 4}
 
 	err = Replicate(ctx, gen, sources, &embedding.Prompted{Embedder: embedder}, vb, ns, store, badgerStore)
 	if err == nil {
@@ -182,7 +182,7 @@ func TestReplicateWithNoChunksCompletesWithZeroPoints(t *testing.T) {
 
 	embedder := &fakeEmbedder{dims: 4}
 	vb := backendtest.New()
-	ns := backend.Namespace{Name: "ragctl", Dimensions: 4}
+	ns := backend.Namespace{Name: "depctl", Dimensions: 4}
 
 	if err := Replicate(ctx, gen, nil, &embedding.Prompted{Embedder: embedder}, vb, ns, store, badgerStore); err != nil {
 		t.Fatalf("Replicate: %v", err)
@@ -257,7 +257,7 @@ func TestReplicatePointsUseGenerationVersionNotStaleObjectVersion(t *testing.T) 
 
 	embedder := &fakeEmbedder{dims: 4}
 	vb := backendtest.New()
-	ns := backend.Namespace{Name: "ragctl", Dimensions: 4}
+	ns := backend.Namespace{Name: "depctl", Dimensions: 4}
 	if err := Replicate(ctx, gen2, sources, &embedding.Prompted{Embedder: embedder}, vb, ns, store, badgerStore); err != nil {
 		t.Fatalf("Replicate gen2: %v", err)
 	}
@@ -329,7 +329,7 @@ func TestReplicatePointsUseCurrentSourceAuthorityNotStaleObjectAuthority(t *test
 
 	embedder := &fakeEmbedder{dims: 4}
 	vb := backendtest.New()
-	ns := backend.Namespace{Name: "ragctl", Dimensions: 4}
+	ns := backend.Namespace{Name: "depctl", Dimensions: 4}
 	if err := Replicate(ctx, gen2, updatedSources, &embedding.Prompted{Embedder: embedder}, vb, ns, store, badgerStore); err != nil {
 		t.Fatalf("Replicate gen2: %v", err)
 	}
@@ -373,7 +373,7 @@ func TestReplicateWithoutEmbedderBuildsKeywordOnly(t *testing.T) {
 		t.Fatalf("Build: %v", err)
 	}
 	kw := keyword.New(filepath.Join(t.TempDir(), "keyword.db"))
-	ns := backend.Namespace{Name: "ragctl"}
+	ns := backend.Namespace{Name: "depctl"}
 
 	if err := Replicate(ctx, gen, sources, nil, kw, ns, store, badgerStore); err != nil {
 		t.Fatalf("Replicate without an embedder: %v", err)
@@ -431,7 +431,7 @@ func TestAddToIndexFailureLeavesNothingAndNeverTouchesTheGeneration(t *testing.T
 		t.Fatalf("GetGeneration: %v", err)
 	}
 	inner := backendtest.New()
-	ns := backend.Namespace{Name: "ragctl", Dimensions: 4, Distance: "cosine"}
+	ns := backend.Namespace{Name: "depctl", Dimensions: 4, Distance: "cosine"}
 
 	err = AddToIndex(ctx, before, sources, &embedding.Prompted{Embedder: &fakeEmbedder{dims: 4}}, partialUpsert{inner}, ns, badgerStore)
 	if err == nil {

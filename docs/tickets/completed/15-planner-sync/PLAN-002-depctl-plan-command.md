@@ -1,4 +1,4 @@
-# PLAN-002: `ragctl plan` command
+# PLAN-002: `depctl plan` command
 
 **Epic:** Planner and Sync
 **Status:** done
@@ -15,7 +15,7 @@ Wire `PLAN-001`'s pure planner into a CLI command that reads current project sta
 - The command is a thin CLI wrapper: load state from bbolt → call `planner.Plan` → format output. No new business logic here beyond formatting.
 
 ## Design
-- Cobra command in `internal/app` (wired from `cmd/ragctl`): `ragctl plan [--project <id>] [--json]`.
+- Cobra command in `internal/app` (wired from `cmd/depctl`): `depctl plan [--project <id>] [--json]`.
 - Human-readable format (per design spec example):
 ```text
 Project: foo
@@ -44,8 +44,8 @@ Actions
 - `--json` output round-trips through `json.Unmarshal` into `[]planner.Action`.
 
 ## Acceptance criteria
-- [x] `ragctl plan` never writes to bbolt/Badger or makes network calls.
-- [x] `ragctl plan --json` produces valid, parseable JSON.
+- [x] `depctl plan` never writes to bbolt/Badger or makes network calls.
+- [x] `depctl plan --json` produces valid, parseable JSON.
 
 ## Post-implementation note
-Registered in `internal/cli` (this repo's existing Cobra package for every other command), not a new `internal/app` — no such package exists and every other command already lives in `internal/cli`. Output format simplified from the design spec's per-dependency current/prior-version breakdown to one line per non-`NOOP` action (kind, ecosystem, dependency, version, reason) grouped under a `Project: <root> (<id>)` header — the richer format doesn't cleanly generalize to actions with no "prior version" (e.g. a brand-new dependency) without inventing placeholder text, and the flat form is what `ragctl deps` and every other CLI command in this codebase already use. `--json` marshals `[]projectPlan` (one entry per project, each holding its actions plus an optional warning) rather than a bare `[]planner.Action`, so a project with no resolution yet can report why instead of silently contributing zero actions.
+Registered in `internal/cli` (this repo's existing Cobra package for every other command), not a new `internal/app` — no such package exists and every other command already lives in `internal/cli`. Output format simplified from the design spec's per-dependency current/prior-version breakdown to one line per non-`NOOP` action (kind, ecosystem, dependency, version, reason) grouped under a `Project: <root> (<id>)` header — the richer format doesn't cleanly generalize to actions with no "prior version" (e.g. a brand-new dependency) without inventing placeholder text, and the flat form is what `depctl deps` and every other CLI command in this codebase already use. `--json` marshals `[]projectPlan` (one entry per project, each holding its actions plus an optional warning) rather than a bare `[]planner.Action`, so a project with no resolution yet can report why instead of silently contributing zero actions.

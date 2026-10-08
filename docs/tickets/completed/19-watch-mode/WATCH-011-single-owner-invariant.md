@@ -8,7 +8,7 @@
 ## Goal
 Close out the migration. Remove every remaining direct store access outside the daemon, add a test that fails if one comes back, and bring the docs in line with the new process model.
 
-> While the daemon is running, it is the only process allowed to own or mutate ragctl persistent stores.
+> While the daemon is running, it is the only process allowed to own or mutate depctl persistent stores.
 
 ## Non-goals
 - New features. This is cleanup and enforcement.
@@ -19,8 +19,8 @@ Close out the migration. Remove every remaining direct store access outside the 
 
 ## Design
 - **Allowed store openers after this ticket:** `openControlStore()` / `openDataStore()` (`internal/cli/store.go`) may be called only by:
-  - `ragctl daemon run`;
-  - `ragctl init`, which first checks that no daemon answers on the socket and refuses with "stop the daemon before running init" if one does.
+  - `depctl daemon run`;
+  - `depctl init`, which first checks that no daemon answers on the socket and refuses with "stop the daemon before running init" if one does.
 - **Audit:** everything else found by `grep -rn "openControlStore\|openDataStore\|bboltstore.Open\|badgerstore.Open" internal` must already be converted by WATCH-007..010. Anything missed is converted here.
 - **Commands with no store access:** `corpus` and `registry` touch the stores only through `scan`/`sync`, which are now daemon calls; confirm this.
 - **Invariant test** (`internal/cli/invariant_test.go`): parse `internal/cli`'s non-test Go files with `go/parser` and fail if `openControlStore` or `openDataStore` is called from any function other than the allowed ones (`runDaemon`, `runInit`, and their direct helpers).
@@ -33,8 +33,8 @@ Close out the migration. Remove every remaining direct store access outside the 
   - `docs/internal/cli.md`: command list, and which commands are daemon clients.
   - `docs/internal/control.md`: the lock note now says the daemon is the only long-lived holder.
   - `docs/internal/daemon.md`: complete (lifecycle, API routes, scheduler, watch).
-  - README quick-start: `ragctl daemon run` becomes a step before `scan`/`sync`/agent use.
-  - Agent MCP config examples: unchanged (`ragctl serve`), plus a note that the daemon must be running.
+  - README quick-start: `depctl daemon run` becomes a step before `scan`/`sync`/agent use.
+  - Agent MCP config examples: unchanged (`depctl serve`), plus a note that the daemon must be running.
 
 ## Inputs / Outputs
 N/A (enforcement and docs).

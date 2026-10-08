@@ -60,7 +60,7 @@ Auth: the token itself is never embedded in registry YAML or in `internal/config
 // serializes it, matching VectorConfig.APIKeyEnv's existing convention.
 type WikiConfig struct {
     ConfluenceBaseURL string `yaml:"confluence_base_url,omitempty"`
-    AuthTokenEnv      string `yaml:"auth_token_env,omitempty"` // e.g. "RAGCTL_CONFLUENCE_TOKEN"
+    AuthTokenEnv      string `yaml:"auth_token_env,omitempty"` // e.g. "DEPCTL_CONFLUENCE_TOKEN"
 }
 ```
 added as a field on `Config` (`Wiki WikiConfig `yaml:"wiki"``). The registry manifest side only ever names page IDs, never a token:
@@ -80,7 +80,7 @@ Normalizer wiring: `internal/normalize/html.Normalizer` (HTTP-003) is reused unc
 - Output: one or more `domain.KnowledgeObject` per page (via HTTP-003's normalizer), with `Metadata["confluence_page_id"]`, `Metadata["confluence_revision"]` set, `SourceURI` set to the page's original web URL, and `SourceType: "confluence"` (so query-time `TrustClass` derivation — SEC-001's `TrustClassForSourceType` — can classify wiki content distinctly from official/repository sources per §6A: "internal documentation can receive high organizational relevance without being confused with upstream software authority").
 
 ## Failure behavior
-- `AuthTokenEnv` unset or the named env var empty → typed `ConfigError` at sync start, not a bare 401 from Confluence — the operator gets a clear "set $RAGCTL_CONFLUENCE_TOKEN" message.
+- `AuthTokenEnv` unset or the named env var empty → typed `ConfigError` at sync start, not a bare 401 from Confluence — the operator gets a clear "set $DEPCTL_CONFLUENCE_TOKEN" message.
 - Confluence returns 401/403 → typed `FetchError{Reason: "unauthorized"}`, that source's acquisition marked failed, not fatal to the whole sync (same pattern as HTTP-002's per-source failure handling).
 - Page ID not found (404) → typed `FetchError{Reason: "not_found"}` naming the page ID, sync continues for the rest of the list.
 - A page whose storage-format body fails the macro pre-pass in a way that produces unparseable HTML → falls through to HTTP-003's existing "unparseable HTML" failure path (typed `NormalizeError`, page skipped, not fatal).

@@ -15,7 +15,7 @@ import (
 	"golang.org/x/tools/go/ast/astutil"
 	"golang.org/x/tools/go/packages"
 
-	"aleutian-ai/ragctl/internal/symbolgraph"
+	"github.com/aleutian-ai/depctl/internal/symbolgraph"
 )
 
 // packagesLoadMode is everything Resolve needs from a load: enough type

@@ -10,8 +10,8 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"aleutian-ai/ragctl/internal/domain"
-	"aleutian-ai/ragctl/internal/resolver"
+	"github.com/aleutian-ai/depctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/resolver"
 )
 
 // yarnEntry is one resolved package parsed out of yarn.lock, either
@@ -84,11 +84,11 @@ func parseYarnLock(data []byte) ([]yarnEntry, error) {
 // parseYarnClassic hand-parses Yarn Classic's lockfile format: a custom
 // (non-YAML, non-JSON) text format, not worth a third-party dependency
 // for — one unindented "descriptor[, descriptor...]:" header line per
-// block, followed by indented fields, the only one of which ragctl
+// block, followed by indented fields, the only one of which depctl
 // needs being `version "x.y.z"`. A block's first descriptor's package
 // name is what's recorded; every descriptor in one block resolves to
 // the same package by construction, so the rest are redundant for
-// ragctl's purposes.
+// depctl's purposes.
 func parseYarnClassic(data []byte) []yarnEntry {
 	var entries []yarnEntry
 	lines := strings.Split(string(data), "\n")
@@ -139,7 +139,7 @@ func yarnDescriptorName(descriptor string) string {
 }
 
 // yarnBerryEntry is the subset of one Berry lockfile package block
-// ragctl needs. linkType "soft" marks a workspace-local package (the
+// depctl needs. linkType "soft" marks a workspace-local package (the
 // project's own self-entry, or a sibling workspace reached via the
 // `workspace:` protocol) — never a real published version (its own
 // "version" is a placeholder like "0.0.0-use.local"), so these are

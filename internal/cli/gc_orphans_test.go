@@ -6,13 +6,13 @@ import (
 	"strings"
 	"testing"
 
-	"aleutian-ai/ragctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/domain"
 )
 
 func TestGCOrphansDryRunListsCandidateWithoutDeleting(t *testing.T) {
 	isolateEnv(t)
 	runInitForTest(t)
-	useRealRagctlBinary(t)
+	useRealDepctlBinary(t)
 
 	store, err := openControlStore()
 	if err != nil {
@@ -58,7 +58,7 @@ func TestGCOrphansDryRunListsCandidateWithoutDeleting(t *testing.T) {
 func TestGCWithoutOrphansFlagIgnoresOrphanCandidates(t *testing.T) {
 	isolateEnv(t)
 	runInitForTest(t)
-	useRealRagctlBinary(t)
+	useRealDepctlBinary(t)
 
 	store, err := openControlStore()
 	if err != nil {
@@ -82,7 +82,7 @@ func TestGCWithoutOrphansFlagIgnoresOrphanCandidates(t *testing.T) {
 		t.Fatalf("gc --dry-run: %v", err)
 	}
 	if strings.Contains(out.String(), "example.com/orphan2") {
-		t.Errorf("plain `ragctl gc` (no --orphans) reported an orphan generation — the two paths must stay separate:\n%s", out.String())
+		t.Errorf("plain `depctl gc` (no --orphans) reported an orphan generation — the two paths must stay separate:\n%s", out.String())
 	}
 	if !strings.Contains(out.String(), "nothing eligible") {
 		t.Errorf("output = %q, want \"nothing eligible\" — orphan generations are invisible to the reference-based path", out.String())

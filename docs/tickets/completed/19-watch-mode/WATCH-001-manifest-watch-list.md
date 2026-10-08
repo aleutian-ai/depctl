@@ -47,10 +47,10 @@ func WatchPaths(p Project) []string // resolves watchFiles[p.Ecosystem] to absol
 
 ## Post-implementation note
 
-Lives in `internal/watch/paths.go`. `domain.Project` has no ecosystem field (just ID, root, and timestamps); a project's ecosystem is on its stored `Resolution`. So `WatchPaths` takes a `watch.Project{ID, Root, Ecosystem}`, which `ragctl watch` builds from each registered project plus its resolution. A project that was never resolved isn't watched, since there's no ecosystem to look up.
+Lives in `internal/watch/paths.go`. `domain.Project` has no ecosystem field (just ID, root, and timestamps); a project's ecosystem is on its stored `Resolution`. So `WatchPaths` takes a `watch.Project{ID, Root, Ecosystem}`, which `depctl watch` builds from each registered project plus its resolution. A project that was never resolved isn't watched, since there's no ecosystem to look up.
 
 The map lists only Go, Python, and Node, the ecosystems with a resolver. Rust and Java entries would never be used, because `scan` doesn't register projects it can't resolve; add a line when their resolvers land. There is no logger in the codebase, so an unknown ecosystem just returns nil rather than logging at debug level.
 
-WATCH-002 ended up watching each project's root directory rather than individual files, so the watcher filters events by manifest *name* (`isManifest`) instead of using `WatchPaths`' list. `WatchPaths` is still what `ragctl watch` prints at startup to show exactly which files it's watching.
+WATCH-002 ended up watching each project's root directory rather than individual files, so the watcher filters events by manifest *name* (`isManifest`) instead of using `WatchPaths`' list. `WatchPaths` is still what `depctl watch` prints at startup to show exactly which files it's watching.
 
 Tests: `internal/watch/watcher_test.go` — only existing manifests are returned (no phantom `go.sum`, README ignored), a `go.sum` created later is picked up, and an ecosystem without a resolver returns nil.

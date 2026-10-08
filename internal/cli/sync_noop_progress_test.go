@@ -5,8 +5,8 @@ import (
 	"io"
 	"testing"
 
-	"aleutian-ai/ragctl/internal/daemon"
-	"aleutian-ai/ragctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/daemon"
+	"github.com/aleutian-ai/depctl/internal/domain"
 )
 
 // TestRunSyncNoopActionsDoNotCountAsProgress is MCP-004's own deeper
@@ -23,7 +23,7 @@ func TestRunSyncNoopActionsDoNotCountAsProgress(t *testing.T) {
 	isolateEnv(t)
 	requireGo(t)
 	runInitForTest(t)
-	useRealRagctlBinary(t)
+	useRealDepctlBinary(t)
 	root := scanDepFixture(t)
 
 	stopRunningDaemon(t)
@@ -74,9 +74,9 @@ func TestRunSyncNoopActionsDoNotCountAsProgress(t *testing.T) {
 		t.Fatalf("AddReference: %v", err)
 	}
 
-	cfg, err := loadRagctlConfig()
+	cfg, err := loadDepctlConfig()
 	if err != nil {
-		t.Fatalf("loadRagctlConfig: %v", err)
+		t.Fatalf("loadDepctlConfig: %v", err)
 	}
 	promoteFixtureVersion(t, store, dep, cfg.Vector.Backend)
 

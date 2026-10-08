@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"aleutian-ai/ragctl/internal/config"
-	"aleutian-ai/ragctl/internal/executil"
+	"github.com/aleutian-ai/depctl/internal/config"
+	"github.com/aleutian-ai/depctl/internal/executil"
 )
 
 // qdrantImage is pinned to match docs/offline-quickstart.md's own pin,
@@ -16,23 +16,23 @@ import (
 // drift apart.
 const qdrantImage = "docker.io/qdrant/qdrant:v1.13.1"
 
-// qdrantContainerName identifies the container ragctl owns — used both
+// qdrantContainerName identifies the container depctl owns — used both
 // for `run --name` and for the idempotency check in ensureManagedQdrant.
-const qdrantContainerName = "ragctl-qdrant"
+const qdrantContainerName = "depctl-qdrant"
 
-// qdrantVolumeName identifies the named Podman/Docker volume ragctl's
+// qdrantVolumeName identifies the named Podman/Docker volume depctl's
 // managed Qdrant stores its data in. Live-found reason this isn't a
 // host bind-mount: a Podman machine on macOS only shares specific host
 // directories into its VM (via `podman machine inspect`'s "Mounts"),
 // and a real machine with an empty Mounts list made every bind-mount
-// fail with "statfs: no such file or directory" — even after ragctl
+// fail with "statfs: no such file or directory" — even after depctl
 // created the host directory itself, since the VM never saw it in the
 // first place. A named volume lives entirely inside the runtime's own
 // storage, so it works regardless of the VM's host-mount configuration
 // — the trade-off (documented in the README) is that this data doesn't
 // survive `podman machine rm`/`docker system prune -a --volumes`, only
 // a container being removed and recreated.
-const qdrantVolumeName = "ragctl-qdrant-data"
+const qdrantVolumeName = "depctl-qdrant-data"
 
 // qdrantStartupTimeout bounds how long ensureManagedQdrant waits for a
 // freshly started (or restarted) container to answer healthy. A var,
@@ -67,7 +67,7 @@ func containerRuntime() string {
 }
 
 // ensureManagedQdrant starts (or reuses, if already running or stopped
-// from a prior daemon lifetime) a ragctl-owned Qdrant container bound to
+// from a prior daemon lifetime) a depctl-owned Qdrant container bound to
 // loopback only, with storage in a named Podman/Docker volume (see
 // qdrantVolumeName — deliberately not a host bind-mount), and polls it
 // healthy via the configured backend's own Health check — never by

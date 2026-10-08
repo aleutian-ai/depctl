@@ -1,4 +1,4 @@
-// Package ollama implements ragctl's embedding.Embedder against a local
+// Package ollama implements depctl's embedding.Embedder against a local
 // Ollama HTTP endpoint (EMB-002) — the only embedding provider, and an
 // optional one: keyword search works without it.
 package ollama
@@ -22,7 +22,7 @@ const defaultBatchSize = 16
 
 // dimensionProbeText is embedded once, on first Dimensions call, purely
 // to measure the model's vector length.
-const dimensionProbeText = "ragctl-dimension-probe"
+const dimensionProbeText = "depctl-dimension-probe"
 
 var retryBackoffs = []time.Duration{200 * time.Millisecond, 400 * time.Millisecond, 800 * time.Millisecond}
 

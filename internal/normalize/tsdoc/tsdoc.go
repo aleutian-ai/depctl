@@ -1,4 +1,4 @@
-// Package tsdoc implements ragctl's TypeScript declaration normalizer
+// Package tsdoc implements depctl's TypeScript declaration normalizer
 // (NORM-008): structured, per-symbol API documentation extracted from a
 // Node package's own published .d.ts entry point, or — when no .d.ts
 // exists at all — JSDoc comments over its plain .js entry point. The
@@ -12,7 +12,7 @@
 // vendor beyond the script already embedded here. `node` missing, or no
 // resolvable entry point (neither .d.ts nor plain .js), is a clean,
 // silent skip (Supports returns false) — a bundled script that fails to
-// run once node IS present is a ragctl packaging defect instead,
+// run once node IS present is a depctl packaging defect instead,
 // surfaced loudly as an error rather than swallowed (see Normalize's own
 // doc comment).
 //
@@ -30,7 +30,7 @@ package tsdoc
 import (
 	"os/exec"
 
-	"aleutian-ai/ragctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/domain"
 )
 
 // Normalizer implements normalize.Normalizer for a Node package

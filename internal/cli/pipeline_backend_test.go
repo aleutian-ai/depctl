@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"aleutian-ai/ragctl/internal/config"
+	"github.com/aleutian-ai/depctl/internal/config"
 )
 
 // TestQdrantAPIKeyEnvIsSent is the regression test for vector.api_key_env
@@ -26,9 +26,9 @@ func TestQdrantAPIKeyEnvIsSent(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer srv.Close()
-	t.Setenv("RAGCTL_TEST_QDRANT_KEY", "s3cret")
+	t.Setenv("DEPCTL_TEST_QDRANT_KEY", "s3cret")
 
-	vb, err := buildVectorBackend(config.Config{Vector: config.VectorConfig{Backend: "qdrant", Endpoint: srv.URL, APIKeyEnv: "RAGCTL_TEST_QDRANT_KEY"}})
+	vb, err := buildVectorBackend(config.Config{Vector: config.VectorConfig{Backend: "qdrant", Endpoint: srv.URL, APIKeyEnv: "DEPCTL_TEST_QDRANT_KEY"}})
 	if err != nil {
 		t.Fatalf("buildVectorBackend: %v", err)
 	}
@@ -39,8 +39,8 @@ func TestQdrantAPIKeyEnvIsSent(t *testing.T) {
 		t.Errorf("api-key header = %q, want the key from vector.api_key_env", gotKey)
 	}
 
-	t.Setenv("RAGCTL_TEST_QDRANT_KEY", "wrong")
-	vb, err = buildVectorBackend(config.Config{Vector: config.VectorConfig{Backend: "qdrant", Endpoint: srv.URL, APIKeyEnv: "RAGCTL_TEST_QDRANT_KEY"}})
+	t.Setenv("DEPCTL_TEST_QDRANT_KEY", "wrong")
+	vb, err = buildVectorBackend(config.Config{Vector: config.VectorConfig{Backend: "qdrant", Endpoint: srv.URL, APIKeyEnv: "DEPCTL_TEST_QDRANT_KEY"}})
 	if err != nil {
 		t.Fatalf("buildVectorBackend: %v", err)
 	}
@@ -50,7 +50,7 @@ func TestQdrantAPIKeyEnvIsSent(t *testing.T) {
 }
 
 func TestBuildVectorBackendSelectsPgvector(t *testing.T) {
-	vb, err := buildVectorBackend(config.Config{Vector: config.VectorConfig{Backend: "pgvector", Endpoint: "postgres://ragctl@127.0.0.1:1/ragctl"}})
+	vb, err := buildVectorBackend(config.Config{Vector: config.VectorConfig{Backend: "pgvector", Endpoint: "postgres://depctl@127.0.0.1:1/depctl"}})
 	if err != nil {
 		t.Fatalf("buildVectorBackend: %v", err)
 	}
@@ -77,14 +77,14 @@ func TestBuildVectorBackendRejectsUnknownBackend(t *testing.T) {
 }
 
 func TestBuildVectorBackendMissingSecretEnvNamesTheDaemon(t *testing.T) {
-	_, err := buildVectorBackend(config.Config{Vector: config.VectorConfig{Backend: "pgvector", Endpoint: "postgres://x@h/db", APIKeyEnv: "RAGCTL_TEST_UNSET_PG_PASSWORD"}})
-	if err == nil || !strings.Contains(err.Error(), "RAGCTL_TEST_UNSET_PG_PASSWORD") || !strings.Contains(err.Error(), "daemon") {
+	_, err := buildVectorBackend(config.Config{Vector: config.VectorConfig{Backend: "pgvector", Endpoint: "postgres://x@h/db", APIKeyEnv: "DEPCTL_TEST_UNSET_PG_PASSWORD"}})
+	if err == nil || !strings.Contains(err.Error(), "DEPCTL_TEST_UNSET_PG_PASSWORD") || !strings.Contains(err.Error(), "daemon") {
 		t.Fatalf("err = %v, want it to name the env var and the daemon's environment", err)
 	}
 }
 
 func TestRedactDSNHidesPasswords(t *testing.T) {
-	if got := redactDSN("postgres://ragctl:hunter2@db:5432/x"); strings.Contains(got, "hunter2") {
+	if got := redactDSN("postgres://depctl:hunter2@db:5432/x"); strings.Contains(got, "hunter2") {
 		t.Errorf("redactDSN leaked the password: %q", got)
 	}
 	if got := redactDSN("http://127.0.0.1:6333"); got != "http://127.0.0.1:6333" {
@@ -119,7 +119,7 @@ func TestBuildVectorBackendEmbeddedRejectsAURLEndpoint(t *testing.T) {
 
 func TestVectorLocationNeverShowsAPasswordOrAnEmptyPath(t *testing.T) {
 	isolateEnv(t)
-	pg := config.Config{Vector: config.VectorConfig{Backend: "pgvector", Endpoint: "postgres://ragctl:hunter2@db:5432/x"}}
+	pg := config.Config{Vector: config.VectorConfig{Backend: "pgvector", Endpoint: "postgres://depctl:hunter2@db:5432/x"}}
 	if got := vectorLocation(pg); strings.Contains(got, "hunter2") {
 		t.Errorf("vectorLocation leaked the password: %q", got)
 	}

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"aleutian-ai/ragctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/domain"
 )
 
 // goldenJS mirrors goldenDTS's shape exactly (same symbol names/roles:
@@ -250,7 +250,7 @@ func TestResolveEntryFallsBackToJSDocWhenNoDTS(t *testing.T) {
 // filepath.Base(src.LocalPath) — for a package with no Subdir scoping,
 // src.LocalPath IS the worktree's own randomly-named temp directory
 // (confirmed live: real mem0-sourced packages `debug`/`ms` produced a
-// package_doc titled literally "ragctl-worktree-1160938559" instead of
+// package_doc titled literally "depctl-worktree-1160938559" instead of
 // their own name). package.json's "name" field is the one authoritative
 // source and is now used instead (packageDisplayName, entrypoint.go).
 func TestNormalizePackageDocTitleUsesPackageJSONNameNotWorktreeDirName(t *testing.T) {
@@ -259,7 +259,7 @@ func TestNormalizePackageDocTitleUsesPackageJSONNameNotWorktreeDirName(t *testin
 	// — filepath.Base(dir) would return exactly this if the old bug were
 	// still present.
 	base := t.TempDir()
-	dir := filepath.Join(base, "ragctl-worktree-1160938559")
+	dir := filepath.Join(base, "depctl-worktree-1160938559")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}

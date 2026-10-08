@@ -1,6 +1,6 @@
 # Epic: Describe — Advanced
 
-Follow-on features for `ragctl describe` (`docs/tickets/completed/20-describe`) deliberately deferred out of v1 to keep the first version to a single read-only reporting pass over existing state. Each of these adds either a new data source `describe` needs to reach into, or a richer rendering mode — none require redesigning `Report`'s shape from DESC-001.
+Follow-on features for `depctl describe` (`docs/tickets/completed/20-describe`) deliberately deferred out of v1 to keep the first version to a single read-only reporting pass over existing state. Each of these adds either a new data source `describe` needs to reach into, or a richer rendering mode — none require redesigning `Report`'s shape from DESC-001.
 
 ## Tickets
 - [DESC-ADV-001](DESC-ADV-001-liveness-integration.md) — show source reachability (REG-007) inline in describe output.

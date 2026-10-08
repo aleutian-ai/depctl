@@ -16,7 +16,7 @@ Provide a JSONL export format and usage examples compatible with DeepEval, mirro
 - Reuse the same `eval export` command and underlying data as EXT-001; add one more `--format deepeval` option rather than a parallel export pipeline.
 
 ## Design
-`ragctl eval export --format deepeval` writes JSONL with DeepEval's expected test-case shape:
+`depctl eval export --format deepeval` writes JSONL with DeepEval's expected test-case shape:
 
 ```json
 {"input": "...", "actual_output": "...", "retrieval_context": ["..."], "expected_output": "..."}

@@ -23,10 +23,10 @@ func runGit(t *testing.T, dir string, args ...string) string {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(),
-		"GIT_AUTHOR_NAME=ragctl-test",
-		"GIT_AUTHOR_EMAIL=ragctl-test@example.com",
-		"GIT_COMMITTER_NAME=ragctl-test",
-		"GIT_COMMITTER_EMAIL=ragctl-test@example.com",
+		"GIT_AUTHOR_NAME=depctl-test",
+		"GIT_AUTHOR_EMAIL=depctl-test@example.com",
+		"GIT_COMMITTER_NAME=depctl-test",
+		"GIT_COMMITTER_EMAIL=depctl-test@example.com",
 	)
 	out, err := cmd.CombinedOutput()
 	if err != nil {

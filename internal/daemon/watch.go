@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"aleutian-ai/ragctl/internal/watch"
+	"github.com/aleutian-ai/depctl/internal/watch"
 )
 
 // projectRefreshInterval is how often the daemon re-reads the registered

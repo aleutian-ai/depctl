@@ -9,7 +9,7 @@ import (
 	"sync"
 	"testing"
 
-	"aleutian-ai/ragctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/domain"
 )
 
 // sharedGoCache is a build/module cache directory outside any test's
@@ -18,7 +18,7 @@ import (
 // per-test t.TempDir() (as it would by default once isolateEnv overrides
 // HOME), t.TempDir()'s own cleanup can fail to remove them.
 var sharedGoCache = sync.OnceValue(func() string {
-	dir, err := os.MkdirTemp("", "ragctl-test-gocache-")
+	dir, err := os.MkdirTemp("", "depctl-test-gocache-")
 	if err != nil {
 		panic(err)
 	}
@@ -88,7 +88,7 @@ func writeFile(t *testing.T, dir, name, content string) {
 }
 
 // TestScanConcurrentSameProjectDoesNotRace exercises the real
-// integration, not just Scheduler.LockProject in isolation: two `ragctl
+// integration, not just Scheduler.LockProject in isolation: two `depctl
 // scan` invocations discovering the same project at once must not race
 // each other's PutProject/PutResolution — see
 // docs/scratch/action-controller-proposal.md.
@@ -96,7 +96,7 @@ func TestScanConcurrentSameProjectDoesNotRace(t *testing.T) {
 	isolateEnv(t)
 	withSupportedEcosystem(t, domain.EcosystemGo)
 	requireGo(t)
-	useRealRagctlBinary(t)
+	useRealDepctlBinary(t)
 
 	root := t.TempDir()
 	writeGoMod(t, filepath.Join(root, "service-go"), "module example.com/service-go\n\ngo 1.21\n")
@@ -153,7 +153,7 @@ func TestScanConcurrentSameProjectDoesNotRace(t *testing.T) {
 
 func TestScanFixtureTreeAllUnsupported(t *testing.T) {
 	isolateEnv(t)
-	useRealRagctlBinary(t)
+	useRealDepctlBinary(t)
 	// Neither fixture uses go.mod, a Python manifest, or package.json: go,
 	// python, and node are genuinely supported ecosystems
 	// (internal/resolver/golang, internal/resolver/python,
@@ -186,7 +186,7 @@ func TestScanRegistersSupportedEcosystem(t *testing.T) {
 	isolateEnv(t)
 	withSupportedEcosystem(t, domain.EcosystemGo)
 	requireGo(t)
-	useRealRagctlBinary(t)
+	useRealDepctlBinary(t)
 
 	root := t.TempDir()
 	writeGoMod(t, filepath.Join(root, "service-go"), "module example.com/service-go\n\ngo 1.21\n")
@@ -238,7 +238,7 @@ func TestScanRegistersPythonEcosystem(t *testing.T) {
 	isolateEnv(t)
 	noAmbientSync(t)
 	runInitForTest(t)
-	useRealRagctlBinary(t)
+	useRealDepctlBinary(t)
 
 	root := t.TempDir()
 	touch(t, filepath.Join(root, "service-java", "pom.xml")) // stays unsupported
@@ -291,7 +291,7 @@ func TestScanRegistersPythonEcosystem(t *testing.T) {
 func TestScanRegistersNodeEcosystem(t *testing.T) {
 	isolateEnv(t)
 	runInitForTest(t)
-	useRealRagctlBinary(t)
+	useRealDepctlBinary(t)
 
 	root := t.TempDir()
 	touch(t, filepath.Join(root, "service-java", "pom.xml")) // stays unsupported
@@ -347,7 +347,7 @@ func TestScanTwiceIsIdempotent(t *testing.T) {
 	isolateEnv(t)
 	withSupportedEcosystem(t, domain.EcosystemGo)
 	requireGo(t)
-	useRealRagctlBinary(t)
+	useRealDepctlBinary(t)
 
 	root := t.TempDir()
 	writeGoMod(t, filepath.Join(root, "service-go"), "module example.com/service-go\n\ngo 1.21\n")

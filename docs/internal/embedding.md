@@ -1,8 +1,8 @@
 # internal/embedding
 
-`internal/embedding` defines ragctl's narrow embedding-provider contract (`Embedder`). The root package has no provider-specific code — the one concrete provider (`internal/embedding/ollama`) and the content-hash cache (`internal/embedding/cache`) build on top of it.
+`internal/embedding` defines depctl's narrow embedding-provider contract (`Embedder`). The root package has no provider-specific code — the one concrete provider (`internal/embedding/ollama`) and the content-hash cache (`internal/embedding/cache`) build on top of it.
 
-Embedding is optional. With `retrieval.mode: keyword`, or in `auto` mode while Ollama isn't ready, ragctl builds and searches the keyword index with no embedder at all: `generation.Replicate`, `validate.VersionCorrectness` and `query.Service` all accept a nil `Embedder`, and points/queries then carry text only. Ollama is recommended for semantic (vector) search.
+Embedding is optional. With `retrieval.mode: keyword`, or in `auto` mode while Ollama isn't ready, depctl builds and searches the keyword index with no embedder at all: `generation.Replicate`, `validate.VersionCorrectness` and `query.Service` all accept a nil `Embedder`, and points/queries then carry text only. Ollama is recommended for semantic (vector) search.
 
 ## Key types and functions
 

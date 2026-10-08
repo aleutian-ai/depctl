@@ -9,12 +9,12 @@ import (
 
 	"github.com/spf13/cobra"
 
-	bboltstore "aleutian-ai/ragctl/internal/control/bbolt"
-	"aleutian-ai/ragctl/internal/domain"
-	"aleutian-ai/ragctl/internal/observability/trace"
-	"aleutian-ai/ragctl/internal/planner"
-	"aleutian-ai/ragctl/internal/query"
-	"aleutian-ai/ragctl/internal/registry"
+	bboltstore "github.com/aleutian-ai/depctl/internal/control/bbolt"
+	"github.com/aleutian-ai/depctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/observability/trace"
+	"github.com/aleutian-ai/depctl/internal/planner"
+	"github.com/aleutian-ai/depctl/internal/query"
+	"github.com/aleutian-ai/depctl/internal/registry"
 )
 
 func newPlanCmd() *cobra.Command {
@@ -81,7 +81,7 @@ func computePlans(ctx context.Context, store *bboltstore.Store, backendName, pro
 
 		resolution, err := store.GetResolution(ctx, p.ID)
 		if err != nil {
-			pp.Warning = fmt.Sprintf("no resolution yet (run `ragctl scan` against %s)", p.Root)
+			pp.Warning = fmt.Sprintf("no resolution yet (run `depctl scan` against %s)", p.Root)
 			plans = append(plans, pp)
 			continue
 		}
@@ -128,7 +128,7 @@ func computePlans(ctx context.Context, store *bboltstore.Store, backendName, pro
 	return plans, nil
 }
 
-// loadRegistryForCLI loads the registry the same way `ragctl registry
+// loadRegistryForCLI loads the registry the same way `depctl registry
 // list` does — built-in plus the data-dir user override, no
 // project-level override wired in yet.
 func loadRegistryForCLI(ctx context.Context) (*registry.Registry, error) {

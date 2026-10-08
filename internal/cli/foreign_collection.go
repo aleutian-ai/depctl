@@ -3,13 +3,13 @@ package cli
 import (
 	"context"
 
-	"aleutian-ai/ragctl/internal/config"
-	bboltstore "aleutian-ai/ragctl/internal/control/bbolt"
+	"github.com/aleutian-ai/depctl/internal/config"
+	bboltstore "github.com/aleutian-ai/depctl/internal/control/bbolt"
 )
 
 // checkForeignCollectionData is SAFE-001's (epic 61) own guard against
 // the exact incident this session found live, twice: two independent
-// ragctl installs sharing one Qdrant server, one of them fresh, silently
+// depctl installs sharing one Qdrant server, one of them fresh, silently
 // commingling data because ambient sync (SCOPE-002) fires automatically
 // on first project registration with no separate opt-in step. Runs once
 // at daemon startup, off the request path (matching checkEmbeddingReadiness/
@@ -38,6 +38,6 @@ func checkForeignCollectionData(ctx context.Context, cfg config.Config, store *b
 	if err != nil || n == 0 {
 		return
 	}
-	logf("WARNING: vector.collection %q at %s already contains %d point(s), but this instance has never registered an active generation of its own — if this collection is shared with another ragctl install, the next sync (including automatic ambient sync) will commingle data into it. Set vector.collection to something unique to this install, or sync.disable_ambient: true if you didn't mean to sync yet.",
+	logf("WARNING: vector.collection %q at %s already contains %d point(s), but this instance has never registered an active generation of its own — if this collection is shared with another depctl install, the next sync (including automatic ambient sync) will commingle data into it. Set vector.collection to something unique to this install, or sync.disable_ambient: true if you didn't mean to sync yet.",
 		cfg.Vector.Collection, vectorLocation(cfg), n)
 }

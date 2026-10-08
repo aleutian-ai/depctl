@@ -1,20 +1,20 @@
 package cli
 
 import (
-	"aleutian-ai/ragctl/internal/daemon/api"
 	"context"
 	"fmt"
+	"github.com/aleutian-ai/depctl/internal/daemon/api"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	"aleutian-ai/ragctl/internal/daemon"
-	"aleutian-ai/ragctl/internal/domain"
-	"aleutian-ai/ragctl/internal/embedding"
-	"aleutian-ai/ragctl/internal/planner"
-	"aleutian-ai/ragctl/internal/registry"
+	"github.com/aleutian-ai/depctl/internal/daemon"
+	"github.com/aleutian-ai/depctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/embedding"
+	"github.com/aleutian-ai/depctl/internal/planner"
+	"github.com/aleutian-ai/depctl/internal/registry"
 )
 
 // trackingEmbedder records how many concurrent Embed calls are ever in

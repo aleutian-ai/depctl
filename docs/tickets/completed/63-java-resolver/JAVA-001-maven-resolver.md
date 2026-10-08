@@ -42,7 +42,7 @@ Example: `io.grpc:grpc-netty-shaded:1.75.0`.
 - Output: `domain.Resolution` with `group:artifact` as `name`.
 
 ## Failure behavior
-- `mvn` binary missing → typed `ResolutionError`, surfaced via `ragctl doctor`.
+- `mvn` binary missing → typed `ResolutionError`, surfaced via `depctl doctor`.
 - Unparseable tree output → typed `ResolutionError` with raw output attached for debugging.
 
 ## Tests

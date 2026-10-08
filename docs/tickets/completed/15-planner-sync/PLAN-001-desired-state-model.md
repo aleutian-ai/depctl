@@ -13,7 +13,7 @@ Compute the diff between current stored state (project resolutions + active know
 - Does not compute retention/GC eligibility beyond emitting `GC_CANDIDATE`/`RETAIN_VERSION` markers — full retention logic (grace periods, reference counting) lives in milestone 15 (RET-*).
 
 ## Simplicity constraints
-- Planning is a pure function: `(current state, desired state) -> []Action`. No side effects, no I/O beyond reading already-resolved data from bbolt. This keeps it trivially unit-testable and reusable by both `ragctl plan` and `ragctl sync`.
+- Planning is a pure function: `(current state, desired state) -> []Action`. No side effects, no I/O beyond reading already-resolved data from bbolt. This keeps it trivially unit-testable and reusable by both `depctl plan` and `depctl sync`.
 - Six action kinds only, matching the design spec: `ADD_REFERENCE`, `DROP_REFERENCE`, `SYNC_VERSION`, `RETAIN_VERSION`, `GC_CANDIDATE`, `NOOP`. Do not add more without a concrete driving need.
 
 ## Design

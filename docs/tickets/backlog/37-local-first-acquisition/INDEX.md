@@ -9,5 +9,5 @@ Extends epic 08 (git-acquisition); ticket IDs continue that epic's `GIT-` number
 - [GIT-005](GIT-005-local-search-path-discovery.md) — before falling back to network, check configured local directories for an already-cloned copy of the same repo and mirror from that instead.
 
 ## Non-goals
-- No change to `EnsureMirror`'s existing cache-hit behavior (already mirrored by ragctl = already fast, already offline-safe).
+- No change to `EnsureMirror`'s existing cache-hit behavior (already mirrored by depctl = already fast, already offline-safe).
 - No automatic writing of registry manifests pointing at discovered local copies — GIT-005 only changes *acquisition* (what `EnsureMirror` mirrors from), not the registry (what URL a manifest declares). A manifest still declares the real, canonical URL; GIT-005 is what makes that URL resolve locally when possible without the manifest author needing to know a local copy exists.

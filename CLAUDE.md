@@ -1,4 +1,4 @@
-# ragctl
+# depctl
 
 Guidance for Claude Code (and any future contributor) working in this repo.
 

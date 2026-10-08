@@ -6,13 +6,13 @@ import (
 	"strings"
 	"testing"
 
-	"aleutian-ai/ragctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/domain"
 )
 
 func TestGCSupersededDuplicatesDryRunListsCandidateWithoutDeleting(t *testing.T) {
 	isolateEnv(t)
 	runInitForTest(t)
-	useRealRagctlBinary(t)
+	useRealDepctlBinary(t)
 
 	store, err := openControlStore()
 	if err != nil {
@@ -69,7 +69,7 @@ func TestGCSupersededDuplicatesDryRunListsCandidateWithoutDeleting(t *testing.T)
 func TestGCWithoutSupersededDuplicatesFlagIgnoresDuplicateCandidates(t *testing.T) {
 	isolateEnv(t)
 	runInitForTest(t)
-	useRealRagctlBinary(t)
+	useRealDepctlBinary(t)
 
 	store, err := openControlStore()
 	if err != nil {
@@ -101,14 +101,14 @@ func TestGCWithoutSupersededDuplicatesFlagIgnoresDuplicateCandidates(t *testing.
 		t.Fatalf("gc --dry-run: %v", err)
 	}
 	if strings.Contains(out.String(), "example.com/dupwidget2") {
-		t.Errorf("plain `ragctl gc` (no --superseded-duplicates) reported a duplicate generation — the paths must stay separate:\n%s", out.String())
+		t.Errorf("plain `depctl gc` (no --superseded-duplicates) reported a duplicate generation — the paths must stay separate:\n%s", out.String())
 	}
 }
 
 func TestGCRejectsCombiningOrphansAndSupersededDuplicates(t *testing.T) {
 	isolateEnv(t)
 	runInitForTest(t)
-	useRealRagctlBinary(t)
+	useRealDepctlBinary(t)
 
 	cmd := NewRootCmd()
 	cmd.SetArgs([]string{"gc", "--orphans", "--superseded-duplicates", "--dry-run"})

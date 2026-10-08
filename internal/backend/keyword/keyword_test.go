@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"aleutian-ai/ragctl/internal/backend"
-	"aleutian-ai/ragctl/internal/backend/conformance"
+	"github.com/aleutian-ai/depctl/internal/backend"
+	"github.com/aleutian-ai/depctl/internal/backend/conformance"
 )
 
 // TestKeywordConformance runs the shared VectorBackend suite (VEC-010)
@@ -24,7 +24,7 @@ func TestKeywordConformance(t *testing.T) {
 func TestKeywordSearchFindsAPIDocs(t *testing.T) {
 	ctx := context.Background()
 	s := New(filepath.Join(t.TempDir(), "keyword.db"))
-	ns := backend.Namespace{Name: "ragctl-docs"}
+	ns := backend.Namespace{Name: "depctl-docs"}
 	if err := s.EnsureNamespace(ctx, ns); err != nil {
 		t.Fatalf("EnsureNamespace: %v", err)
 	}

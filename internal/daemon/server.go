@@ -1,5 +1,5 @@
-// Package daemon runs the one process that owns ragctl's persistent
-// stores. Every other ragctl process — CLI commands, `ragctl serve`,
+// Package daemon runs the one process that owns depctl's persistent
+// stores. Every other depctl process — CLI commands, `depctl serve`,
 // and the watcher — reaches that state through this package's HTTP/JSON
 // API over a Unix domain socket, never by opening bbolt or Badger
 // itself. See docs/adr/ADR-011-single-owner-daemon.md.
@@ -21,17 +21,17 @@ import (
 	"sync"
 	"time"
 
-	"aleutian-ai/ragctl/internal/daemon/api"
-	"aleutian-ai/ragctl/internal/observability"
-	"aleutian-ai/ragctl/internal/query"
-	"aleutian-ai/ragctl/internal/watch"
+	"github.com/aleutian-ai/depctl/internal/daemon/api"
+	"github.com/aleutian-ai/depctl/internal/observability"
+	"github.com/aleutian-ai/depctl/internal/query"
+	"github.com/aleutian-ai/depctl/internal/watch"
 )
 
 // shutdownGrace bounds how long a graceful shutdown waits for in-flight
 // requests before connections are closed outright.
 const shutdownGrace = 30 * time.Second
 
-// Engine is the daemon's view of ragctl's actual functionality. It is
+// Engine is the daemon's view of depctl's actual functionality. It is
 // implemented in internal/cli against the stores the daemon holds open;
 // defining it here (consumer-side) keeps internal/daemon free of bbolt,
 // Badger, and config types, and avoids an import cycle with the CLI.
@@ -62,7 +62,7 @@ type Engine interface {
 
 	// Search, ProjectDependencies, DependencyVersion, ReleaseChanges, and
 	// KnowledgeStatus back the MCP query tools (internal/mcp.QueryService),
-	// reached via ragctl serve's daemonQueryService (ADR-011 §8). All
+	// reached via depctl serve's daemonQueryService (ADR-011 §8). All
 	// read-only; none touch the scheduler.
 	Search(ctx context.Context, req api.SearchRequest) (api.SearchResponse, error)
 	ProjectDependencies(ctx context.Context, projectID string) (api.ProjectDependenciesResponse, error)
@@ -70,8 +70,8 @@ type Engine interface {
 	ReleaseChanges(ctx context.Context, dependency, from, to string) (api.ReleaseChangesResponse, error)
 	KnowledgeStatus(ctx context.Context) (api.KnowledgeStatusResponse, error)
 
-	// ProjectList, ProjectGet, and Describe back `ragctl project`,
-	// `ragctl deps`, and `ragctl describe` — all read-only.
+	// ProjectList, ProjectGet, and Describe back `depctl project`,
+	// `depctl deps`, and `depctl describe` — all read-only.
 	ProjectList(ctx context.Context) (api.ProjectListResponse, error)
 	ProjectGet(ctx context.Context, projectID string) (api.ProjectGetResponse, error)
 	Describe(ctx context.Context, args []string, checkLiveness bool) (any, error)
@@ -226,7 +226,7 @@ func (s *Server) Serve(ctx context.Context) error {
 		}
 	}()
 
-	s.opts.Logf("ragctl daemon listening on %s (pid %d)", s.opts.Socket, os.Getpid())
+	s.opts.Logf("depctl daemon listening on %s (pid %d)", s.opts.Socket, os.Getpid())
 	err = srv.Serve(ln)
 	<-done
 

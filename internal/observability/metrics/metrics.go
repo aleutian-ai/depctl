@@ -19,7 +19,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
-	"aleutian-ai/ragctl/internal/config"
+	"github.com/aleutian-ai/depctl/internal/config"
 )
 
 // The nine metrics this ticket names, with the exact names from the
@@ -27,47 +27,47 @@ import (
 // and outcome state); everything else is a single time series.
 var (
 	SyncJobsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
-		Name: "ragctl_sync_jobs_total",
+		Name: "depctl_sync_jobs_total",
 		Help: "Sync actions processed, by action type and outcome state.",
 	}, []string{"type", "state"})
 
 	SyncFailuresTotal = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "ragctl_sync_failures_total",
+		Name: "depctl_sync_failures_total",
 		Help: "Sync actions that failed, across all types.",
 	})
 
 	AcquireSeconds = promauto.NewHistogram(prometheus.HistogramOpts{
-		Name: "ragctl_acquire_seconds",
+		Name: "depctl_acquire_seconds",
 		Help: "Time spent acquiring a generation's source content.",
 	})
 
 	NormalizeSeconds = promauto.NewHistogram(prometheus.HistogramOpts{
-		Name: "ragctl_normalize_seconds",
+		Name: "depctl_normalize_seconds",
 		Help: "Time spent normalizing a generation's acquired content.",
 	})
 
 	EmbedSeconds = promauto.NewHistogram(prometheus.HistogramOpts{
-		Name: "ragctl_embed_seconds",
+		Name: "depctl_embed_seconds",
 		Help: "Time spent embedding one batch of chunks.",
 	})
 
 	BackendUpsertSeconds = promauto.NewHistogram(prometheus.HistogramOpts{
-		Name: "ragctl_backend_upsert_seconds",
+		Name: "depctl_backend_upsert_seconds",
 		Help: "Time spent upserting one batch of points into the vector backend.",
 	})
 
 	ActiveGenerations = promauto.NewGauge(prometheus.GaugeOpts{
-		Name: "ragctl_active_generations",
+		Name: "depctl_active_generations",
 		Help: "Number of currently-active generations for the configured backend.",
 	})
 
 	GCCandidates = promauto.NewGauge(prometheus.GaugeOpts{
-		Name: "ragctl_gc_candidates",
+		Name: "depctl_gc_candidates",
 		Help: "Number of GC candidates found by the most recent GC planning pass.",
 	})
 
 	BadgerBytes = promauto.NewGauge(prometheus.GaugeOpts{
-		Name: "ragctl_badger_bytes",
+		Name: "depctl_badger_bytes",
 		Help: "On-disk size of the Badger data store, in bytes.",
 	})
 )

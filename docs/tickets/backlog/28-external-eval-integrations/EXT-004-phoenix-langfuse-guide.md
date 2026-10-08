@@ -6,7 +6,7 @@
 **Estimated size:** small
 
 ## Goal
-Document how to point `ragctl`'s OpenTelemetry export (OBS-002) at Arize Phoenix or Langfuse, without adding either as a core dependency.
+Document how to point `depctl`'s OpenTelemetry export (OBS-002) at Arize Phoenix or Langfuse, without adding either as a core dependency.
 
 ## Non-goals
 - No proprietary SDK dependency added to core (`go.mod` stays free of Phoenix/Langfuse-specific packages).

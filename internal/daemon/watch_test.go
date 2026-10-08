@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"aleutian-ai/ragctl/internal/daemon/api"
-	"aleutian-ai/ragctl/internal/watch"
+	"github.com/aleutian-ai/depctl/internal/daemon/api"
+	"github.com/aleutian-ai/depctl/internal/watch"
 )
 
 type projectListEngine struct {

@@ -6,7 +6,7 @@
 **Estimated size:** small
 
 ## Goal
-Document how to configure any generic MCP client to connect to `ragctl serve`, independent of vendor-specific tooling. This is explicitly called out in the source plan as more important than the vendor-specific tutorials (CLIENT-001/CLIENT-002).
+Document how to configure any generic MCP client to connect to `depctl serve`, independent of vendor-specific tooling. This is explicitly called out in the source plan as more important than the vendor-specific tutorials (CLIENT-001/CLIENT-002).
 
 ## Non-goals
 - No code changes — documentation only.
@@ -18,9 +18,9 @@ Document how to configure any generic MCP client to connect to `ragctl serve`, i
 File: `docs/mcp-integration.md`
 
 Cover:
-- how to start `ragctl serve` and what MCP transport(s) it exposes (per MCP-001's decision),
+- how to start `depctl serve` and what MCP transport(s) it exposes (per MCP-001's decision),
 - the full tool list and a one-line description of each (`search_dependency_docs`, `get_dependency_version`, `list_project_dependencies`, `get_release_changes`, `knowledge_status`, and `sync_project` noting it may be disabled by default for read-only clients),
-- example resource URIs (`ragctl://project/{id}/dependencies`, `ragctl://dependency/{ecosystem}/{name}/{version}`, `ragctl://generation/{id}`),
+- example resource URIs (`depctl://project/{id}/dependencies`, `depctl://dependency/{ecosystem}/{name}/{version}`, `depctl://generation/{id}`),
 - a minimal generic client config snippet (e.g. raw JSON MCP server registration) that CLIENT-001/CLIENT-002 can both link back to.
 
 ## Inputs / Outputs

@@ -42,7 +42,7 @@ embedding:
 - Fake HTTP server (`httptest.NewServer`) returning canned embed responses — verify request shape and response parsing.
 - Transient failure then success — verify retry occurs and result is correct.
 - Non-transient 400 — verify no retry, immediate error.
-- Optional live integration test gated behind an env var (e.g. `RAGCTL_TEST_OLLAMA=1`), skipped by default in CI.
+- Optional live integration test gated behind an env var (e.g. `DEPCTL_TEST_OLLAMA=1`), skipped by default in CI.
 
 ## Acceptance criteria
 - [x] Fake-server unit tests pass without any live Ollama instance.

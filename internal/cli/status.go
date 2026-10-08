@@ -12,12 +12,12 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"aleutian-ai/ragctl/internal/backend"
-	"aleutian-ai/ragctl/internal/config"
-	bboltstore "aleutian-ai/ragctl/internal/control/bbolt"
-	"aleutian-ai/ragctl/internal/daemon/api"
-	"aleutian-ai/ragctl/internal/domain"
-	"aleutian-ai/ragctl/internal/observability/metrics"
+	"github.com/aleutian-ai/depctl/internal/backend"
+	"github.com/aleutian-ai/depctl/internal/config"
+	bboltstore "github.com/aleutian-ai/depctl/internal/control/bbolt"
+	"github.com/aleutian-ai/depctl/internal/daemon/api"
+	"github.com/aleutian-ai/depctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/observability/metrics"
 )
 
 // backendHealthTimeout bounds the live backend probe, so an unreachable
@@ -29,7 +29,7 @@ const backendHealthTimeout = 3 * time.Second
 const storageMetricsRefreshInterval = 30 * time.Second
 
 // Status, JobStats, and BackendStatus are the daemon API's status
-// types; `ragctl status` renders them as text or JSON.
+// types; `depctl status` renders them as text or JSON.
 type (
 	Status        = api.Status
 	JobStats      = api.JobStats
@@ -117,12 +117,12 @@ func buildStatus(ctx context.Context, store *bboltstore.Store, backendName, cont
 // refreshStorageMetrics periodically sets OBS-003's ActiveGenerations and
 // BadgerBytes gauges (called as its own goroutine from runDaemonRun, only
 // when metrics are enabled) — without this, those two gauges would only
-// ever reflect whatever `ragctl status` last happened to compute, so a
+// ever reflect whatever `depctl status` last happened to compute, so a
 // real Prometheus scrape between status calls would read stale or
 // zero-value data. Every other metric in this package is updated
 // event-driven, at the same call site that already computes the value
 // for OBS-001/002; these two have no such natural per-request call site
-// (nothing on ragctl's own request path needs "how many active
+// (nothing on depctl's own request path needs "how many active
 // generations exist right now"), so a small periodic refresh is the
 // simplest fix — matching the existing checkEmbeddingReadiness/
 // checkVectorReadiness background-goroutine pattern already established
@@ -150,10 +150,10 @@ func refreshStorageMetrics(ctx context.Context, store *bboltstore.Store, backend
 }
 
 // lastPromotion returns the newest UpdatedAt among active generations, or
-// nil if nothing is active. It stands in for "last sync": ragctl persists
+// nil if nothing is active. It stands in for "last sync": depctl persists
 // no per-run sync timestamp, and a no-op sync changes nothing to derive
 // one from, so the last promotion is the last time a sync changed what
-// queries see. Dangling pointers are skipped here; `ragctl doctor`
+// queries see. Dangling pointers are skipped here; `depctl doctor`
 // reports them.
 func lastPromotion(ctx context.Context, store *bboltstore.Store, pointers []bboltstore.ActivePointer) (*time.Time, error) {
 	var newest *time.Time
@@ -241,7 +241,7 @@ func probeBackend(ctx context.Context, cfg config.Config) error {
 func printStatusText(out io.Writer, st Status) {
 	health := "healthy"
 	if !st.Backend.Healthy {
-		health = "unhealthy (run `ragctl doctor` for details)"
+		health = "unhealthy (run `depctl doctor` for details)"
 	}
 	lastSync := "never"
 	if st.LastSync != nil {

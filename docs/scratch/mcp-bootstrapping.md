@@ -4,12 +4,12 @@
 
 ## The gap
 
-Register `ragctl` as an MCP server in an agent like opencode, point it at a repo that has never run `ragctl init` or `ragctl scan`, and two things broke:
+Register `depctl` as an MCP server in an agent like opencode, point it at a repo that has never run `depctl init` or `depctl scan`, and two things broke:
 
-1. `ensureDaemon` hard-refused with "run `ragctl init` first" — there's no terminal in an MCP session to run that from, so `ragctl serve` itself couldn't even start.
+1. `ensureDaemon` hard-refused with "run `depctl init` first" — there's no terminal in an MCP session to run that from, so `depctl serve` itself couldn't even start.
 2. Even past that, an unscanned repo gave the agent zero context and no self-service way to fix it: no `scan` MCP tool existed, only `sync_project` (which needs a `project_id` that doesn't exist yet).
 
-Concretely: run opencode with ragctl registered as an MCP server on a repo right now, and it just has no context — not a hypothetical, the actual first-use experience.
+Concretely: run opencode with depctl registered as an MCP server on a repo right now, and it just has no context — not a hypothetical, the actual first-use experience.
 
 ## The fix (two pieces)
 
@@ -21,5 +21,5 @@ Concretely: run opencode with ragctl registered as an MCP server on a repo right
 
 ## Verified
 
-Live end-to-end (fresh `$HOME`, no prior `ragctl init`/`scan`, `ragctl serve` launched as a real subprocess with an MCP client over `CommandTransport`, cwd set to an unregistered repo):
+Live end-to-end (fresh `$HOME`, no prior `depctl init`/`scan`, `depctl serve` launched as a real subprocess with an MCP client over `CommandTransport`, cwd set to an unregistered repo):
 `knowledge_status` → empty → `scan_project` (no args) → `knowledge_status` → shows the project registered with all its dependencies resolved. No human step, no error, no daemon left running afterward.

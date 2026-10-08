@@ -17,9 +17,9 @@ const CurrentSchemaVersion = 2
 const schemaVersionKey = "schema_version"
 
 // ErrUnsupportedSchemaVersion means the database on disk was written by a
-// newer ragctl binary than this one. Open refuses to proceed rather than
+// newer depctl binary than this one. Open refuses to proceed rather than
 // silently reinterpreting data it might not understand.
-var ErrUnsupportedSchemaVersion = errors.New("unsupported schema version: database was written by a newer ragctl binary")
+var ErrUnsupportedSchemaVersion = errors.New("unsupported schema version: database was written by a newer depctl binary")
 
 // Migration applies one schema change, keyed by the version it upgrades
 // the database to.
@@ -86,7 +86,7 @@ func writeSchemaVersion(meta *bolt.Bucket, version int) error {
 }
 
 // SchemaVersion returns the database's current schema version, for
-// `ragctl doctor` (OPS-002) to surface later.
+// `depctl doctor` (OPS-002) to surface later.
 func (s *Store) SchemaVersion(ctx context.Context) (int, error) {
 	var v int
 	err := s.db.View(func(tx *bolt.Tx) error {

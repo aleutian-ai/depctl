@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"aleutian-ai/ragctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/domain"
 )
 
 // OrphanCandidate is one domain.Generation GC-001 has determined is safe

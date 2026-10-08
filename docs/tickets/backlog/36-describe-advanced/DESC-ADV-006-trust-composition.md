@@ -13,4 +13,4 @@ Purely a rendering/aggregation pass over `PackageEntry.Sources` (already carries
 
 ## Acceptance criteria
 - [ ] Each package row/section shows its trust-class breakdown.
-- [ ] A dedicated `ragctl describe --gaps` view lists only packages with zero non-`unknown` sources, as a prioritized curation to-do list.
+- [ ] A dedicated `depctl describe --gaps` view lists only packages with zero non-`unknown` sources, as a prioritized curation to-do list.

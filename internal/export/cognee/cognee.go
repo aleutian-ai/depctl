@@ -1,4 +1,4 @@
-// Package cognee is a plain HTTP client for pushing ragctl's synced
+// Package cognee is a plain HTTP client for pushing depctl's synced
 // dependency knowledge into a user's own Cognee instance as a dataset
 // for its own ECL (extract-cognify-load) pipeline (COGNEE-001). Used
 // only from inside the daemon's own engine.ExportCognee (ADR-011) —

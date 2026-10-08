@@ -5,11 +5,11 @@ import (
 
 	"github.com/BurntSushi/toml"
 
-	"aleutian-ai/ragctl/internal/domain"
-	"aleutian-ai/ragctl/internal/resolver"
+	"github.com/aleutian-ai/depctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/resolver"
 )
 
-// uvLockFile is the subset of uv.lock's schema ragctl needs.
+// uvLockFile is the subset of uv.lock's schema depctl needs.
 type uvLockFile struct {
 	Package []uvPackage `toml:"package"`
 }

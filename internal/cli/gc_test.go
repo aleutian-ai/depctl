@@ -7,13 +7,13 @@ import (
 	"testing"
 	"time"
 
-	"aleutian-ai/ragctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/domain"
 )
 
 func TestGCReportsNothingEligibleWhenStoreIsEmpty(t *testing.T) {
 	isolateEnv(t)
 	runInitForTest(t)
-	useRealRagctlBinary(t)
+	useRealDepctlBinary(t)
 
 	cmd := NewRootCmd()
 	cmd.SetArgs([]string{"gc", "--dry-run"})
@@ -30,7 +30,7 @@ func TestGCReportsNothingEligibleWhenStoreIsEmpty(t *testing.T) {
 func TestGCDryRunListsCandidateWithoutDeleting(t *testing.T) {
 	isolateEnv(t)
 	runInitForTest(t)
-	useRealRagctlBinary(t)
+	useRealDepctlBinary(t)
 
 	store, err := openControlStore()
 	if err != nil {
@@ -75,7 +75,7 @@ func TestGCDryRunListsCandidateWithoutDeleting(t *testing.T) {
 func TestGCSkipsCandidatesStillProtectedByReferenceOrPin(t *testing.T) {
 	isolateEnv(t)
 	runInitForTest(t)
-	useRealRagctlBinary(t)
+	useRealDepctlBinary(t)
 
 	store, err := openControlStore()
 	if err != nil {

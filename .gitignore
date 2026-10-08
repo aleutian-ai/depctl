@@ -22,7 +22,7 @@ profile.cov
 
 # Local build output
 /build/
-/ragctl
+/depctl
 
 # Go workspace file
 go.work

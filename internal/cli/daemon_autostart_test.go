@@ -11,53 +11,53 @@ import (
 	"testing"
 	"time"
 
-	"aleutian-ai/ragctl/internal/config"
-	bboltstore "aleutian-ai/ragctl/internal/control/bbolt"
-	"aleutian-ai/ragctl/internal/daemon/client"
+	"github.com/aleutian-ai/depctl/internal/config"
+	bboltstore "github.com/aleutian-ai/depctl/internal/control/bbolt"
+	"github.com/aleutian-ai/depctl/internal/daemon/client"
 )
 
 // pristineEnv is the environment as it was before any test called
 // t.Setenv (isolateEnv points HOME and the Go caches elsewhere), so the
-// ragctl binary can be built against the real module cache.
+// depctl binary can be built against the real module cache.
 var pristineEnv = os.Environ()
 
 var (
-	ragctlBinOnce sync.Once
-	ragctlBinPath string
-	ragctlBinErr  error
+	depctlBinOnce sync.Once
+	depctlBinPath string
+	depctlBinErr  error
 )
 
-// requireRagctlBinary builds cmd/ragctl once per test binary and returns
+// requireDepctlBinary builds cmd/depctl once per test binary and returns
 // its path. Auto-start tests need a real executable: under `go test`,
 // os.Executable() is the test binary itself.
-func requireRagctlBinary(t *testing.T) string {
+func requireDepctlBinary(t *testing.T) string {
 	t.Helper()
 	if _, err := exec.LookPath("go"); err != nil {
 		t.Skip("go toolchain not on PATH")
 	}
-	ragctlBinOnce.Do(func() {
+	depctlBinOnce.Do(func() {
 		var dir string
-		if dir, ragctlBinErr = os.MkdirTemp("", "ragctl-bin-"); ragctlBinErr != nil {
+		if dir, depctlBinErr = os.MkdirTemp("", "depctl-bin-"); depctlBinErr != nil {
 			return
 		}
-		ragctlBinPath = filepath.Join(dir, "ragctl")
-		cmd := exec.Command("go", "build", "-o", ragctlBinPath, "aleutian-ai/ragctl/cmd/ragctl")
+		depctlBinPath = filepath.Join(dir, "depctl")
+		cmd := exec.Command("go", "build", "-o", depctlBinPath, "github.com/aleutian-ai/depctl/cmd/depctl")
 		cmd.Env = pristineEnv
 		if out, err := cmd.CombinedOutput(); err != nil {
-			ragctlBinErr = errors.New(string(out))
+			depctlBinErr = errors.New(string(out))
 		}
 	})
-	if ragctlBinErr != nil {
-		t.Fatalf("build ragctl: %v", ragctlBinErr)
+	if depctlBinErr != nil {
+		t.Fatalf("build depctl: %v", depctlBinErr)
 	}
-	return ragctlBinPath
+	return depctlBinPath
 }
 
-// useRealRagctlBinary makes auto-start spawn the built binary, and stops
+// useRealDepctlBinary makes auto-start spawn the built binary, and stops
 // whatever daemon the test left running.
-func useRealRagctlBinary(t *testing.T) {
+func useRealDepctlBinary(t *testing.T) {
 	t.Helper()
-	bin := requireRagctlBinary(t)
+	bin := requireDepctlBinary(t)
 	previous := daemonExecutable
 	daemonExecutable = bin
 	t.Cleanup(func() {
@@ -106,7 +106,7 @@ func stopRunningDaemon(t *testing.T) {
 func TestEnsureDaemonAutostartsWhenAbsent(t *testing.T) {
 	isolateEnv(t)
 	runInitForTest(t)
-	useRealRagctlBinary(t)
+	useRealDepctlBinary(t)
 
 	c, err := ensureDaemon(context.Background())
 	if err != nil {
@@ -127,7 +127,7 @@ func TestEnsureDaemonAutostartsWhenAbsent(t *testing.T) {
 func TestEnsureDaemonReusesRunningDaemon(t *testing.T) {
 	isolateEnv(t)
 	runInitForTest(t)
-	useRealRagctlBinary(t)
+	useRealDepctlBinary(t)
 
 	first, err := ensureDaemon(context.Background())
 	if err != nil {
@@ -154,7 +154,7 @@ func TestEnsureDaemonReusesRunningDaemon(t *testing.T) {
 func TestConcurrentAutostartElectsOneDaemon(t *testing.T) {
 	isolateEnv(t)
 	runInitForTest(t)
-	useRealRagctlBinary(t)
+	useRealDepctlBinary(t)
 
 	const clients = 3
 	pids := make([]int, clients)
@@ -211,7 +211,7 @@ func TestEnsureDaemonRespectsAutostartDisabled(t *testing.T) {
 	if !errors.Is(err, client.ErrNotRunning) {
 		t.Fatalf("ensureDaemon with autostart disabled = %v, want ErrNotRunning", err)
 	}
-	if !strings.Contains(err.Error(), "ragctl daemon run") {
+	if !strings.Contains(err.Error(), "depctl daemon run") {
 		t.Errorf("error = %q, want it to name the command that starts a daemon", err)
 	}
 	logPath, err := daemonLogPath()
@@ -225,13 +225,13 @@ func TestEnsureDaemonRespectsAutostartDisabled(t *testing.T) {
 
 // TestEnsureDaemonAutoInitializesBeforeSpawning is the regression test
 // for the MCP bootstrapping gap: an agent session that's the very first
-// thing to ever touch this machine's ragctl install must not need a
-// human to run `ragctl init` in a terminal first — see
+// thing to ever touch this machine's depctl install must not need a
+// human to run `depctl init` in a terminal first — see
 // docs/scratch/mcp-bootstrapping.md.
 func TestEnsureDaemonAutoInitializesBeforeSpawning(t *testing.T) {
 	isolateEnv(t)
 	writeTestConfig(t, func(*config.Config) {})
-	useRealRagctlBinary(t)
+	useRealDepctlBinary(t)
 
 	controlPath, err := controlDBPath()
 	if err != nil {
@@ -243,7 +243,7 @@ func TestEnsureDaemonAutoInitializesBeforeSpawning(t *testing.T) {
 
 	c, err := ensureDaemon(context.Background())
 	if err != nil {
-		t.Fatalf("ensureDaemon with no prior `ragctl init` = %v, want it to auto-initialize and succeed", err)
+		t.Fatalf("ensureDaemon with no prior `depctl init` = %v, want it to auto-initialize and succeed", err)
 	}
 	if _, err := c.Health(context.Background()); err != nil {
 		t.Fatalf("health: %v", err)

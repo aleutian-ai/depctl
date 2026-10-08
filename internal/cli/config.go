@@ -6,24 +6,24 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"aleutian-ai/ragctl/internal/config"
+	"github.com/aleutian-ai/depctl/internal/config"
 )
 
 func newConfigCmd() *cobra.Command {
 	configCmd := &cobra.Command{
 		Use:   "config",
-		Short: "Manage ragctl configuration",
+		Short: "Manage depctl configuration",
 	}
 
 	var configPath string
 	validateCmd := &cobra.Command{
 		Use:   "validate",
-		Short: "Validate the ragctl configuration file",
+		Short: "Validate the depctl configuration file",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runConfigValidate(cmd, configPath)
 		},
 	}
-	validateCmd.Flags().StringVar(&configPath, "config", "", "path to config.yaml (default: platform-specific location, see `ragctl init`)")
+	validateCmd.Flags().StringVar(&configPath, "config", "", "path to config.yaml (default: platform-specific location, see `depctl init`)")
 	configCmd.AddCommand(validateCmd)
 
 	return configCmd
@@ -41,7 +41,7 @@ func runConfigValidate(cmd *cobra.Command, configPath string) error {
 	_, err := config.Load(configPath)
 	if err != nil {
 		if errors.Is(err, config.ErrConfigNotFound) {
-			return fmt.Errorf("%w (run `ragctl init` to create one)", err)
+			return fmt.Errorf("%w (run `depctl init` to create one)", err)
 		}
 		return err
 	}

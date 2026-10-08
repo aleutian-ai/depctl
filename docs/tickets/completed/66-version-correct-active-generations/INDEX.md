@@ -2,7 +2,7 @@
 
 **Status: done (2026-10-02).** All four tickets shipped and passed the whole-epic acceptance run below against real containers, plus a real migration from an old-binary database. The run found and fixed one more gap, GC being unable to retire an unreferenced version (see `STORE-005`).
 
-Added 2026-10-02 from `VEC-016`'s real-container run, which found that ragctl's control store could keep only one active version of a dependency at a time, and that the planner didn't notice when a project's version changed. See [ADR-012](../../adr/ADR-012-active-generation-per-dependency-version.md) for the invariant this epic establishes: **an active generation is unique per dependency version, not per dependency.**
+Added 2026-10-02 from `VEC-016`'s real-container run, which found that depctl's control store could keep only one active version of a dependency at a time, and that the planner didn't notice when a project's version changed. See [ADR-012](../../adr/ADR-012-active-generation-per-dependency-version.md) for the invariant this epic establishes: **an active generation is unique per dependency version, not per dependency.**
 
 - [STORE-005](STORE-005-per-version-active-pointers.md) — key active-generation pointers by version, with a one-time migration and no version-less API.
 - [PLAN-004](PLAN-004-version-correct-planning.md) — a dependency version change triggers a build of the new version (bug #1).

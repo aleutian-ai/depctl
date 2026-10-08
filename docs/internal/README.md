@@ -36,7 +36,7 @@ For the full shipped-behavior narrative and per-command sequence diagrams, see [
 - [planner](planner.md) — diffs a project's resolution against stored state to produce sync actions.
 - [lifecycle](lifecycle.md) — `validate` (structural/sanity/live smoke-test checks) and `promote`, plus `gc`.
 - [retention](retention.md) — reference counting and grace-period GC planning.
-- [watch](watch.md) — debounced detection of dependency-manifest changes, driving `ragctl watch`.
+- [watch](watch.md) — debounced detection of dependency-manifest changes, driving `depctl watch`.
 
 ## Serving
 
@@ -52,7 +52,7 @@ For the full shipped-behavior narrative and per-command sequence diagrams, see [
 
 These packages have Go doc comments but no page in this directory:
 
-- `internal/export/mem0`, `internal/export/cognee`, `internal/export/graphiti` — HTTP clients behind `ragctl export mem0|cognee|graphiti`, pushing synced knowledge into a user's own memory system.
+- `internal/export/mem0`, `internal/export/cognee`, `internal/export/graphiti` — HTTP clients behind `depctl export mem0|cognee|graphiti`, pushing synced knowledge into a user's own memory system.
 - `internal/observability` (structured logging), `internal/observability/metrics` (Prometheus metrics), `internal/observability/trace` (OpenTelemetry spans).
 - `internal/symbolgraph`, `internal/symbolgraph/gopackages` — joining a project call site to the dependency symbol it calls.
 - `internal/httplimit` — size-bounded reads and bounded redirects for untrusted HTTP fetches.

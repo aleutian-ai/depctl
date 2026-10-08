@@ -13,14 +13,14 @@ Load and merge `KnowledgePackage` manifests from the built-in registry, the user
 - Does not implement remote registry clone/fetch/update mechanics beyond reading an already-present local directory — cloning a remote git registry is a config-driven path that can reuse GIT-001 later; this ticket only reads whatever is on disk.
 
 ## Simplicity constraints
-- Loader just walks directories for `*.yaml`/`*.yml` files and parses each with REG-001's `ParseManifest`. No lazy loading, no watch/reload — load once per process invocation (or per `ragctl registry reload`).
+- Loader just walks directories for `*.yaml`/`*.yml` files and parses each with REG-001's `ParseManifest`. No lazy loading, no watch/reload — load once per process invocation (or per `depctl registry reload`).
 - Do not build a generic plugin loader; this is directory-walk + parse.
 
 ## Design
 - Package: `internal/registry`
 - Locations, in priority order (highest wins on conflict):
-  1. project override: `<project-root>/.ragctl/registry/*.yaml` (optional, may not exist for v0.1 if project config isn't built yet — check `CLI-001` status; if absent, skip)
-  2. user registry: `~/.config/ragctl/registry/*.yaml`
+  1. project override: `<project-root>/.depctl/registry/*.yaml` (optional, may not exist for v0.1 if project config isn't built yet — check `CLI-001` status; if absent, skip)
+  2. user registry: `~/.config/depctl/registry/*.yaml`
   3. built-in registry: embedded via `embed.FS` at `internal/registry/builtin/*.yaml`
 - Function:
   ```go

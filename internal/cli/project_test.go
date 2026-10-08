@@ -9,7 +9,7 @@ import (
 func TestProjectListEmpty(t *testing.T) {
 	isolateEnv(t)
 	runInitForTest(t)
-	useRealRagctlBinary(t)
+	useRealDepctlBinary(t)
 
 	rootCmd := NewRootCmd()
 	rootCmd.SetArgs([]string{"project", "list"})
@@ -27,7 +27,7 @@ func TestProjectListAndShowAfterScan(t *testing.T) {
 	isolateEnv(t)
 	requireGo(t)
 	runInitForTest(t)
-	useRealRagctlBinary(t)
+	useRealDepctlBinary(t)
 
 	root := t.TempDir()
 	writeGoMod(t, root, "module example.com/showme\n\ngo 1.21\n")
@@ -76,7 +76,7 @@ func TestProjectListAndShowAfterScan(t *testing.T) {
 func TestProjectShowNotFound(t *testing.T) {
 	isolateEnv(t)
 	runInitForTest(t)
-	useRealRagctlBinary(t)
+	useRealDepctlBinary(t)
 
 	cmd := NewRootCmd()
 	cmd.SetArgs([]string{"project", "show", "proj_missing"})
@@ -90,7 +90,7 @@ func TestProjectShowNotFound(t *testing.T) {
 	}
 }
 
-// runInitForTest runs `ragctl init` against the already-isolated
+// runInitForTest runs `depctl init` against the already-isolated
 // environment, failing the test on error. It then turns ambient sync off
 // (see writeTestConfig): tests that scan a fixture and then drive their
 // own syncs or just-in-time searches must not have a full sync started

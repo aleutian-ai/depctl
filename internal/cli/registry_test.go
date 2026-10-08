@@ -34,7 +34,7 @@ func TestRegistryListWithUserOverride(t *testing.T) {
 		t.Fatalf("userRegistryDirPath: %v", err)
 	}
 	writeFile(t, userDir, "custom.yaml", `
-apiVersion: ragctl.dev/v1alpha1
+apiVersion: depctl.dev/v1alpha1
 kind: KnowledgePackage
 metadata:
   name: my-custom-lib

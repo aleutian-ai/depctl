@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"aleutian-ai/ragctl/internal/config"
+	"github.com/aleutian-ai/depctl/internal/config"
 )
 
 // TestDaemonResyncsProjectWhenGoModChanges exercises the whole watch

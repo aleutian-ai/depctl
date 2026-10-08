@@ -4,10 +4,10 @@ import (
 	"context"
 	"testing"
 
-	"aleutian-ai/ragctl/internal/backend"
-	"aleutian-ai/ragctl/internal/backend/backendtest"
-	"aleutian-ai/ragctl/internal/domain"
-	"aleutian-ai/ragctl/internal/retention"
+	"github.com/aleutian-ai/depctl/internal/backend"
+	"github.com/aleutian-ai/depctl/internal/backend/backendtest"
+	"github.com/aleutian-ai/depctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/retention"
 )
 
 func testSupersededDuplicateCandidate() retention.SupersededDuplicateCandidate {
@@ -31,7 +31,7 @@ func TestRunSupersededDuplicatesDeletesGenerationScopedDataOnly(t *testing.T) {
 	control := newFakeControlStore()
 	data := newFakeDataStore()
 	vb := backendtest.New()
-	ns := backend.Namespace{Name: "ragctl", Dimensions: 4}
+	ns := backend.Namespace{Name: "depctl", Dimensions: 4}
 	if err := vb.EnsureNamespace(ctx, ns); err != nil {
 		t.Fatalf("EnsureNamespace: %v", err)
 	}
@@ -100,7 +100,7 @@ func TestRunSupersededDuplicatesFailureIsRestartable(t *testing.T) {
 	data := newFakeDataStore()
 	data.failDelete = true
 	vb := backendtest.New()
-	ns := backend.Namespace{Name: "ragctl", Dimensions: 4}
+	ns := backend.Namespace{Name: "depctl", Dimensions: 4}
 	vb.EnsureNamespace(ctx, ns)
 	control.generations["gen_dup"] = domain.Generation{ID: "gen_dup", Dependency: domain.DependencyVersion{Dependency: domain.Dependency{Ecosystem: domain.EcosystemGo, Name: "example.com/widget"}, Version: "v1.0.0"}}
 
@@ -138,7 +138,7 @@ func TestRunSupersededDuplicatesAlreadySucceededJobIsANoOp(t *testing.T) {
 	control := newFakeControlStore()
 	data := newFakeDataStore()
 	vb := backendtest.New()
-	ns := backend.Namespace{Name: "ragctl", Dimensions: 4}
+	ns := backend.Namespace{Name: "depctl", Dimensions: 4}
 	vb.EnsureNamespace(ctx, ns)
 
 	candidate := testSupersededDuplicateCandidate()

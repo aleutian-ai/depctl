@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"sync"
 
-	"aleutian-ai/ragctl/internal/daemon/api"
+	"github.com/aleutian-ai/depctl/internal/daemon/api"
 )
 
 // stream runs fn, relaying everything it writes to the client as NDJSON

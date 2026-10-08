@@ -16,7 +16,7 @@ Convert every remaining command that reads the persistent stores into a daemon c
 
 ## Non-goals
 - Changing what any of these commands compute or print.
-- A `ragctl query` CLI command. There isn't one today; the query path is MCP (WATCH-010).
+- A `depctl query` CLI command. There isn't one today; the query path is MCP (WATCH-010).
 
 ## Simplicity constraints
 - Plain JSON request/response for these. They're fast, so no streaming.
@@ -39,7 +39,7 @@ Endpoints and the command each serves:
 `doctor` splits:
 - **Checks that don't need the stores stay client-side.** These are config, registry validity, and git / package managers on PATH. PATH checks must still run client-side because the user's shell PATH is what matters for them, and the daemon's PATH may differ.
 - **Checks that need the stores move behind `GET /v1/doctor`.** These are schema, Badger, stale jobs, active generations and manifests, replicas, backend reachable, and embedding compatibility.
-- **Daemon not running:** a new first check, "ragctl daemon", reports Unhealthy, and the store-backed checks are reported as "not checked" (the existing `notChecked` path). Doctor still exits 2 rather than refusing to run.
+- **Daemon not running:** a new first check, "depctl daemon", reports Unhealthy, and the store-backed checks are reported as "not checked" (the existing `notChecked` path). Doctor still exits 2 rather than refusing to run.
 
 ## Inputs / Outputs
 Unchanged CLI surface: the same flags, text/JSON output, and exit codes.
@@ -53,7 +53,7 @@ Unchanged CLI surface: the same flags, text/JSON output, and exit codes.
 ## Tests
 - Each converted command produces today's output against a running test daemon. Reuse the existing tests' fixtures and assertions; add daemon startup to their setup helper.
 - `status --json` includes `sync_state`.
-- `doctor` with no daemon: exit 2, "ragctl daemon" Unhealthy, store checks "not checked", PATH/config checks still evaluated.
+- `doctor` with no daemon: exit 2, "depctl daemon" Unhealthy, store checks "not checked", PATH/config checks still evaluated.
 - `doctor` with a healthy daemon: all 13 existing checks plus the daemon check OK, exit 0.
 - While the daemon runs, every command here succeeds, which proves none of them opens the stores.
 

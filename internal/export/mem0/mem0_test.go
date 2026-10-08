@@ -23,7 +23,7 @@ func TestAddMemorySendsExactRequestShape(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(srv.URL, "test-key")
-	err := c.AddMemory(context.Background(), "proj-1", "ragctl:google.golang.org/protobuf", "protobuf is a serialization format", map[string]string{
+	err := c.AddMemory(context.Background(), "proj-1", "depctl:google.golang.org/protobuf", "protobuf is a serialization format", map[string]string{
 		"ecosystem":  "go",
 		"dependency": "google.golang.org/protobuf",
 	})
@@ -43,8 +43,8 @@ func TestAddMemorySendsExactRequestShape(t *testing.T) {
 	if gotBody.UserID != "proj-1" {
 		t.Errorf("UserID = %q, want proj-1", gotBody.UserID)
 	}
-	if gotBody.RunID != "ragctl:google.golang.org/protobuf" {
-		t.Errorf("RunID = %q, want ragctl:google.golang.org/protobuf", gotBody.RunID)
+	if gotBody.RunID != "depctl:google.golang.org/protobuf" {
+		t.Errorf("RunID = %q, want depctl:google.golang.org/protobuf", gotBody.RunID)
 	}
 	if len(gotBody.Messages) != 1 || gotBody.Messages[0].Content != "protobuf is a serialization format" {
 		t.Errorf("Messages = %+v, want one message with the chunk content", gotBody.Messages)
@@ -63,7 +63,7 @@ func TestAddMemoryNoAuthHeaderWhenAPIKeyEmpty(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(srv.URL, "")
-	if err := c.AddMemory(context.Background(), "proj-1", "ragctl:dep", "text", nil); err != nil {
+	if err := c.AddMemory(context.Background(), "proj-1", "depctl:dep", "text", nil); err != nil {
 		t.Fatalf("AddMemory: %v", err)
 	}
 	if sawHeader {
@@ -79,7 +79,7 @@ func TestAddMemoryReturnsErrorOnNon2xx(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(srv.URL, "bad-key")
-	err := c.AddMemory(context.Background(), "proj-1", "ragctl:dep", "text", nil)
+	err := c.AddMemory(context.Background(), "proj-1", "depctl:dep", "text", nil)
 	if err == nil {
 		t.Fatal("expected an error for a 401 response, got nil")
 	}
@@ -149,14 +149,14 @@ func TestDeleteMemoriesIsScopedToProjectAndRunID(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	if err := NewClient(srv.URL, "k").DeleteMemories(context.Background(), "proj-1", "ragctl:dep"); err != nil {
+	if err := NewClient(srv.URL, "k").DeleteMemories(context.Background(), "proj-1", "depctl:dep"); err != nil {
 		t.Fatalf("DeleteMemories: %v", err)
 	}
 	if gotMethod != http.MethodDelete || gotPath != "/memories" {
 		t.Errorf("request = %s %s, want DELETE /memories", gotMethod, gotPath)
 	}
-	if gotUser != "proj-1" || gotRun != "ragctl:dep" {
-		t.Errorf("filters user_id=%q run_id=%q, want proj-1 and ragctl:dep (both, so only ragctl's own memories match)", gotUser, gotRun)
+	if gotUser != "proj-1" || gotRun != "depctl:dep" {
+		t.Errorf("filters user_id=%q run_id=%q, want proj-1 and depctl:dep (both, so only depctl's own memories match)", gotUser, gotRun)
 	}
 	if gotKey != "k" {
 		t.Errorf("X-API-Key = %q, want k", gotKey)
@@ -169,7 +169,7 @@ func TestDeleteMemoriesNonAdminKeyExplainsWhy(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	err := NewClient(srv.URL, "user-key").DeleteMemories(context.Background(), "proj-1", "ragctl:dep")
+	err := NewClient(srv.URL, "user-key").DeleteMemories(context.Background(), "proj-1", "depctl:dep")
 	if err == nil || !strings.Contains(err.Error(), "admin") {
 		t.Fatalf("err = %v, want it to say deletes need an admin key", err)
 	}

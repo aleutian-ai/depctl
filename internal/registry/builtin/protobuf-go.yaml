@@ -1,4 +1,4 @@
-apiVersion: ragctl.dev/v1alpha1
+apiVersion: depctl.dev/v1alpha1
 kind: KnowledgePackage
 metadata:
   name: protobuf-go

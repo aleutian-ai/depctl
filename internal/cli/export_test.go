@@ -9,11 +9,11 @@ import (
 	"strings"
 	"testing"
 
-	"aleutian-ai/ragctl/internal/config"
-	bboltstore "aleutian-ai/ragctl/internal/control/bbolt"
-	"aleutian-ai/ragctl/internal/daemon/api"
-	badgerstore "aleutian-ai/ragctl/internal/data/badger"
-	"aleutian-ai/ragctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/config"
+	bboltstore "github.com/aleutian-ai/depctl/internal/control/bbolt"
+	"github.com/aleutian-ai/depctl/internal/daemon/api"
+	badgerstore "github.com/aleutian-ai/depctl/internal/data/badger"
+	"github.com/aleutian-ai/depctl/internal/domain"
 )
 
 // seedExportFixture seeds a project with one resolved, actively-generated
@@ -311,24 +311,24 @@ func TestExportCogneeSkipsCognifyWhenNothingWasAdded(t *testing.T) {
 }
 
 // TestExportMissingKeyEnvNamesTheDaemon: the configured key env var is
-// read by the daemon, not the shell running `ragctl export`. When it's
+// read by the daemon, not the shell running `depctl export`. When it's
 // empty, say so instead of letting the server answer 401.
 func TestExportMissingKeyEnvNamesTheDaemon(t *testing.T) {
 	cfg := config.Config{
-		Export: config.ExportConfig{Mem0: config.Mem0ExportConfig{Endpoint: "http://127.0.0.1:1", APIKeyEnv: "RAGCTL_TEST_UNSET_MEM0_KEY"}},
+		Export: config.ExportConfig{Mem0: config.Mem0ExportConfig{Endpoint: "http://127.0.0.1:1", APIKeyEnv: "DEPCTL_TEST_UNSET_MEM0_KEY"}},
 		Vector: config.VectorConfig{Backend: "qdrant"},
 	}
 	e, _, _ := exportTestEngine(t, cfg)
 	var out testWriter
 	_, err := e.ExportMem0(context.Background(), api.ExportMem0Request{ProjectID: "proj_1"}, &out)
-	if err == nil || !strings.Contains(err.Error(), "RAGCTL_TEST_UNSET_MEM0_KEY") || !strings.Contains(err.Error(), "daemon") {
+	if err == nil || !strings.Contains(err.Error(), "DEPCTL_TEST_UNSET_MEM0_KEY") || !strings.Contains(err.Error(), "daemon") {
 		t.Fatalf("err = %v, want it to name the env var and the daemon's environment", err)
 	}
 }
 
 // TestExportMem0ReplacesPreviousExportPerDependency: re-exporting deletes
 // this project's previous memories for the dependency (scoped by user_id
-// and a ragctl-only run_id) before pushing, instead of stacking a copy.
+// and a depctl-only run_id) before pushing, instead of stacking a copy.
 func TestExportMem0ReplacesPreviousExportPerDependency(t *testing.T) {
 	var deletes []string
 	var adds int
@@ -354,8 +354,8 @@ func TestExportMem0ReplacesPreviousExportPerDependency(t *testing.T) {
 	if _, err := e.ExportMem0(context.Background(), api.ExportMem0Request{ProjectID: "proj_1"}, &out); err != nil {
 		t.Fatalf("ExportMem0: %v", err)
 	}
-	if len(deletes) != 1 || deletes[0] != "proj_1|ragctl:google.golang.org/protobuf" {
-		t.Errorf("deletes = %v, want exactly one scoped to proj_1 + ragctl:google.golang.org/protobuf", deletes)
+	if len(deletes) != 1 || deletes[0] != "proj_1|depctl:google.golang.org/protobuf" {
+		t.Errorf("deletes = %v, want exactly one scoped to proj_1 + depctl:google.golang.org/protobuf", deletes)
 	}
 	if adds != 2 {
 		t.Errorf("adds = %d, want 2", adds)

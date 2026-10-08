@@ -1,6 +1,6 @@
 # Epic: LlamaIndex Adapter
 
-Lets users who already run LlamaIndex ingestion pipelines plug them into `ragctl` via an out-of-process protocol, keeping Python entirely outside the core Go binary.
+Lets users who already run LlamaIndex ingestion pipelines plug them into `depctl` via an out-of-process protocol, keeping Python entirely outside the core Go binary.
 
 ## Tickets
 

@@ -7,11 +7,11 @@ import (
 	"strings"
 	"time"
 
-	"aleutian-ai/ragctl/internal/backend"
-	"aleutian-ai/ragctl/internal/data/generation"
-	"aleutian-ai/ragctl/internal/domain"
-	"aleutian-ai/ragctl/internal/observability"
-	"aleutian-ai/ragctl/internal/observability/trace"
+	"github.com/aleutian-ai/depctl/internal/backend"
+	"github.com/aleutian-ai/depctl/internal/data/generation"
+	"github.com/aleutian-ai/depctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/observability"
+	"github.com/aleutian-ai/depctl/internal/observability/trace"
 )
 
 // Status summarizes fleet-wide sync readiness: every registered

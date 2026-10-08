@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"aleutian-ai/ragctl/internal/config"
-	"aleutian-ai/ragctl/internal/daemon"
+	"github.com/aleutian-ai/depctl/internal/config"
+	"github.com/aleutian-ai/depctl/internal/daemon"
 )
 
 // syncBuffer is a bytes.Buffer safe to read while another goroutine
@@ -95,9 +95,9 @@ func addBarDependency(t *testing.T, appRoot string) {
 // exercising exactly what the daemon runs without a daemon process.
 func testEngine(t *testing.T) *engine {
 	t.Helper()
-	cfg, err := loadRagctlConfig()
+	cfg, err := loadDepctlConfig()
 	if err != nil {
-		t.Fatalf("loadRagctlConfig: %v", err)
+		t.Fatalf("loadDepctlConfig: %v", err)
 	}
 	store, err := openControlStore()
 	if err != nil {
@@ -125,7 +125,7 @@ func TestEngineSyncResolvesFirstWhenAsked(t *testing.T) {
 	isolateEnv(t)
 	requireGo(t)
 	runInitForTest(t)
-	useRealRagctlBinary(t)
+	useRealDepctlBinary(t)
 	deadEndpointsConfig(t, nil)
 	root := scanDepFixture(t)
 	// The daemon `scan` auto-started still holds the control store's
@@ -170,7 +170,7 @@ func TestEngineProjectsListsResolvedProjects(t *testing.T) {
 	isolateEnv(t)
 	requireGo(t)
 	runInitForTest(t)
-	useRealRagctlBinary(t)
+	useRealDepctlBinary(t)
 	deadEndpointsConfig(t, nil)
 	root := scanDepFixture(t)
 	// The daemon `scan` auto-started still holds the control store's
@@ -197,7 +197,7 @@ func TestWatchCommandPointsAtTheDaemon(t *testing.T) {
 	startDaemon(t)
 
 	out := runCommandOutput(t, "watch")
-	if !strings.Contains(out, "managed by the ragctl daemon") {
+	if !strings.Contains(out, "managed by the depctl daemon") {
 		t.Errorf("watch output = %q, want it to say watching is daemon-managed", out)
 	}
 	if !strings.Contains(out, "watching registered projects") {

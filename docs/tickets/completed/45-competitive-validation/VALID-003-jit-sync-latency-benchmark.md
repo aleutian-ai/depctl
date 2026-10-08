@@ -38,9 +38,9 @@ Output format: a simple table in the test's own log output (or a small `docs/` n
 - [x] A dated note added to the docs recording the measured range, distinct from a design/aspirational claim.
 
 ## Post-implementation note
-Implemented as `TestJITSyncColdLatencyBenchmark` (`internal/cli/jit_sync_latency_benchmark_test.go`), gated behind `RAGCTL_LIVE_BENCHMARK=1` (skips otherwise — confirmed the default `go test ./...` run still skips it and stays clean). Two real bugs in the test itself, caught and fixed before getting real numbers: (1) `requireGo`'s own `GOPROXY=off` default (this repo's other tests never need real network resolution) silently blocked module resolution — fixed by overriding `GOPROXY` back to the real proxy inside this one test; (2) the fixture used a placeholder `v0.0.0` require line instead of resolving a real version — fixed with a real `go get <module>@latest` before scanning.
+Implemented as `TestJITSyncColdLatencyBenchmark` (`internal/cli/jit_sync_latency_benchmark_test.go`), gated behind `DEPCTL_LIVE_BENCHMARK=1` (skips otherwise — confirmed the default `go test ./...` run still skips it and stays clean). Two real bugs in the test itself, caught and fixed before getting real numbers: (1) `requireGo`'s own `GOPROXY=off` default (this repo's other tests never need real network resolution) silently blocked module resolution — fixed by overriding `GOPROXY` back to the real proxy inside this one test; (2) the fixture used a placeholder `v0.0.0` require line instead of resolving a real version — fixed with a real `go get <module>@latest` before scanning.
 
-**Measured results (2026-09-17, real network + real Ollama + real Qdrant, reusing the `ragctl-qdrant` container from this session's earlier live testing):**
+**Measured results (2026-09-17, real network + real Ollama + real Qdrant, reusing the `depctl-qdrant` container from this session's earlier live testing):**
 - `github.com/spf13/pflag` (small): 5.76s sync + 168ms search = 5.93s total, 10 chunks.
 - `github.com/stretchr/testify` (medium): 7.94s sync + 123ms search = 8.07s total, 10 chunks.
 

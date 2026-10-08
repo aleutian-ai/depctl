@@ -1,6 +1,6 @@
 # internal/data/fingerprint
 
-`internal/data/fingerprint` is ragctl's single deterministic content-identity primitive: a BLAKE3-based `Fingerprint` over a `KnowledgeObject`'s identifying inputs, and the `ObjectID` string derived from it. It exists so every subsystem that needs to detect "has this content actually changed" or "what's this object's storage key" goes through one function rather than hashing ad hoc in multiple places.
+`internal/data/fingerprint` is depctl's single deterministic content-identity primitive: a BLAKE3-based `Fingerprint` over a `KnowledgeObject`'s identifying inputs, and the `ObjectID` string derived from it. It exists so every subsystem that needs to detect "has this content actually changed" or "what's this object's storage key" goes through one function rather than hashing ad hoc in multiple places.
 
 ## Key types and functions
 

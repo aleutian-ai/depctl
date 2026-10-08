@@ -4,11 +4,11 @@ import (
 	"context"
 	"testing"
 
-	"aleutian-ai/ragctl/internal/backend"
-	"aleutian-ai/ragctl/internal/backend/backendtest"
-	"aleutian-ai/ragctl/internal/domain"
-	"aleutian-ai/ragctl/internal/embedding"
-	"aleutian-ai/ragctl/internal/source/git"
+	"github.com/aleutian-ai/depctl/internal/backend"
+	"github.com/aleutian-ai/depctl/internal/backend/backendtest"
+	"github.com/aleutian-ai/depctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/embedding"
+	"github.com/aleutian-ai/depctl/internal/source/git"
 )
 
 // TestRunThenPromoteEndToEnd is the vertical-slice proof epics 11-14
@@ -24,7 +24,7 @@ func TestRunThenPromoteEndToEnd(t *testing.T) {
 	repoDir := newFixtureRepo(t, "v1.0.0")
 	embedder := &fakeEmbedder{dims: 4}
 	vb := backendtest.New()
-	ns := backend.Namespace{Name: "ragctl", Dimensions: 4}
+	ns := backend.Namespace{Name: "depctl", Dimensions: 4}
 
 	gen, manifest, replica := buildAndReplicate(t, ctx, store, badgerStore, gitCache, repoDir, testDependency("v1.0.0"), embedder, vb, ns)
 
@@ -73,7 +73,7 @@ func TestRunFailsWhenReplicaIsIncomplete(t *testing.T) {
 	repoDir := newFixtureRepo(t, "v1.0.0")
 	embedder := &fakeEmbedder{dims: 4}
 	vb := backendtest.New()
-	ns := backend.Namespace{Name: "ragctl", Dimensions: 4}
+	ns := backend.Namespace{Name: "depctl", Dimensions: 4}
 
 	gen, manifest, replica := buildAndReplicate(t, ctx, store, badgerStore, gitCache, repoDir, testDependency("v1.0.0"), embedder, vb, ns)
 	replica.PointCount = 0 // simulate an interrupted/incomplete replication
@@ -113,7 +113,7 @@ func TestRunSanityBlocksImplausibleCollapse(t *testing.T) {
 	repoDir := newFixtureRepo(t, "v1.0.0")
 	embedder := &fakeEmbedder{dims: 4}
 	vb := backendtest.New()
-	ns := backend.Namespace{Name: "ragctl", Dimensions: 4}
+	ns := backend.Namespace{Name: "depctl", Dimensions: 4}
 
 	priorGen, priorManifest, _ := buildAndReplicate(t, ctx, store, badgerStore, gitCache, repoDir, testDependency("v1.0.0"), embedder, vb, ns)
 

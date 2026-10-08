@@ -6,7 +6,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"aleutian-ai/ragctl/internal/data/badger"
+	"github.com/aleutian-ai/depctl/internal/data/badger"
 )
 
 // countingEmbedder wraps a fixed vector generator and counts how many

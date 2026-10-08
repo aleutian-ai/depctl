@@ -20,26 +20,26 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"aleutian-ai/ragctl/internal/backend"
-	"aleutian-ai/ragctl/internal/config"
-	bboltstore "aleutian-ai/ragctl/internal/control/bbolt"
-	"aleutian-ai/ragctl/internal/daemon"
-	"aleutian-ai/ragctl/internal/daemon/api"
-	"aleutian-ai/ragctl/internal/daemon/client"
-	badgerstore "aleutian-ai/ragctl/internal/data/badger"
-	"aleutian-ai/ragctl/internal/domain"
-	"aleutian-ai/ragctl/internal/export/cognee"
-	"aleutian-ai/ragctl/internal/export/graphiti"
-	"aleutian-ai/ragctl/internal/export/mem0"
-	"aleutian-ai/ragctl/internal/observability"
-	"aleutian-ai/ragctl/internal/observability/metrics"
-	"aleutian-ai/ragctl/internal/observability/trace"
-	"aleutian-ai/ragctl/internal/query"
-	"aleutian-ai/ragctl/internal/source/git"
-	"aleutian-ai/ragctl/internal/watch"
+	"github.com/aleutian-ai/depctl/internal/backend"
+	"github.com/aleutian-ai/depctl/internal/config"
+	bboltstore "github.com/aleutian-ai/depctl/internal/control/bbolt"
+	"github.com/aleutian-ai/depctl/internal/daemon"
+	"github.com/aleutian-ai/depctl/internal/daemon/api"
+	"github.com/aleutian-ai/depctl/internal/daemon/client"
+	badgerstore "github.com/aleutian-ai/depctl/internal/data/badger"
+	"github.com/aleutian-ai/depctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/export/cognee"
+	"github.com/aleutian-ai/depctl/internal/export/graphiti"
+	"github.com/aleutian-ai/depctl/internal/export/mem0"
+	"github.com/aleutian-ai/depctl/internal/observability"
+	"github.com/aleutian-ai/depctl/internal/observability/metrics"
+	"github.com/aleutian-ai/depctl/internal/observability/trace"
+	"github.com/aleutian-ai/depctl/internal/query"
+	"github.com/aleutian-ai/depctl/internal/source/git"
+	"github.com/aleutian-ai/depctl/internal/watch"
 )
 
-// ragctlVersion identifies this specific binary build, reported by the
+// depctlVersion identifies this specific binary build, reported by the
 // daemon over /v1/health. Previously a hardcoded "v0.1.0" that never
 // changed across builds — meaningless for detecting a stale daemon
 // (ADR-011: one long-running process reused by every later command),
@@ -52,7 +52,7 @@ import (
 // bug for any two builds that both hit the fallback) when build info
 // genuinely isn't available (e.g. `go run`, or a working tree with no
 // VCS), so a mismatch there is real too, just less informative.
-var ragctlVersion = detectBuildVersion()
+var depctlVersion = detectBuildVersion()
 
 func detectBuildVersion() string {
 	info, ok := debug.ReadBuildInfo()
@@ -78,7 +78,7 @@ func detectBuildVersion() string {
 	return revision
 }
 
-// stopWait bounds how long `ragctl daemon stop` waits for the socket to
+// stopWait bounds how long `depctl daemon stop` waits for the socket to
 // go away after the daemon accepts the request.
 const stopWait = 30 * time.Second
 
@@ -122,7 +122,7 @@ func closeWithTimeout(name string, close func() error, timeout time.Duration) {
 }
 
 // daemonExecutable is the binary auto-start spawns. It is empty in
-// normal use (meaning "this binary"); tests point it at a real ragctl
+// normal use (meaning "this binary"); tests point it at a real depctl
 // they built, since os.Executable under `go test` is the test binary.
 var daemonExecutable string
 
@@ -146,7 +146,7 @@ func ensureDaemon(ctx context.Context) (*client.Client, error) {
 		return nil, err
 	}
 
-	cfg, err := loadRagctlConfig()
+	cfg, err := loadDepctlConfig()
 	if err != nil {
 		return nil, err
 	}
@@ -179,13 +179,13 @@ func warnIfConfigStale(ctx context.Context, c *client.Client) {
 	if err != nil || !stale {
 		return
 	}
-	fmt.Fprintf(os.Stderr, "warning: config.yaml has changed since the running daemon (pid %d) started; the change won't take effect until it restarts — run `ragctl daemon stop` (the next command auto-starts a fresh one)\n", health.PID)
+	fmt.Fprintf(os.Stderr, "warning: config.yaml has changed since the running daemon (pid %d) started; the change won't take effect until it restarts — run `depctl daemon stop` (the next command auto-starts a fresh one)\n", health.PID)
 }
 
 // warnIfVersionStale prints a one-line warning to stderr if the running
 // daemon (ADR-011: one long-running process, reused by every later
 // command) was built from a different revision than the binary making
-// this call — e.g. `ragctl` was upgraded (git pull + rebuild, or a new
+// this call — e.g. `depctl` was upgraded (git pull + rebuild, or a new
 // release) but the daemon it auto-started earlier is still running the
 // old build. A tool/route added since that daemon started genuinely
 // doesn't exist on it — an unexplained 404 from a real MCP session is
@@ -200,7 +200,7 @@ func warnIfVersionStale(ctx context.Context, c *client.Client) {
 	if err != nil {
 		return
 	}
-	if msg := versionStaleWarning(health.PID, health.Version, ragctlVersion); msg != "" {
+	if msg := versionStaleWarning(health.PID, health.Version, depctlVersion); msg != "" {
 		fmt.Fprintln(os.Stderr, msg)
 	}
 }
@@ -218,13 +218,13 @@ func versionStaleWarning(pid int, daemonVersion, currentVersion string) string {
 	if daemonVersion == "" || daemonVersion == "unknown" || currentVersion == "unknown" || daemonVersion == currentVersion {
 		return ""
 	}
-	return fmt.Sprintf("warning: the running daemon (pid %d) was built from a different ragctl revision (%s) than this command (%s) — a tool or route added since it started may not exist yet; run `ragctl daemon stop` (the next command auto-starts a fresh one matching this build)", pid, daemonVersion, currentVersion)
+	return fmt.Sprintf("warning: the running daemon (pid %d) was built from a different depctl revision (%s) than this command (%s) — a tool or route added since it started may not exist yet; run `depctl daemon stop` (the next command auto-starts a fresh one matching this build)", pid, daemonVersion, currentVersion)
 }
 
 // configIsStale reports whether config.yaml's current fingerprint
 // differs from daemonFingerprint (a Health response's ConfigFingerprint).
 func configIsStale(daemonFingerprint string) (bool, error) {
-	cfg, err := loadRagctlConfig()
+	cfg, err := loadDepctlConfig()
 	if err != nil {
 		return false, err
 	}
@@ -236,17 +236,17 @@ func configIsStale(daemonFingerprint string) (bool, error) {
 }
 
 // versionFreshnessLabel is versionStaleWarning's decision rendered for
-// `ragctl daemon status`'s "version:" line — the same daemonVersion,
+// `depctl daemon status`'s "version:" line — the same daemonVersion,
 // currentVersion comparison, just formatted for a status line instead
 // of a one-shot warning.
 func versionFreshnessLabel(daemonVersion string) string {
-	if daemonVersion == "" || daemonVersion == "unknown" || ragctlVersion == "unknown" || daemonVersion == ragctlVersion {
+	if daemonVersion == "" || daemonVersion == "unknown" || depctlVersion == "unknown" || daemonVersion == depctlVersion {
 		return daemonVersion
 	}
-	return fmt.Sprintf("%s (stale — this command is %s; run `ragctl daemon stop`)", daemonVersion, ragctlVersion)
+	return fmt.Sprintf("%s (stale — this command is %s; run `depctl daemon stop`)", daemonVersion, depctlVersion)
 }
 
-// configFreshnessLabel is configIsStale rendered for `ragctl daemon
+// configFreshnessLabel is configIsStale rendered for `depctl daemon
 // status`'s "config:" line.
 func configFreshnessLabel(daemonFingerprint string) string {
 	stale, err := configIsStale(daemonFingerprint)
@@ -254,7 +254,7 @@ func configFreshnessLabel(daemonFingerprint string) string {
 		return "unknown (could not load config.yaml)"
 	}
 	if stale {
-		return "stale (edited since the daemon started; run `ragctl daemon stop`)"
+		return "stale (edited since the daemon started; run `depctl daemon stop`)"
 	}
 	return "current"
 }
@@ -326,20 +326,20 @@ func requireNoDaemon(ctx context.Context) error {
 	if err != nil {
 		return nil
 	}
-	return fmt.Errorf("the ragctl daemon is running (pid %d); stop it first with `ragctl daemon stop`", h.PID)
+	return fmt.Errorf("the depctl daemon is running (pid %d); stop it first with `depctl daemon stop`", h.PID)
 }
 
 // notRunningError is what a command reports when there is no daemon and
 // it may not start one.
 func notRunningError(socket string) error {
-	return fmt.Errorf("%w (socket %s); start it with `ragctl daemon run`, or set daemon.autostart: true in config",
+	return fmt.Errorf("%w (socket %s); start it with `depctl daemon run`, or set daemon.autostart: true in config",
 		client.ErrNotRunning, socket)
 }
 
-// ensureInitialized runs the same work `ragctl init` does, silently
+// ensureInitialized runs the same work `depctl init` does, silently
 // (status lines to stderr, not stdout — this runs ahead of an auto-start
 // a human never explicitly asked for), if the stores don't exist yet.
-// Auto-init on first use rather than a hard "run `ragctl init` first"
+// Auto-init on first use rather than a hard "run `depctl init` first"
 // refusal: init has no interactive questions, so requiring a manual
 // step first serves no purpose except being a surprise blocker for an
 // MCP session that has no terminal to run it from — see
@@ -360,20 +360,20 @@ func ensureInitialized(ctx context.Context) error {
 	return initStores(os.Stderr, "", "")
 }
 
-// spawnDaemon starts `ragctl daemon run` detached. Its output goes to
-// ragctld.log, never to the caller's stdout: the caller may be `ragctl
+// spawnDaemon starts `depctl daemon run` detached. Its output goes to
+// depctld.log, never to the caller's stdout: the caller may be `depctl
 // serve`, whose stdout carries the MCP protocol stream.
 func spawnDaemon() error {
 	exe := daemonExecutable
 	if exe == "" {
 		var err error
 		if exe, err = os.Executable(); err != nil {
-			return fmt.Errorf("locate the ragctl binary: %w", err)
+			return fmt.Errorf("locate the depctl binary: %w", err)
 		}
 		// Under `go test` this is the test binary, and spawning it would
 		// re-run tests instead of starting a daemon.
 		if strings.HasSuffix(filepath.Base(exe), ".test") {
-			return fmt.Errorf("refusing to auto-start %s: it is a test binary, not ragctl", exe)
+			return fmt.Errorf("refusing to auto-start %s: it is a test binary, not depctl", exe)
 		}
 	}
 	logPath, err := daemonLogPath()
@@ -392,10 +392,10 @@ func spawnDaemon() error {
 	cmd.Stderr = logFile
 	detach(cmd)
 	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("start ragctl daemon: %w", err)
+		return fmt.Errorf("start depctl daemon: %w", err)
 	}
 	// Reap the child whenever it exits (a losing candidate exits within a
-	// second), so a long-running parent like `ragctl serve` doesn't
+	// second), so a long-running parent like `depctl serve` doesn't
 	// collect zombie processes.
 	go cmd.Wait()
 	return nil
@@ -414,7 +414,7 @@ func waitForDaemon(ctx context.Context, socket string) (*client.Client, error) {
 			return nil, err
 		}
 		if time.Now().After(deadline) {
-			return nil, fmt.Errorf("ragctl daemon did not start within %s; last log lines:\n%s", autostartTimeout, tailDaemonLog())
+			return nil, fmt.Errorf("depctl daemon did not start within %s; last log lines:\n%s", autostartTimeout, tailDaemonLog())
 		}
 		select {
 		case <-ctx.Done():
@@ -424,7 +424,7 @@ func waitForDaemon(ctx context.Context, socket string) (*client.Client, error) {
 	}
 }
 
-// tailDaemonLog returns the last few lines of ragctld.log, for errors
+// tailDaemonLog returns the last few lines of depctld.log, for errors
 // that report why an auto-started daemon never came up.
 func tailDaemonLog() string {
 	path, err := daemonLogPath()
@@ -619,7 +619,7 @@ func (e *engine) keywordQueryService() (*query.Service, error) {
 	return e.keywordQuery, e.keywordQueryErr
 }
 
-// Status returns the `ragctl status` snapshot, including a live backend
+// Status returns the `depctl status` snapshot, including a live backend
 // health probe.
 func (e *engine) Status(ctx context.Context) (api.Status, error) {
 	st, err := buildStatus(ctx, e.store, e.cfg.Vector.Backend, e.controlPath, e.badgerPath)
@@ -638,7 +638,7 @@ func (e *engine) Projects(ctx context.Context) ([]watch.Project, error) {
 
 // Sync runs one project's sync, re-resolving first when the request came
 // from a manifest change. It is the function the scheduler runs, and it
-// calls exactly the same RunSync as `ragctl sync`. coordinator is the
+// calls exactly the same RunSync as `depctl sync`. coordinator is the
 // same instance the scheduler uses for GC exclusion — forwarded straight
 // into RunSync, which is where the real per-action build coordination
 // happens (epic 53/COORD-001..002).
@@ -667,7 +667,7 @@ func (e *engine) VectorReadiness(ctx context.Context) (state, detail string) {
 }
 
 // ProjectIDs returns every registered project, resolved or not — what a
-// `ragctl sync` with no --project covers.
+// `depctl sync` with no --project covers.
 func (e *engine) ProjectIDs(ctx context.Context) ([]string, error) {
 	projects, err := e.store.ListProjects(ctx)
 	if err != nil {
@@ -681,7 +681,7 @@ func (e *engine) ProjectIDs(ctx context.Context) ([]string, error) {
 }
 
 // Scan discovers and resolves projects under root, the work behind
-// `ragctl scan`.
+// `depctl scan`.
 func (e *engine) Scan(ctx context.Context, root string, out io.Writer, lockProject func(string) func()) ([]string, error) {
 	return scanAndResolve(ctx, e.store, root, out, lockProject)
 }
@@ -808,9 +808,9 @@ func (e *engine) ProjectDependencies(ctx context.Context, projectID string) (api
 
 // ExportMem0 pushes projectID's (or req.Dependencies' named subset's)
 // already-synced chunks into a user's own Mem0 instance (MEM0-001).
-// Read-only against ragctl's own stores — the only state this mutates
+// Read-only against depctl's own stores — the only state this mutates
 // is the user's own external Mem0 instance, and only once a human has
-// explicitly run `ragctl export mem0`.
+// explicitly run `depctl export mem0`.
 func (e *engine) ExportMem0(ctx context.Context, req api.ExportMem0Request, out io.Writer) (api.ExportMem0Response, error) {
 	endpoint := req.Endpoint
 	if endpoint == "" {
@@ -827,7 +827,7 @@ func (e *engine) ExportMem0(ctx context.Context, req api.ExportMem0Request, out 
 	if apiKeyEnv != "" {
 		apiKey = os.Getenv(apiKeyEnv)
 		if apiKey == "" {
-			return api.ExportMem0Response{}, fmt.Errorf("%s is not set in the ragctl daemon's environment; the daemon reads it, not this shell. Export it, then run `ragctl daemon stop` so the next command starts a daemon that sees it", apiKeyEnv)
+			return api.ExportMem0Response{}, fmt.Errorf("%s is not set in the depctl daemon's environment; the daemon reads it, not this shell. Export it, then run `depctl daemon stop` so the next command starts a daemon that sees it", apiKeyEnv)
 		}
 	}
 
@@ -852,7 +852,7 @@ func (e *engine) ExportMem0(ctx context.Context, req api.ExportMem0Request, out 
 
 		gen, err := e.store.GetActiveGeneration(ctx, dv.Dependency.Ecosystem, name, dv.Version, e.cfg.Vector.Backend)
 		if err != nil {
-			fmt.Fprintf(out, "%s@%s: not synced yet, skipping (run `ragctl sync`)\n", name, dv.Version)
+			fmt.Fprintf(out, "%s@%s: not synced yet, skipping (run `depctl sync`)\n", name, dv.Version)
 			continue
 		}
 
@@ -863,10 +863,10 @@ func (e *engine) ExportMem0(ctx context.Context, req api.ExportMem0Request, out 
 
 		// Re-exporting replaces this dependency's previous memories
 		// rather than stacking another copy (Mem0 doesn't dedupe raw
-		// adds). Scoped by project and a ragctl-only run_id tag, so only
-		// memories ragctl wrote for this dependency are ever deleted. If
+		// adds). Scoped by project and a depctl-only run_id tag, so only
+		// memories depctl wrote for this dependency are ever deleted. If
 		// the delete fails, nothing is pushed: no duplicate set.
-		runID := "ragctl:" + name
+		runID := "depctl:" + name
 		result := api.ExportMem0Result{Dependency: name}
 		if err := mem0Client.DeleteMemories(ctx, req.ProjectID, runID); err != nil {
 			result.Failed = len(chunks)
@@ -913,7 +913,7 @@ func (e *engine) ExportMem0(ctx context.Context, req api.ExportMem0Request, out 
 // subset's) already-synced chunks into a user's own Graphiti instance
 // (GRAPHITI-001), one episode per dependency (its full chunk set, not
 // one episode per chunk — Graphiti's own extraction pipeline works over
-// a coherent document). Read-only against ragctl's own stores.
+// a coherent document). Read-only against depctl's own stores.
 func (e *engine) ExportGraphiti(ctx context.Context, req api.ExportGraphitiRequest, out io.Writer) (api.ExportGraphitiResponse, error) {
 	endpoint := req.Endpoint
 	if endpoint == "" {
@@ -930,7 +930,7 @@ func (e *engine) ExportGraphiti(ctx context.Context, req api.ExportGraphitiReque
 	if authTokenEnv != "" {
 		authToken = os.Getenv(authTokenEnv)
 		if authToken == "" {
-			return api.ExportGraphitiResponse{}, fmt.Errorf("%s is not set in the ragctl daemon's environment; the daemon reads it, not this shell. Export it, then run `ragctl daemon stop` so the next command starts a daemon that sees it", authTokenEnv)
+			return api.ExportGraphitiResponse{}, fmt.Errorf("%s is not set in the depctl daemon's environment; the daemon reads it, not this shell. Export it, then run `depctl daemon stop` so the next command starts a daemon that sees it", authTokenEnv)
 		}
 	}
 
@@ -954,7 +954,7 @@ func (e *engine) ExportGraphiti(ctx context.Context, req api.ExportGraphitiReque
 
 		gen, err := e.store.GetActiveGeneration(ctx, dv.Dependency.Ecosystem, name, dv.Version, e.cfg.Vector.Backend)
 		if err != nil {
-			fmt.Fprintf(out, "%s@%s: not synced yet, skipping (run `ragctl sync`)\n", name, dv.Version)
+			fmt.Fprintf(out, "%s@%s: not synced yet, skipping (run `depctl sync`)\n", name, dv.Version)
 			continue
 		}
 
@@ -1079,7 +1079,7 @@ func (e *engine) ExportCognee(ctx context.Context, req api.ExportCogneeRequest, 
 	if authTokenEnv != "" {
 		authToken = os.Getenv(authTokenEnv)
 		if authToken == "" {
-			return api.ExportCogneeResponse{}, fmt.Errorf("%s is not set in the ragctl daemon's environment; the daemon reads it, not this shell. Export it, then run `ragctl daemon stop` so the next command starts a daemon that sees it", authTokenEnv)
+			return api.ExportCogneeResponse{}, fmt.Errorf("%s is not set in the depctl daemon's environment; the daemon reads it, not this shell. Export it, then run `depctl daemon stop` so the next command starts a daemon that sees it", authTokenEnv)
 		}
 	}
 
@@ -1104,7 +1104,7 @@ func (e *engine) ExportCognee(ctx context.Context, req api.ExportCogneeRequest, 
 
 		gen, err := e.store.GetActiveGeneration(ctx, dv.Dependency.Ecosystem, name, dv.Version, e.cfg.Vector.Backend)
 		if err != nil {
-			fmt.Fprintf(out, "%s@%s: not synced yet, skipping (run `ragctl sync`)\n", name, dv.Version)
+			fmt.Fprintf(out, "%s@%s: not synced yet, skipping (run `depctl sync`)\n", name, dv.Version)
 			continue
 		}
 
@@ -1210,7 +1210,7 @@ func (e *engine) KnowledgeStatus(ctx context.Context) (api.KnowledgeStatusRespon
 }
 
 // ProjectList lists every registered project, the work behind
-// `ragctl project list`.
+// `depctl project list`.
 func (e *engine) ProjectList(ctx context.Context) (api.ProjectListResponse, error) {
 	projects, err := e.store.ListProjects(ctx)
 	if err != nil {
@@ -1224,7 +1224,7 @@ func (e *engine) ProjectList(ctx context.Context) (api.ProjectListResponse, erro
 }
 
 // ProjectGet gets one project's full detail, the work behind
-// `ragctl project show` and `ragctl deps`.
+// `depctl project show` and `depctl deps`.
 func (e *engine) ProjectGet(ctx context.Context, projectID string) (api.ProjectGetResponse, error) {
 	// The friendly message is built here, not left to the caller to
 	// construct from an error type: an HTTP error crossing the daemon
@@ -1232,7 +1232,7 @@ func (e *engine) ProjectGet(ctx context.Context, projectID string) (api.ProjectG
 	// client could errors.Is against bboltstore.ErrNotFound.
 	p, err := e.store.GetProject(ctx, projectID)
 	if errors.Is(err, bboltstore.ErrNotFound) {
-		return api.ProjectGetResponse{}, fmt.Errorf("no registered project with ID %s (run `ragctl project list` to see registered projects)", projectID)
+		return api.ProjectGetResponse{}, fmt.Errorf("no registered project with ID %s (run `depctl project list` to see registered projects)", projectID)
 	}
 	if err != nil {
 		return api.ProjectGetResponse{}, fmt.Errorf("get project %s: %w", projectID, err)
@@ -1262,7 +1262,7 @@ func (e *engine) ProjectGet(ctx context.Context, projectID string) (api.ProjectG
 }
 
 // Describe builds the fleet-wide (or filtered) knowledge report, the
-// work behind `ragctl describe`.
+// work behind `depctl describe`.
 func (e *engine) Describe(ctx context.Context, args []string, checkLiveness bool) (any, error) {
 	reg, err := loadRegistryForCLI(ctx)
 	if err != nil {
@@ -1292,7 +1292,7 @@ func (e *engine) Describe(ctx context.Context, args []string, checkLiveness bool
 var doctorChecksInDaemon = doctorChecks[:len(doctorChecks)-2]
 
 // Doctor runs every doctor check that needs this daemon's stores, the
-// work behind `ragctl doctor` when a daemon is reachable. The stores are
+// work behind `depctl doctor` when a daemon is reachable. The stores are
 // already open and config/registry already loaded, so doctorEnv here
 // carries no error states the way the no-daemon fallback path's does.
 func (e *engine) Doctor(ctx context.Context) (api.DoctorResponse, error) {
@@ -1332,27 +1332,27 @@ func (e *engine) Doctor(ctx context.Context) (api.DoctorResponse, error) {
 func newDaemonCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "daemon",
-		Short: "Manage the ragctl daemon",
-		Long: `The ragctl daemon owns ragctl's databases. Every command that needs
+		Short: "Manage the depctl daemon",
+		Long: `The depctl daemon owns depctl's databases. Every command that needs
 stored state talks to it over a local socket, and starts one if none is
 running (unless daemon.autostart is false in config).`,
 	}
 	cmd.AddCommand(
 		&cobra.Command{
 			Use:   "run",
-			Short: "Run the ragctl daemon in the foreground",
+			Short: "Run the depctl daemon in the foreground",
 			Args:  cobra.NoArgs,
 			RunE:  func(cmd *cobra.Command, args []string) error { return runDaemonRun(cmd) },
 		},
 		&cobra.Command{
 			Use:   "status",
-			Short: "Report whether the ragctl daemon is running",
+			Short: "Report whether the depctl daemon is running",
 			Args:  cobra.NoArgs,
 			RunE:  func(cmd *cobra.Command, args []string) error { return runDaemonStatus(cmd) },
 		},
 		&cobra.Command{
 			Use:   "stop",
-			Short: "Stop the running ragctl daemon",
+			Short: "Stop the running depctl daemon",
 			Args:  cobra.NoArgs,
 			RunE:  func(cmd *cobra.Command, args []string) error { return runDaemonStop(cmd) },
 		},
@@ -1361,7 +1361,7 @@ running (unless daemon.autostart is false in config).`,
 }
 
 func runDaemonRun(cmd *cobra.Command) error {
-	cfg, err := loadRagctlConfig()
+	cfg, err := loadDepctlConfig()
 	if err != nil {
 		return err
 	}
@@ -1500,7 +1500,7 @@ func runDaemonRun(cmd *cobra.Command) error {
 		Engine:             engine,
 		Socket:             socket,
 		ControlPath:        controlPath,
-		Version:            ragctlVersion,
+		Version:            depctlVersion,
 		WatchEnabled:       cfg.Watch.Enabled,
 		DisableAmbientSync: cfg.Sync.DisableAmbient,
 		Debounce:           cfg.Watch.Debounce,
@@ -1530,10 +1530,10 @@ func ownershipError(ctx context.Context, socket, controlPath string) error {
 	if h, err := client.Dial(probe, socket); err == nil {
 		health, err := h.Health(probe)
 		if err == nil {
-			return fmt.Errorf("ragctl daemon already running (pid %d, socket %s)", health.PID, socket)
+			return fmt.Errorf("depctl daemon already running (pid %d, socket %s)", health.PID, socket)
 		}
 	}
-	return fmt.Errorf("%s is locked but no daemon answers on %s; another ragctl process holds it", controlPath, socket)
+	return fmt.Errorf("%s is locked but no daemon answers on %s; another depctl process holds it", controlPath, socket)
 }
 
 func runDaemonStatus(cmd *cobra.Command) error {
@@ -1544,7 +1544,7 @@ func runDaemonStatus(cmd *cobra.Command) error {
 	c, err := client.Dial(cmd.Context(), socket)
 	if err != nil {
 		if errors.Is(err, client.ErrNotRunning) {
-			fmt.Fprintf(cmd.OutOrStdout(), "ragctl daemon is not running (socket %s)\n", socket)
+			fmt.Fprintf(cmd.OutOrStdout(), "depctl daemon is not running (socket %s)\n", socket)
 			return ExitCodeError{Code: 1}
 		}
 		return err
@@ -1568,7 +1568,7 @@ func runDaemonStatus(cmd *cobra.Command) error {
 }
 
 // embeddingStatusLabel formats a daemon's reported embedding-readiness
-// state for `ragctl daemon status`'s one-line summary.
+// state for `depctl daemon status`'s one-line summary.
 func embeddingStatusLabel(state, detail string) string {
 	switch embeddingState(state) {
 	case embeddingStateReady, embeddingStateUnknown, "":
@@ -1587,7 +1587,7 @@ func embeddingStatusLabel(state, detail string) string {
 }
 
 // vectorStatusLabel formats a daemon's reported vector-readiness state
-// for `ragctl daemon status`'s one-line summary.
+// for `depctl daemon status`'s one-line summary.
 func vectorStatusLabel(state, detail string) string {
 	switch vectorState(state) {
 	case vectorStateReady, vectorStateUnknown, "":
@@ -1613,7 +1613,7 @@ func runDaemonStop(cmd *cobra.Command) error {
 	c, err := client.Dial(cmd.Context(), socket)
 	if err != nil {
 		if errors.Is(err, client.ErrNotRunning) {
-			fmt.Fprintln(cmd.OutOrStdout(), "ragctl daemon is not running")
+			fmt.Fprintln(cmd.OutOrStdout(), "depctl daemon is not running")
 			return nil
 		}
 		return err
@@ -1694,12 +1694,12 @@ func waitForProcessExit(pid int, grace time.Duration) bool {
 	}
 }
 
-// stopOutcomeMessage decides what `ragctl daemon stop` tells the user
+// stopOutcomeMessage decides what `depctl daemon stop` tells the user
 // once the socket is confirmed gone — split out from runDaemonStop so
 // the decision itself (not the socket-polling loop around it) is
 // directly unit-testable without a real daemon.
 //
-// `ragctl daemon status` would misreport "not running" in the
+// `depctl daemon status` would misreport "not running" in the
 // still-finishing case too (it dials the same socket), so the message
 // points at `ps` instead — the one check that's actually accurate in
 // this window.

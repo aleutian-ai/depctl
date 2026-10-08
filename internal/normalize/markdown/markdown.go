@@ -1,4 +1,4 @@
-// Package markdown implements ragctl's Markdown/MDX normalizer
+// Package markdown implements depctl's Markdown/MDX normalizer
 // (NORM-002): syntactic extraction of title, heading hierarchy, fenced
 // code-block languages, and links from a document, using goldmark for
 // parsing. It never renders HTML or executes MDX components — an .mdx
@@ -9,7 +9,7 @@ package markdown
 import (
 	"strings"
 
-	"aleutian-ai/ragctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/domain"
 )
 
 // Normalizer implements normalize.Normalizer for .md and .mdx files.

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"aleutian-ai/ragctl/internal/config"
+	"github.com/aleutian-ai/depctl/internal/config"
 )
 
 // TestStartServerDisabledDoesNotBind confirms this ticket's own
@@ -67,15 +67,15 @@ func TestMetricsEndpointOnFixedPort(t *testing.T) {
 	}
 
 	for _, name := range []string{
-		"ragctl_sync_jobs_total",
-		"ragctl_sync_failures_total",
-		"ragctl_acquire_seconds",
-		"ragctl_normalize_seconds",
-		"ragctl_embed_seconds",
-		"ragctl_backend_upsert_seconds",
-		"ragctl_active_generations",
-		"ragctl_gc_candidates",
-		"ragctl_badger_bytes",
+		"depctl_sync_jobs_total",
+		"depctl_sync_failures_total",
+		"depctl_acquire_seconds",
+		"depctl_normalize_seconds",
+		"depctl_embed_seconds",
+		"depctl_backend_upsert_seconds",
+		"depctl_active_generations",
+		"depctl_gc_candidates",
+		"depctl_badger_bytes",
 	} {
 		if !strings.Contains(body, name) {
 			t.Errorf("expected %q in /metrics output, got:\n%s", name, body)

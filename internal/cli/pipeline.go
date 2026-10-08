@@ -1,5 +1,5 @@
 // pipeline.go builds the configured providers (embedder, vector store,
-// Git cache) that sync needs; `ragctl plan` only needs the configured
+// Git cache) that sync needs; `depctl plan` only needs the configured
 // vector backend's name. The keyword index is built in retrieval.go.
 
 package cli
@@ -11,24 +11,24 @@ import (
 	"path/filepath"
 	"strings"
 
-	"aleutian-ai/ragctl/internal/backend"
-	"aleutian-ai/ragctl/internal/backend/embedded"
-	"aleutian-ai/ragctl/internal/backend/pgvector"
-	"aleutian-ai/ragctl/internal/backend/qdrant"
-	"aleutian-ai/ragctl/internal/backend/weaviate"
-	"aleutian-ai/ragctl/internal/config"
-	"aleutian-ai/ragctl/internal/data/badger"
-	"aleutian-ai/ragctl/internal/embedding"
-	"aleutian-ai/ragctl/internal/embedding/cache"
-	"aleutian-ai/ragctl/internal/embedding/ollama"
-	"aleutian-ai/ragctl/internal/source/git"
+	"github.com/aleutian-ai/depctl/internal/backend"
+	"github.com/aleutian-ai/depctl/internal/backend/embedded"
+	"github.com/aleutian-ai/depctl/internal/backend/pgvector"
+	"github.com/aleutian-ai/depctl/internal/backend/qdrant"
+	"github.com/aleutian-ai/depctl/internal/backend/weaviate"
+	"github.com/aleutian-ai/depctl/internal/config"
+	"github.com/aleutian-ai/depctl/internal/data/badger"
+	"github.com/aleutian-ai/depctl/internal/embedding"
+	"github.com/aleutian-ai/depctl/internal/embedding/cache"
+	"github.com/aleutian-ai/depctl/internal/embedding/ollama"
+	"github.com/aleutian-ai/depctl/internal/source/git"
 )
 
-// loadRagctlConfig loads config.yaml from its default location, falling
+// loadDepctlConfig loads config.yaml from its default location, falling
 // back to documented defaults if the file doesn't exist yet — `plan`
 // only needs the configured backend's name, which shouldn't require
-// `ragctl init` to have run first.
-func loadRagctlConfig() (config.Config, error) {
+// `depctl init` to have run first.
+func loadDepctlConfig() (config.Config, error) {
 	path, err := config.DefaultConfigPath()
 	if err != nil {
 		return config.Config{}, fmt.Errorf("resolve config path: %w", err)
@@ -51,7 +51,7 @@ func loadRagctlConfig() (config.Config, error) {
 // config, without constructing a client — all `computePlans` needs to
 // check GetActiveGeneration.
 func configuredVectorBackendName() (string, error) {
-	cfg, err := loadRagctlConfig()
+	cfg, err := loadDepctlConfig()
 	if err != nil {
 		return "", err
 	}
@@ -76,12 +76,12 @@ func buildVectorBackend(cfg config.Config) (backend.VectorBackend, error) {
 	// vector.api_key_env names the env var holding the secret: Qdrant's
 	// or Weaviate's API key, or pgvector's database password. It's read by whichever
 	// process builds the backend (the daemon, normally), not the shell
-	// running a ragctl command.
+	// running a depctl command.
 	var secret string
 	if env := cfg.Vector.APIKeyEnv; env != "" {
 		secret = os.Getenv(env)
 		if secret == "" {
-			return nil, fmt.Errorf("vector.api_key_env names %s, but it isn't set in the ragctl daemon's environment; export it, then run `ragctl daemon stop` so the next command starts a daemon that sees it", env)
+			return nil, fmt.Errorf("vector.api_key_env names %s, but it isn't set in the depctl daemon's environment; export it, then run `depctl daemon stop` so the next command starts a daemon that sees it", env)
 		}
 	}
 	switch cfg.Vector.Backend {

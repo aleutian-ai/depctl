@@ -1,7 +1,7 @@
 // Package embedded implements backend.VectorBackend in a single bbolt
-// file inside ragctl's data directory (VEC-015), so no vector service has
+// file inside depctl's data directory (VEC-015), so no vector service has
 // to run. Search is exact: brute-force cosine similarity over the points
-// a filter selects. ragctl's searches are always scoped to one
+// a filter selects. depctl's searches are always scoped to one
 // dependency version (hundreds of chunks), so no approximate index is
 // needed.
 //
@@ -30,7 +30,7 @@ import (
 
 	bolt "go.etcd.io/bbolt"
 
-	"aleutian-ai/ragctl/internal/backend"
+	"github.com/aleutian-ai/depctl/internal/backend"
 )
 
 // ErrDimensionMismatch means a namespace exists with a different vector
@@ -306,7 +306,7 @@ func (s *Store) db() (*bolt.DB, error) {
 	}
 	db, err := bolt.Open(s.path, 0o600, &bolt.Options{Timeout: openTimeout})
 	if errors.Is(err, bolt.ErrTimeout) {
-		return nil, fmt.Errorf("embedded: %s is in use by another ragctl process (normally the daemon)", s.path)
+		return nil, fmt.Errorf("embedded: %s is in use by another depctl process (normally the daemon)", s.path)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("embedded: open %s: %w", s.path, err)

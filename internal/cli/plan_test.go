@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-// scanDepFixture runs `ragctl scan` against a small go.mod fixture with
+// scanDepFixture runs `depctl scan` against a small go.mod fixture with
 // one locally-replaced dependency (so it resolves fully offline, same
 // pattern as TestDepsListsResolvedDependencies) and returns the
 // registered project's root path. The dependency isn't in the registry
@@ -42,7 +42,7 @@ func TestPlanNewProjectShowsAddReferenceAndSyncVersion(t *testing.T) {
 	isolateEnv(t)
 	requireGo(t)
 	runInitForTest(t)
-	useRealRagctlBinary(t)
+	useRealDepctlBinary(t)
 	scanDepFixture(t)
 
 	cmd := NewRootCmd()
@@ -69,7 +69,7 @@ func TestPlanNeverWritesState(t *testing.T) {
 	isolateEnv(t)
 	requireGo(t)
 	runInitForTest(t)
-	useRealRagctlBinary(t)
+	useRealDepctlBinary(t)
 	scanDepFixture(t)
 
 	// Run plan twice; if it wrote any VersionReference or generation
@@ -97,7 +97,7 @@ func TestPlanJSONRoundTrips(t *testing.T) {
 	isolateEnv(t)
 	requireGo(t)
 	runInitForTest(t)
-	useRealRagctlBinary(t)
+	useRealDepctlBinary(t)
 	scanDepFixture(t)
 
 	cmd := NewRootCmd()

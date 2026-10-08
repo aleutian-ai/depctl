@@ -23,7 +23,7 @@ func ProjectID(canonicalRoot string) string // "proj_" + base32(BLAKE3(canonical
 `canonicalRoot` = `filepath.Abs` + `filepath.Clean` + (on case-insensitive filesystems, document that this is *not* normalized — out of scope) of the project root directory.
 
 Document explicitly (in a package doc comment, not just this ticket) the v0.1 policy:
-> Moving or renaming a project directory produces a new project ID on the next scan. The old project's dependency references and reasons are not automatically transferred. A future `ragctl project move` command may address this; it does not exist in v0.1.
+> Moving or renaming a project directory produces a new project ID on the next scan. The old project's dependency references and reasons are not automatically transferred. A future `depctl project move` command may address this; it does not exist in v0.1.
 
 ## Inputs / Outputs
 - Input: canonical absolute path string.

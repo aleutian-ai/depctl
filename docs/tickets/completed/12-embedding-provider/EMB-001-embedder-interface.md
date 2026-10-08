@@ -13,7 +13,7 @@ Define the narrow `Embedder` interface that all embedding providers implement, p
 - No caching (EMB-003).
 
 ## Simplicity constraints
-- Exactly one interface, no provider registry/factory abstraction until a second provider is actually being built. A `switch` on config string is enough for v0.1 wiring in `cmd/ragctl`.
+- Exactly one interface, no provider registry/factory abstraction until a second provider is actually being built. A `switch` on config string is enough for v0.1 wiring in `cmd/depctl`.
 - Do not add streaming or async embedding APIs — batch request/response is sufficient.
 
 ## Design

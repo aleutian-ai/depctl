@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"aleutian-ai/ragctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/domain"
 )
 
 const testDebounce = 50 * time.Millisecond

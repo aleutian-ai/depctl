@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"aleutian-ai/ragctl/internal/config"
-	"aleutian-ai/ragctl/internal/embedding/ollama"
+	"github.com/aleutian-ai/depctl/internal/config"
+	"github.com/aleutian-ai/depctl/internal/embedding/ollama"
 )
 
 // embeddingPullTimeout bounds a daemon-triggered model download in the
@@ -95,9 +95,9 @@ func (r *embeddingReadiness) checkReady() error {
 		// provider, so there's no wrong answer in falling through here.
 		return nil
 	case embeddingStateChecking:
-		return fmt.Errorf("ragctl is checking its embedding backend — retry shortly, or run `ragctl daemon status` for progress")
+		return fmt.Errorf("depctl is checking its embedding backend — retry shortly, or run `depctl daemon status` for progress")
 	case embeddingStatePulling:
-		return fmt.Errorf("ragctl is initializing its embedding backend: %s is being downloaded by the local daemon — retry shortly, or run `ragctl daemon status` for progress", detail)
+		return fmt.Errorf("depctl is initializing its embedding backend: %s is being downloaded by the local daemon — retry shortly, or run `depctl daemon status` for progress", detail)
 	case embeddingStateUnreachable:
 		return fmt.Errorf("embedding backend unreachable: %s", detail)
 	case embeddingStateError:

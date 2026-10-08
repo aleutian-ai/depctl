@@ -1,23 +1,23 @@
 package cli
 
 import (
-	"aleutian-ai/ragctl/internal/mcp"
 	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"github.com/aleutian-ai/depctl/internal/mcp"
 	"io"
 	"path/filepath"
 	"strings"
 
-	"aleutian-ai/ragctl/internal/daemon/api"
-	"aleutian-ai/ragctl/internal/daemon/client"
-	"aleutian-ai/ragctl/internal/domain"
-	"aleutian-ai/ragctl/internal/query"
+	"github.com/aleutian-ai/depctl/internal/daemon/api"
+	"github.com/aleutian-ai/depctl/internal/daemon/client"
+	"github.com/aleutian-ai/depctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/query"
 )
 
 // daemonQueryService implements mcp.QueryService over the daemon's HTTP
-// API — the client-side half of ADR-011 §8: `ragctl serve` reaches
+// API — the client-side half of ADR-011 §8: `depctl serve` reaches
 // query.Service, which runs inside the daemon, over the socket instead
 // of opening a store and building its own embedder/vector backend.
 type daemonQueryService struct {

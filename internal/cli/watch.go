@@ -8,18 +8,18 @@ import (
 
 	"github.com/spf13/cobra"
 
-	bboltstore "aleutian-ai/ragctl/internal/control/bbolt"
-	"aleutian-ai/ragctl/internal/watch"
+	bboltstore "github.com/aleutian-ai/depctl/internal/control/bbolt"
+	"github.com/aleutian-ai/depctl/internal/watch"
 )
 
-// newWatchCmd keeps `ragctl watch` working for anyone following an older
+// newWatchCmd keeps `depctl watch` working for anyone following an older
 // README or their own muscle memory. Watching happens in the daemon now
 // (ADR-011), so all this does is make sure one is running.
 func newWatchCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:        "watch",
-		Short:      "Deprecated: watching is managed by the ragctl daemon",
-		Deprecated: "watching runs in the ragctl daemon; use `ragctl daemon run`, or let any command start it",
+		Short:      "Deprecated: watching is managed by the depctl daemon",
+		Deprecated: "watching runs in the depctl daemon; use `depctl daemon run`, or let any command start it",
 		Args:       cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runWatch(cmd)
@@ -38,9 +38,9 @@ func runWatch(cmd *cobra.Command) error {
 	}
 
 	out := cmd.OutOrStdout()
-	fmt.Fprintf(out, "watch is now managed by the ragctl daemon (pid %d, socket %s).\n", health.PID, health.Socket)
+	fmt.Fprintf(out, "watch is now managed by the depctl daemon (pid %d, socket %s).\n", health.PID, health.Socket)
 	if health.Watching {
-		fmt.Fprintln(out, "it is watching registered projects; follow it with `ragctl daemon status`.")
+		fmt.Fprintln(out, "it is watching registered projects; follow it with `depctl daemon status`.")
 	} else {
 		fmt.Fprintln(out, "watching is off (watch.enabled: false in config).")
 	}

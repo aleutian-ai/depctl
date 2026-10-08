@@ -1,6 +1,6 @@
 // Package planner computes the diff between a project's current
 // dependency resolution and its recorded state (references, active
-// generations), producing typed actions for `ragctl plan`/`ragctl sync`
+// generations), producing typed actions for `depctl plan`/`depctl sync`
 // to report or execute. See docs/tickets/completed/15-planner-sync.
 package planner
 
@@ -8,8 +8,8 @@ import (
 	"context"
 	"sort"
 
-	"aleutian-ai/ragctl/internal/domain"
-	"aleutian-ai/ragctl/internal/registry"
+	"github.com/aleutian-ai/depctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/registry"
 )
 
 // ActionKind identifies what Plan wants done for one dependency.

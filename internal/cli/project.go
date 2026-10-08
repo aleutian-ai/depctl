@@ -48,7 +48,7 @@ func runProjectList(cmd *cobra.Command) error {
 
 	out := cmd.OutOrStdout()
 	if len(projects) == 0 {
-		fmt.Fprintln(out, "no registered projects (run `ragctl scan` to discover some)")
+		fmt.Fprintln(out, "no registered projects (run `depctl scan` to discover some)")
 		return nil
 	}
 	for _, p := range projects {
@@ -74,7 +74,7 @@ func runProjectShow(cmd *cobra.Command, id string) error {
 	fmt.Fprintf(out, "Updated:    %s\n", p.UpdatedAt.Format("2006-01-02 15:04:05"))
 
 	if !p.HasResolution {
-		fmt.Fprintln(out, "Resolution: none (run `ragctl scan` against this project's root)")
+		fmt.Fprintln(out, "Resolution: none (run `depctl scan` against this project's root)")
 		return nil
 	}
 	fmt.Fprintf(out, "Resolution: %s, %d dependencies (fingerprint %s)\n", p.Ecosystem, len(p.Dependencies), p.Fingerprint)

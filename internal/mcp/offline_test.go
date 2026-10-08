@@ -17,14 +17,14 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 
-	"aleutian-ai/ragctl/internal/backend"
-	"aleutian-ai/ragctl/internal/backend/qdrant"
-	"aleutian-ai/ragctl/internal/control/bbolt"
-	"aleutian-ai/ragctl/internal/data/badger"
-	"aleutian-ai/ragctl/internal/domain"
-	"aleutian-ai/ragctl/internal/embedding"
-	"aleutian-ai/ragctl/internal/embedding/ollama"
-	"aleutian-ai/ragctl/internal/query"
+	"github.com/aleutian-ai/depctl/internal/backend"
+	"github.com/aleutian-ai/depctl/internal/backend/qdrant"
+	"github.com/aleutian-ai/depctl/internal/control/bbolt"
+	"github.com/aleutian-ai/depctl/internal/data/badger"
+	"github.com/aleutian-ai/depctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/embedding"
+	"github.com/aleutian-ai/depctl/internal/embedding/ollama"
+	"github.com/aleutian-ai/depctl/internal/query"
 )
 
 func requireContainerRuntime(t *testing.T) {
@@ -105,7 +105,7 @@ func fakeOllamaServer(t *testing.T, dims int) *httptest.Server {
 }
 
 // TestOfflineSearchDependencyDocsAndGetDependencyVersion is MCP-004: the
-// release-blocking proof that ragctl serve answers version-correct MCP
+// release-blocking proof that depctl serve answers version-correct MCP
 // queries with zero *external* network access once knowledge has been
 // synced. It uses real production HTTP clients (internal/embedding/
 // ollama, internal/backend/qdrant) against real local services (a real
@@ -153,7 +153,7 @@ func TestOfflineSearchDependencyDocsAndGetDependencyVersion(t *testing.T) {
 
 	embedder := ollama.New(ollamaSrv.URL, "test-model", ollama.WithHTTPClient(blockedClient))
 	vb := qdrant.New(qdrantURL, qdrant.WithHTTPClient(blockedClient))
-	ns := backend.Namespace{Name: "ragctl", Dimensions: dims, Distance: "cosine"}
+	ns := backend.Namespace{Name: "depctl", Dimensions: dims, Distance: "cosine"}
 	if err := vb.EnsureNamespace(ctx, ns); err != nil {
 		t.Fatalf("EnsureNamespace: %v", err)
 	}

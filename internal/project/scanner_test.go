@@ -8,7 +8,7 @@ import (
 	"sort"
 	"testing"
 
-	"aleutian-ai/ragctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/domain"
 )
 
 func touch(t *testing.T, path string) {
@@ -148,7 +148,7 @@ func TestScanPermissionDeniedSubtreeDoesNotAbort(t *testing.T) {
 }
 
 func TestScanNonExistentRoot(t *testing.T) {
-	_, err := Scan(context.Background(), "/no/such/path/ragctl-test")
+	_, err := Scan(context.Background(), "/no/such/path/depctl-test")
 	if err == nil {
 		t.Fatal("expected an error for a non-existent root")
 	}

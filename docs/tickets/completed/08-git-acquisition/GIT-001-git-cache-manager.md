@@ -18,7 +18,7 @@ Maintain a local bare-mirror Git cache per repository, fetching tags/refs on dem
 
 ## Design
 - Package: `internal/source/git`
-- Cache path: `~/.local/share/ragctl/git/<host>/<org>/<repo>.git` (mirrors design spec example, e.g. `github.com/grpc/grpc-go.git`).
+- Cache path: `~/.local/share/depctl/git/<host>/<org>/<repo>.git` (mirrors design spec example, e.g. `github.com/grpc/grpc-go.git`).
 - Core operations:
   ```go
   type Cache struct { root string }

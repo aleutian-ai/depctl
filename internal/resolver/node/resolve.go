@@ -6,8 +6,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"aleutian-ai/ragctl/internal/domain"
-	"aleutian-ai/ragctl/internal/resolver"
+	"github.com/aleutian-ai/depctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/resolver"
 )
 
 // lockfileResolvers maps each name in lockfilePriority (detect.go) to the
@@ -31,7 +31,7 @@ func (r *Resolver) Resolve(ctx context.Context, root string) (domain.Resolution,
 	return domain.Resolution{}, resolutionErr(root, fmt.Errorf(
 		"no supported lockfile found (package.json alone, with no lockfile, isn't resolvable yet — "+
 			"run npm install, pnpm install, yarn install, or bun install to generate one of "+
-			"package-lock.json, pnpm-lock.yaml, yarn.lock, or bun.lock, then re-run `ragctl scan`)"))
+			"package-lock.json, pnpm-lock.yaml, yarn.lock, or bun.lock, then re-run `depctl scan`)"))
 }
 
 func exists(root, name string) bool {

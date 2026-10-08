@@ -31,7 +31,7 @@ func probeReachable(ctx context.Context, host string) error {
 }
 ```
 
-On failure, `EnsureMirror` returns a `CacheError` whose message clearly says "offline" (or names the specific unreachable host), distinct from a real git protocol error (auth failure, repo not found) — a caller (e.g. `ragctl sync`'s per-action failure reporting) should never have to guess which one it got from a generic git stderr dump.
+On failure, `EnsureMirror` returns a `CacheError` whose message clearly says "offline" (or names the specific unreachable host), distinct from a real git protocol error (auth failure, repo not found) — a caller (e.g. `depctl sync`'s per-action failure reporting) should never have to guess which one it got from a generic git stderr dump.
 
 ## Inputs / Outputs
 - Input: a remote git URL `EnsureMirror` is about to clone for the first time.

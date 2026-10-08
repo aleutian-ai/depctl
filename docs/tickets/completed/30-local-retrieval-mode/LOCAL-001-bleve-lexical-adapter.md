@@ -6,14 +6,14 @@
 **Estimated size:** medium
 
 ## Goal
-Implement a `VectorBackend`-shaped keyword/BM25 retrieval adapter using Bleve, so `ragctl` can search locally without any external vector database.
+Implement a `VectorBackend`-shaped keyword/BM25 retrieval adapter using Bleve, so `depctl` can search locally without any external vector database.
 
 ## Non-goals
 - No semantic/vector search from Bleve — lexical only. Bleve is not expected to match a real vector backend's relevance quality.
 - No hybrid ranking logic — that belongs to whatever calls the backend, not this adapter.
 
 ## Simplicity constraints
-- Bleve indexes live on local disk under `~/.local/share/ragctl/bleve/`; do not add a separate config surface beyond what other backends already use (endpoint/collection-equivalent = index path).
+- Bleve indexes live on local disk under `~/.local/share/depctl/bleve/`; do not add a separate config surface beyond what other backends already use (endpoint/collection-equivalent = index path).
 - Implement the minimum of the `VectorBackend` interface needed for lexical search — `EnsureNamespace`, `Upsert`, `Delete`, `Query`, `Health`, `Capabilities` — reusing existing generation-scoped metadata filtering (package/ecosystem/version/generation) rather than inventing a new filter model.
 
 ## Design
@@ -61,7 +61,7 @@ A pure-lexical backend has no way to receive the string it's supposed to search 
 - Output: `QueryResult` with lexical relevance scores.
 
 ## Failure behavior
-Index corruption on open is a fatal `doctor`-visible error, not a silent empty index; `ragctl doctor` (OPS-002) should be extended to check Bleve index openability when this backend is configured.
+Index corruption on open is a fatal `doctor`-visible error, not a silent empty index; `depctl doctor` (OPS-002) should be extended to check Bleve index openability when this backend is configured.
 
 ## Tests
 - Two versions of the same package indexed; metadata-filtered query returns only the requested version (mirrors VEC-002's acceptance test).
@@ -78,7 +78,7 @@ Index corruption on open is a fatal `doctor`-visible error, not a silent empty i
 `internal/backend/keyword`, a plain-Go BM25 keyword index in one bbolt file (`keyword.db`, next to `control.db`). It implements the full `VectorBackend` interface and passes the shared conformance suite (17 checks). The suite now gives every point text as well as a vector, so one set of expectations covers both kinds of backend.
 
 Reconciled against the sketch above:
-- **Plain Go instead of Bleve (the user's decision).** Bleve would have added about 30 modules and a second on-disk index format. As with the embedded vector store, ragctl scopes first and ranks second: every search is filtered to one dependency version (hundreds to a few thousand chunks), so BM25 is computed at query time over just those chunks, and no inverted index is kept. Keys are `ecosystem\0dependency\0version\0generation\0id`, so that filter is a prefix scan.
+- **Plain Go instead of Bleve (the user's decision).** Bleve would have added about 30 modules and a second on-disk index format. As with the embedded vector store, depctl scopes first and ranks second: every search is filtered to one dependency version (hundreds to a few thousand chunks), so BM25 is computed at query time over just those chunks, and no inverted index is kept. Keys are `ecosystem\0dependency\0version\0generation\0id`, so that filter is a prefix scan.
 - **The tokenizer keeps identifiers intact.** `pgxpool.NewWithConfig()` yields `pgxpool.newwithconfig`, `pgxpool`, `newwithconfig`, `new`, `with`, `config`. camelCase, snake_case, kebab-case and module paths are split, and the whole identifier is kept as well. Stopwords are dropped only as plain words, never as identifier parts (`Client.Do` keeps `do`).
 - **API docs lead with their qualified symbol.** Godoc chunks are indexed as `pgxpool.New` plus their content. The doc "New creates a new Pool" never spells out the name someone searches for. The signature is left out: its generic terms (`ctx`, `error`) lengthened every doc and cost two hits in the comparison below.
 - **The prerequisite gap this ticket found is closed.** `backend.Point` and `backend.QueryRequest` carry `Text`. `query.Service`, `generation.Replicate` and validation's version-correctness check all work with no embedder.

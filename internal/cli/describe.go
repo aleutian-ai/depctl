@@ -14,14 +14,14 @@ import (
 
 	"github.com/spf13/cobra"
 
-	bboltstore "aleutian-ai/ragctl/internal/control/bbolt"
-	badgerstore "aleutian-ai/ragctl/internal/data/badger"
-	"aleutian-ai/ragctl/internal/data/generation"
-	"aleutian-ai/ragctl/internal/domain"
-	"aleutian-ai/ragctl/internal/registry"
+	bboltstore "github.com/aleutian-ai/depctl/internal/control/bbolt"
+	badgerstore "github.com/aleutian-ai/depctl/internal/data/badger"
+	"github.com/aleutian-ai/depctl/internal/data/generation"
+	"github.com/aleutian-ai/depctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/registry"
 )
 
-// Report is describe's complete output: what packages ragctl has been
+// Report is describe's complete output: what packages depctl has been
 // asked to know about, fleet-wide, built once and rendered as text,
 // JSON, or HTML — see DESC-001's simplicity constraint against
 // maintaining separate data-gathering paths per output format.
@@ -45,7 +45,7 @@ type PackageEntry struct {
 	Package       string           `json:"package"`
 	ManifestMatch bool             `json:"manifest_match"`
 	// Alias is the matched manifest's metadata.name — what
-	// `ragctl describe <alias>` resolves back to this row — empty when
+	// `depctl describe <alias>` resolves back to this row — empty when
 	// ManifestMatch is false. Manifest names are already unique within
 	// one loaded registry (REG-002's loader dedupes by name, last
 	// source wins), but nothing stops two DIFFERENT names from looking
@@ -101,21 +101,21 @@ func newDescribeCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "describe [alias | ecosystem package]",
-		Short: "Describe what knowledge ragctl has: packages, sources, and how much content backs each",
+		Short: "Describe what knowledge depctl has: packages, sources, and how much content backs each",
 		Args:  cobra.MaximumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runDescribe(cmd, args, htmlOut, outPath, jsonOut, checkLiveness)
 		},
 	}
 	cmd.Flags().BoolVar(&htmlOut, "html", false, "write a static HTML report instead of printing text")
-	cmd.Flags().StringVar(&outPath, "out", "ragctl-describe.html", "output path for --html")
+	cmd.Flags().StringVar(&outPath, "out", "depctl-describe.html", "output path for --html")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "print the report as JSON")
 	cmd.Flags().BoolVar(&checkLiveness, "check-liveness", false, "probe each declared source's reachability (real network/git calls, opt-in)")
 	return cmd
 }
 
 // runDescribe interprets args per DESC-001's three forms:
-//   - none: fleet-wide, every (ecosystem, package) ragctl has been asked
+//   - none: fleet-wide, every (ecosystem, package) depctl has been asked
 //     to reference.
 //   - one: a registry manifest alias (its metadata.name — the same short
 //     name every manifest already has, e.g. "badger") — resolved to
@@ -166,7 +166,7 @@ func runDescribe(cmd *cobra.Command, args []string, htmlOut bool, outPath string
 func aliasPairs(reg *registry.Registry, alias string) ([]depPair, error) {
 	m, ok := reg.Manifest(alias)
 	if !ok {
-		return nil, fmt.Errorf("no registry manifest named %q — see `ragctl registry list` for available names, or use `ragctl describe <ecosystem> <package>`", alias)
+		return nil, fmt.Errorf("no registry manifest named %q — see `depctl registry list` for available names, or use `depctl describe <ecosystem> <package>`", alias)
 	}
 	var pairs []depPair
 	for _, eco := range m.Match.Ecosystems {
@@ -179,10 +179,10 @@ func aliasPairs(reg *registry.Registry, alias string) ([]depPair, error) {
 
 // buildReport gathers every describe row. filterPairs, if non-empty,
 // scopes the report to exactly those pairs; otherwise every (ecosystem,
-// package) pair ragctl has ever been asked to reference (across every
+// package) pair depctl has ever been asked to reference (across every
 // project) is included, per DESC-001's design — this is "what's been
 // asked for," not a dump of the entire registry catalog (that's
-// `ragctl registry list`).
+// `depctl registry list`).
 func buildReport(ctx context.Context, store *bboltstore.Store, badgerStore *badgerstore.Store, reg *registry.Registry, backendName string, filterPairs []depPair, checkLiveness bool) (Report, error) {
 	report := Report{
 		GeneratedAt: time.Now(),
@@ -376,7 +376,7 @@ var describeHTMLTemplate = template.Must(template.New("describe").Parse(`<!docty
 <html>
 <head>
 <meta charset="utf-8">
-<title>ragctl describe</title>
+<title>depctl describe</title>
 <style>
   :root { color-scheme: light dark; }
   body { font-family: -apple-system, system-ui, sans-serif; margin: 2rem; background: Canvas; color: CanvasText; }
@@ -391,7 +391,7 @@ var describeHTMLTemplate = template.Must(template.New("describe").Parse(`<!docty
 </style>
 </head>
 <body>
-<h1>ragctl describe — {{.GeneratedAt.Format "2006-01-02 15:04:05"}}</h1>
+<h1>depctl describe — {{.GeneratedAt.Format "2006-01-02 15:04:05"}}</h1>
 <p>{{.Registry.ManifestCount}} manifest(s) loaded{{if .Registry.Warnings}}, {{len .Registry.Warnings}} warning(s){{end}}</p>
 {{range .Registry.Warnings}}<p class="warn">! {{.}}</p>{{end}}
 <table>

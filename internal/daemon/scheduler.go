@@ -9,12 +9,12 @@ import (
 	"sync"
 	"time"
 
-	"aleutian-ai/ragctl/internal/daemon/api"
+	"github.com/aleutian-ai/depctl/internal/daemon/api"
 )
 
 // ErrShuttingDown is delivered to requests the daemon will never run
 // because it is stopping.
-var ErrShuttingDown = errors.New("ragctl daemon is shutting down")
+var ErrShuttingDown = errors.New("depctl daemon is shutting down")
 
 // maxActionDuration bounds one GC run (and the scan and export routes),
 // so a hung network call can never keep the daemon busy forever. GC holds
@@ -26,7 +26,7 @@ var maxActionDuration = 30 * time.Minute
 
 // SyncOptions are the knobs one sync run takes. Resolve is set by
 // watch-triggered requests, which re-resolve the project first; a plain
-// `ragctl sync` leaves it false and syncs the stored resolution.
+// `depctl sync` leaves it false and syncs the stored resolution.
 type SyncOptions struct {
 	// Dependencies limits the run to exactly these dependency names; empty
 	// or nil means everything.
@@ -386,7 +386,7 @@ type scanLock struct {
 	refs int
 }
 
-// States reports each project's current scheduler state, for `ragctl
+// States reports each project's current scheduler state, for `depctl
 // status`.
 func (s *Scheduler) States() map[string]string {
 	s.mu.Lock()

@@ -7,7 +7,7 @@
 // subpackages, ever executes code from the dependency content it reads.
 // godoc/Go extraction uses go/parser's static AST, never `go run`/`go
 // build` on the checked-out source. pydoc and tsdoc shell out to a real
-// `python3`/`node` interpreter, but only to run ragctl's own extraction
+// `python3`/`node` interpreter, but only to run depctl's own extraction
 // script (embedded in the binary, piped over stdin) — the dependency's
 // file path is passed as a plain string argument for that script to
 // statically parse (Python's ast module; a hand-written CommonJS/ESM
@@ -19,7 +19,7 @@ package normalize
 import (
 	"context"
 
-	"aleutian-ai/ragctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/domain"
 )
 
 // Normalizer converts a materialized SourceSnapshot into zero or more

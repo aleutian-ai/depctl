@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"aleutian-ai/ragctl/internal/symbolgraph"
+	"github.com/aleutian-ai/depctl/internal/symbolgraph"
 )
 
 // writeFile writes content to path, creating parent directories as

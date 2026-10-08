@@ -12,9 +12,9 @@ import (
 
 	"github.com/zeebo/blake3"
 
-	"aleutian-ai/ragctl/internal/backend"
-	"aleutian-ai/ragctl/internal/domain"
-	"aleutian-ai/ragctl/internal/retention"
+	"github.com/aleutian-ai/depctl/internal/backend"
+	"github.com/aleutian-ai/depctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/retention"
 )
 
 // ControlStore is the narrow slice of *bbolt.Store this package needs.

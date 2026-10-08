@@ -6,7 +6,7 @@ import (
 	"sync"
 	"testing"
 
-	"aleutian-ai/ragctl/internal/daemon/api"
+	"github.com/aleutian-ai/depctl/internal/daemon/api"
 )
 
 // TestSyncProgressSurvivesAFastNoOpFollowUp is MCP-004's own regression:

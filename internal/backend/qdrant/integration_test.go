@@ -10,7 +10,7 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 
-	"aleutian-ai/ragctl/internal/backend"
+	"github.com/aleutian-ai/depctl/internal/backend"
 )
 
 // requireContainerRuntime skips the test if no Docker-API-compatible
@@ -70,7 +70,7 @@ func TestQdrantIntegrationVersionFilteredQuery(t *testing.T) {
 
 	c := New(fmt.Sprintf("http://%s:%s", host, port.Port()))
 
-	ns := backend.Namespace{Name: "ragctl", Dimensions: 4, Distance: "cosine"}
+	ns := backend.Namespace{Name: "depctl", Dimensions: 4, Distance: "cosine"}
 	if err := c.EnsureNamespace(ctx, ns); err != nil {
 		t.Fatalf("EnsureNamespace: %v", err)
 	}
@@ -176,7 +176,7 @@ func TestQdrantIntegrationDeleteByIDsAndFilterTogether(t *testing.T) {
 	}
 	c := New(fmt.Sprintf("http://%s:%s", host, port.Port()))
 
-	ns := backend.Namespace{Name: "ragctl", Dimensions: 4, Distance: "cosine"}
+	ns := backend.Namespace{Name: "depctl", Dimensions: 4, Distance: "cosine"}
 	if err := c.EnsureNamespace(ctx, ns); err != nil {
 		t.Fatalf("EnsureNamespace: %v", err)
 	}
@@ -253,7 +253,7 @@ func TestQdrantIntegrationCountAgainstARealCollection(t *testing.T) {
 	}
 	c := New(fmt.Sprintf("http://%s:%s", host, port.Port()))
 
-	ns := backend.Namespace{Name: "ragctl", Dimensions: 4, Distance: "cosine"}
+	ns := backend.Namespace{Name: "depctl", Dimensions: 4, Distance: "cosine"}
 	if err := c.EnsureNamespace(ctx, ns); err != nil {
 		t.Fatalf("EnsureNamespace: %v", err)
 	}

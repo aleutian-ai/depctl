@@ -1,4 +1,4 @@
-# Multi-stage build: compile a static ragctl binary, then run it on a
+# Multi-stage build: compile a static depctl binary, then run it on a
 # minimal Alpine base as a non-root user.
 #
 # NOTE: as later epics land (git acquisition, language resolvers, etc.) this
@@ -12,20 +12,20 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 go build -o /out/ragctl ./cmd/ragctl
+RUN CGO_ENABLED=0 go build -o /out/depctl ./cmd/depctl
 
 FROM alpine:3.20
 RUN apk add --no-cache ca-certificates \
-    && adduser -D -h /home/ragctl ragctl
-COPY --from=build /out/ragctl /usr/local/bin/ragctl
+    && adduser -D -h /home/depctl depctl
+COPY --from=build /out/depctl /usr/local/bin/depctl
 
-USER ragctl
-ENV HOME=/home/ragctl
-WORKDIR /home/ragctl
-# Everything ragctl writes (config + data, per internal/config/paths.go's
+USER depctl
+ENV HOME=/home/depctl
+WORKDIR /home/depctl
+# Everything depctl writes (config + data, per internal/config/paths.go's
 # Linux XDG defaults) lives under $HOME — mount one volume here for
 # persistence across container runs.
-VOLUME ["/home/ragctl"]
+VOLUME ["/home/depctl"]
 
-ENTRYPOINT ["ragctl"]
+ENTRYPOINT ["depctl"]
 CMD ["--help"]

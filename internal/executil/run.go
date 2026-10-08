@@ -1,6 +1,6 @@
 // Package executil runs subprocesses safely: argv-style only, no shell
 // interpretation, with context cancellation/timeout support. The Go
-// resolver, the git source layer and ragctl's other short tool calls go
+// resolver, the git source layer and depctl's other short tool calls go
 // through this package rather than calling os/exec directly.
 package executil
 

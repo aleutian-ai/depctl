@@ -8,8 +8,8 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"aleutian-ai/ragctl/internal/domain"
-	"aleutian-ai/ragctl/internal/registry"
+	"github.com/aleutian-ai/depctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/registry"
 )
 
 func withNpmServer(t *testing.T, body string) {
@@ -93,7 +93,7 @@ func TestNormalizeGitURLSkipsNonHTTPValues(t *testing.T) {
 }
 
 // TestDraftManifestRoundTripsThroughParseManifest covers REG-006's own
-// acceptance criterion: the draft YAML `ragctl registry discover` prints
+// acceptance criterion: the draft YAML `depctl registry discover` prints
 // must be valid input to the same schema validator a real manifest goes
 // through, not just well-formed YAML.
 func TestDraftManifestRoundTripsThroughParseManifest(t *testing.T) {
@@ -104,7 +104,7 @@ func TestDraftManifestRoundTripsThroughParseManifest(t *testing.T) {
 	}
 
 	draft := registry.Manifest{
-		APIVersion: "ragctl.dev/v1alpha1",
+		APIVersion: "depctl.dev/v1alpha1",
 		Kind:       "KnowledgePackage",
 		Metadata:   registry.Metadata{Name: "express"},
 		Match:      registry.Match{Ecosystems: []domain.Ecosystem{domain.EcosystemNode}, Packages: []string{"express"}},

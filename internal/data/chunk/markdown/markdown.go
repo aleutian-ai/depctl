@@ -1,4 +1,4 @@
-// Package markdown implements ragctl's Markdown structural chunker
+// Package markdown implements depctl's Markdown structural chunker
 // (CHUNK-002): splits a Markdown-derived KnowledgeObject primarily by
 // heading section, falling back to paragraph-boundary packing only when
 // a section exceeds a configurable size bound. It re-derives section
@@ -14,8 +14,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	dchunk "aleutian-ai/ragctl/internal/data/chunk"
-	"aleutian-ai/ragctl/internal/domain"
+	dchunk "github.com/aleutian-ai/depctl/internal/data/chunk"
+	"github.com/aleutian-ai/depctl/internal/domain"
 )
 
 // DefaultMaxChunkBytes bounds a chunk's size when no explicit limit is

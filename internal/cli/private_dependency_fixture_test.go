@@ -7,16 +7,16 @@ import (
 	"strings"
 	"testing"
 
-	"aleutian-ai/ragctl/internal/backend"
-	"aleutian-ai/ragctl/internal/backend/backendtest"
-	bboltstore "aleutian-ai/ragctl/internal/control/bbolt"
-	badgerstore "aleutian-ai/ragctl/internal/data/badger"
-	"aleutian-ai/ragctl/internal/domain"
-	"aleutian-ai/ragctl/internal/embedding"
-	"aleutian-ai/ragctl/internal/planner"
-	"aleutian-ai/ragctl/internal/query"
-	"aleutian-ai/ragctl/internal/registry"
-	"aleutian-ai/ragctl/internal/source/git"
+	"github.com/aleutian-ai/depctl/internal/backend"
+	"github.com/aleutian-ai/depctl/internal/backend/backendtest"
+	bboltstore "github.com/aleutian-ai/depctl/internal/control/bbolt"
+	badgerstore "github.com/aleutian-ai/depctl/internal/data/badger"
+	"github.com/aleutian-ai/depctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/embedding"
+	"github.com/aleutian-ai/depctl/internal/planner"
+	"github.com/aleutian-ai/depctl/internal/query"
+	"github.com/aleutian-ai/depctl/internal/registry"
+	"github.com/aleutian-ai/depctl/internal/source/git"
 )
 
 // VALID-004: a private, purely-local Go module with a real, source-
@@ -123,7 +123,7 @@ type Option func(*Client)
 
 	gitCache := git.NewCache(t.TempDir())
 	vb := backendtest.New()
-	ns := backend.Namespace{Name: "ragctl", Dimensions: 4}
+	ns := backend.Namespace{Name: "depctl", Dimensions: 4}
 	embedder := &atomicPromotionFakeEmbedder{dims: 4}
 	dep := domain.Dependency{Ecosystem: domain.EcosystemGo, Name: "example.com/breaking-lib"}
 

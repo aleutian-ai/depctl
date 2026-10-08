@@ -3,7 +3,7 @@ package bbolt_test
 // Cross-store restart integration test (STORE-004): proves bbolt
 // (control plane) and Badger (data plane) remain mutually usable after
 // both are closed and reopened — the invariant neither store's own
-// restart tests can prove on their own, since ragctl deliberately splits
+// restart tests can prove on their own, since depctl deliberately splits
 // control state and content across two separate databases and a caller
 // (query.Service, generation.Build/Replicate) always needs both to agree.
 //
@@ -19,9 +19,9 @@ import (
 	"testing"
 	"time"
 
-	bboltstore "aleutian-ai/ragctl/internal/control/bbolt"
-	badgerstore "aleutian-ai/ragctl/internal/data/badger"
-	"aleutian-ai/ragctl/internal/domain"
+	bboltstore "github.com/aleutian-ai/depctl/internal/control/bbolt"
+	badgerstore "github.com/aleutian-ai/depctl/internal/data/badger"
+	"github.com/aleutian-ai/depctl/internal/domain"
 )
 
 func TestStorageRestartPersistence(t *testing.T) {

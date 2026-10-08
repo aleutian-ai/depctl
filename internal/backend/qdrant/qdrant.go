@@ -1,5 +1,5 @@
 // Package qdrant implements backend.VectorBackend against Qdrant's HTTP
-// API (VEC-002) — ragctl's first vector backend, now opt-in. A small
+// API (VEC-002) — depctl's first vector backend, now opt-in. A small
 // hand-written client (net/http + encoding/json), not a generated SDK,
 // per the plan's explicit preference for keeping dependency weight low.
 package qdrant
@@ -17,7 +17,7 @@ import (
 
 	"github.com/zeebo/blake3"
 
-	"aleutian-ai/ragctl/internal/backend"
+	"github.com/aleutian-ai/depctl/internal/backend"
 )
 
 // defaultBatchSize bounds how many points go into one upsert request.
@@ -32,7 +32,7 @@ const defaultBatchSize = 256
 const defaultHTTPTimeout = 60 * time.Second
 
 // Client implements backend.VectorBackend against a Qdrant HTTP
-// endpoint. One collection per ragctl install (Namespace.Name), filtered
+// endpoint. One collection per depctl install (Namespace.Name), filtered
 // by metadata for ecosystem/package/version/generation — never one
 // collection per dependency version.
 type Client struct {
@@ -215,7 +215,7 @@ func (c *Client) Delete(ctx context.Context, req backend.DeleteRequest) error {
 	if exists, err := c.collectionExists(ctx, "Delete", req.Namespace); err != nil || !exists {
 		return err
 	}
-	// req.IDs are ragctl chunk IDs. A point's own ID also depends on its
+	// req.IDs are depctl chunk IDs. A point's own ID also depends on its
 	// generation now (see pointID), which an ID-only delete doesn't know,
 	// so each chunk is deleted by its "_id" payload instead — removing it
 	// from every generation that holds it, same as when one chunk was
@@ -351,8 +351,8 @@ func (c *Client) do(ctx context.Context, method, path string, body []byte, op st
 }
 
 // pointID derives a deterministic Qdrant-valid point ID (a UUID-shaped
-// hex string) from a generation ID and a ragctl chunk ID — Qdrant only
-// accepts unsigned integers or UUIDs as point IDs, and ragctl's chunk IDs
+// hex string) from a generation ID and a depctl chunk ID — Qdrant only
+// accepts unsigned integers or UUIDs as point IDs, and depctl's chunk IDs
 // ("chk_...") are neither. The generation is part of the key because
 // chunk IDs are content-derived: two generations holding identical
 // content (sibling modules of one monorepo, or a file unchanged between

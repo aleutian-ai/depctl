@@ -6,7 +6,7 @@
 **Estimated size:** small
 
 ## Goal
-When no vector backend is configured, make the MCP/query service automatically use the Bleve lexical backend (LOCAL-001) so `ragctl` works immediately after install with zero external infrastructure.
+When no vector backend is configured, make the MCP/query service automatically use the Bleve lexical backend (LOCAL-001) so `depctl` works immediately after install with zero external infrastructure.
 
 ## Non-goals
 - No automatic migration of existing vector-backend data into Bleve, or vice versa.
@@ -29,7 +29,7 @@ N/A beyond LOCAL-001's own failure behavior — this ticket only affects backend
 
 ## Tests
 - Config with no `vector.backend` set resolves to the local backend.
-- `ragctl init` + `ragctl sync` + `ragctl serve` with zero external services succeeds end-to-end using fixture data (this is the "works immediately after install" proof).
+- `depctl init` + `depctl sync` + `depctl serve` with zero external services succeeds end-to-end using fixture data (this is the "works immediately after install" proof).
 
 ## Acceptance criteria
 - [x] Missing `vector.backend` config defaults to local Bleve. (Reconciled: `retrieval.mode`, see below.)
@@ -47,7 +47,7 @@ How it fits together:
 - **A combined `searchIndex` (`internal/cli/retrieval.go`)** presents the indexes a mode writes as one `VectorBackend`. Writes and deletes reach all of them, so sync, validation, promotion and GC are unchanged. Its name is the existing active-generation key, so a generation's lifecycle is the same in every mode. A query with a vector that comes back empty falls back to keyword search: a filtered vector search always returns the nearest points that exist, so empty means "built without vectors".
 - **Backfill both ways.** A fresh install's model download takes minutes, so many first syncs in `auto` are keyword-only. The next sync with embeddings ready adds their vectors, with no rebuild: the chunks are already stored. Generations built before an install switched to `auto` or `keyword` get keyword entries, which needs no model. Backfill (`generation.AddToIndex`) never changes a serving generation's state, and on failure removes whatever it wrote.
 - **Doctor** reports keyword mode, and `auto` running without Ollama, as normal states rather than degraded ones. The embedding model, embedder and vector store show as "not used", or as "using keyword search for now".
-- **`ragctl init --retrieval-mode`** selects the mode explicitly.
+- **`depctl init --retrieval-mode`** selects the mode explicitly.
 
 Verified end to end in a Linux container with no Ollama installed and nothing on port 11434:
 - plain `init` wrote `auto`;

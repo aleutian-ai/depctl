@@ -8,16 +8,16 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"aleutian-ai/ragctl/internal/backend"
-	"aleutian-ai/ragctl/internal/config"
-	bboltstore "aleutian-ai/ragctl/internal/control/bbolt"
-	"aleutian-ai/ragctl/internal/daemon/api"
-	badgerstore "aleutian-ai/ragctl/internal/data/badger"
-	"aleutian-ai/ragctl/internal/lifecycle/gc"
-	"aleutian-ai/ragctl/internal/observability"
-	"aleutian-ai/ragctl/internal/observability/metrics"
-	"aleutian-ai/ragctl/internal/observability/trace"
-	"aleutian-ai/ragctl/internal/retention"
+	"github.com/aleutian-ai/depctl/internal/backend"
+	"github.com/aleutian-ai/depctl/internal/config"
+	bboltstore "github.com/aleutian-ai/depctl/internal/control/bbolt"
+	"github.com/aleutian-ai/depctl/internal/daemon/api"
+	badgerstore "github.com/aleutian-ai/depctl/internal/data/badger"
+	"github.com/aleutian-ai/depctl/internal/lifecycle/gc"
+	"github.com/aleutian-ai/depctl/internal/observability"
+	"github.com/aleutian-ai/depctl/internal/observability/metrics"
+	"github.com/aleutian-ai/depctl/internal/observability/trace"
+	"github.com/aleutian-ai/depctl/internal/retention"
 )
 
 func newGCCmd() *cobra.Command {

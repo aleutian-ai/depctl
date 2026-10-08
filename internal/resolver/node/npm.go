@@ -6,12 +6,12 @@ import (
 	"os"
 	"strings"
 
-	"aleutian-ai/ragctl/internal/domain"
-	"aleutian-ai/ragctl/internal/resolver"
+	"github.com/aleutian-ai/depctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/resolver"
 )
 
 // npmLockFile is the subset of package-lock.json's schema (lockfileVersion
-// 3, npm 7+) ragctl needs.
+// 3, npm 7+) depctl needs.
 type npmLockFile struct {
 	LockfileVersion int                   `json:"lockfileVersion"`
 	Packages        map[string]npmLockPkg `json:"packages"`

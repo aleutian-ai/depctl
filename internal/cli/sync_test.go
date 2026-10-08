@@ -16,12 +16,12 @@ import (
 	"testing"
 	"time"
 
-	"aleutian-ai/ragctl/internal/config"
-	bboltstore "aleutian-ai/ragctl/internal/control/bbolt"
-	"aleutian-ai/ragctl/internal/daemon"
-	badgerstore "aleutian-ai/ragctl/internal/data/badger"
-	"aleutian-ai/ragctl/internal/domain"
-	"aleutian-ai/ragctl/internal/planner"
+	"github.com/aleutian-ai/depctl/internal/config"
+	bboltstore "github.com/aleutian-ai/depctl/internal/control/bbolt"
+	"github.com/aleutian-ai/depctl/internal/daemon"
+	badgerstore "github.com/aleutian-ai/depctl/internal/data/badger"
+	"github.com/aleutian-ai/depctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/planner"
 )
 
 func TestSyncDryRunPerformsNoWrites(t *testing.T) {
@@ -29,7 +29,7 @@ func TestSyncDryRunPerformsNoWrites(t *testing.T) {
 	noAmbientSync(t)
 	requireGo(t)
 	runInitForTest(t)
-	useRealRagctlBinary(t)
+	useRealDepctlBinary(t)
 	scanDepFixture(t)
 
 	cmd := NewRootCmd()
@@ -66,7 +66,7 @@ func TestSyncOfflineSkipsSyncVersionButRecordsReference(t *testing.T) {
 	noAmbientSync(t)
 	requireGo(t)
 	runInitForTest(t)
-	useRealRagctlBinary(t)
+	useRealDepctlBinary(t)
 	root := scanDepFixture(t)
 
 	cmd := NewRootCmd()
@@ -117,7 +117,7 @@ func TestSyncNoOpAfterOfflineSyncPerformsNoFurtherReferenceChanges(t *testing.T)
 	isolateEnv(t)
 	requireGo(t)
 	runInitForTest(t)
-	useRealRagctlBinary(t)
+	useRealDepctlBinary(t)
 	scanDepFixture(t)
 
 	first := NewRootCmd()
@@ -154,7 +154,7 @@ func TestSyncNoOpPlanMakesNoNetworkCalls(t *testing.T) {
 	isolateEnv(t)
 	requireGo(t)
 	runInitForTest(t)
-	useRealRagctlBinary(t)
+	useRealDepctlBinary(t)
 	root := scanDepFixture(t)
 
 	// The daemon `scan` auto-started still holds the control store's
@@ -223,7 +223,7 @@ func TestSyncDependencyFilter(t *testing.T) {
 	isolateEnv(t)
 	requireGo(t)
 	runInitForTest(t)
-	useRealRagctlBinary(t)
+	useRealDepctlBinary(t)
 	scanDepFixture(t)
 
 	cmd := NewRootCmd()
@@ -368,7 +368,7 @@ func TestSyncReportsStructuredErrorForUnreachableEmbeddingBackend(t *testing.T) 
 	isolateEnv(t)
 	requireGo(t)
 	runInitForTest(t)
-	useRealRagctlBinary(t)
+	useRealDepctlBinary(t)
 	// vector mode: auto would build keyword-only instead of failing.
 	deadEndpointsConfig(t, func(c *config.Config) { c.Retrieval.Mode = config.RetrievalVector })
 	scanDepFixture(t)
@@ -408,7 +408,7 @@ func TestSyncReportsStructuredErrorForUnreachableVectorBackend(t *testing.T) {
 	isolateEnv(t)
 	requireGo(t)
 	runInitForTest(t)
-	useRealRagctlBinary(t)
+	useRealDepctlBinary(t)
 
 	ollama := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]any{
@@ -513,7 +513,7 @@ func redirectVanityImportClient(t *testing.T, srv *httptest.Server) {
 // module path with no github.com-shaped prefix, but a real go-import
 // meta tag, still derives a fallback manifest — the exact live gap
 // found running github.com/spf13/cobra's own transitive dependencies
-// (go.yaml.in/yaml/v3) through ragctl end to end.
+// (go.yaml.in/yaml/v3) through depctl end to end.
 func TestFallbackManifestResolvesVanityImportPath(t *testing.T) {
 	srv := fakeVanityImportServer(t, `<html><head>
 <meta name="go-import" content="example.vanity/pkg git https://github.com/example/pkg">
@@ -553,7 +553,7 @@ func TestFallbackManifestRejectsNonGitVanityImport(t *testing.T) {
 
 	dep := domain.Dependency{Ecosystem: domain.EcosystemGo, Name: "example.vanity/pkg"}
 	if _, ok := fallbackManifest(context.Background(), dep); ok {
-		t.Error("fallbackManifest = true for a non-git go-import VCS, want false (ragctl can only acquire from git)")
+		t.Error("fallbackManifest = true for a non-git go-import VCS, want false (depctl can only acquire from git)")
 	}
 }
 

@@ -1,6 +1,6 @@
 # Epic: External Evaluation Integrations
 
-Not release-blocking for v0.1. Lets users plug `ragctl`'s deterministic eval data and OpenTelemetry traces into existing external evaluation/observability tools (Ragas, DeepEval, Promptfoo, Phoenix/Langfuse) without adding any of them as core dependencies.
+Not release-blocking for v0.1. Lets users plug `depctl`'s deterministic eval data and OpenTelemetry traces into existing external evaluation/observability tools (Ragas, DeepEval, Promptfoo, Phoenix/Langfuse) without adding any of them as core dependencies.
 
 ## Tickets
 

@@ -1,6 +1,6 @@
 # Observability guide: logs, traces, and metrics
 
-`ragctl` ships three independent observability layers (epic 27, `OBS-001..003`), consistent with the project's local-first, no-telemetry-by-default posture: structured logging is always on and stays local (stdout/stderr) unless you pipe it somewhere; tracing and metrics are both off until you explicitly enable them in `config.yaml`, and neither one ever dials out on its own otherwise. All three reuse the same field/attribute vocabulary end to end — a log field, a span attribute, and (where it applies) a metric label are never renamed between layers.
+`depctl` ships three independent observability layers (epic 27, `OBS-001..003`), consistent with the project's local-first, no-telemetry-by-default posture: structured logging is always on and stays local (stdout/stderr) unless you pipe it somewhere; tracing and metrics are both off until you explicitly enable them in `config.yaml`, and neither one ever dials out on its own otherwise. All three reuse the same field/attribute vocabulary end to end — a log field, a span attribute, and (where it applies) a metric label are never renamed between layers.
 
 Everything below was run for real against a real daemon, a real Qdrant + Ollama, and real Jaeger/Prometheus containers (via `podman`) during this feature's own live verification — the example output is captured from those runs, not hand-written.
 
@@ -8,7 +8,7 @@ Related package docs: [internal/config](internal/config.md). `internal/observabi
 
 ## 1. Structured logging (`OBS-001`) — always on
 
-Every `ragctl` process (the daemon, `ragctl serve`, and every one-shot CLI command) logs through one `*slog.Logger`, injected via `context.Context` rather than threaded as a parameter — see `internal/observability/log.go`. By default this is human-readable text to stderr; JSON is opt-in for log aggregation:
+Every `depctl` process (the daemon, `depctl serve`, and every one-shot CLI command) logs through one `*slog.Logger`, injected via `context.Context` rather than threaded as a parameter — see `internal/observability/log.go`. By default this is human-readable text to stderr; JSON is opt-in for log aggregation:
 
 ```yaml
 log:
@@ -16,13 +16,13 @@ log:
   level: info      # debug | info | warn | error (default: info)
 ```
 
-A real completion log, captured from a live `ragctl gc` run with `log.json: true`:
+A real completion log, captured from a live `depctl gc` run with `log.json: true`:
 
 ```json
-{"time":"2026-09-30T08:58:10.10-04:00","level":"INFO","msg":"gc completed","ragctl.stage":"gc","ragctl.backend":"qdrant","duration_ms":3,"dry_run":false,"candidates":0,"deleted":0,"failed":0}
+{"time":"2026-09-30T08:58:10.10-04:00","level":"INFO","msg":"gc completed","depctl.stage":"gc","depctl.backend":"qdrant","duration_ms":3,"dry_run":false,"candidates":0,"deleted":0,"failed":0}
 ```
 
-And from a real MCP tool call, driven through a real `ragctl serve` subprocess and a real MCP client:
+And from a real MCP tool call, driven through a real `depctl serve` subprocess and a real MCP client:
 
 ```json
 {"time":"2026-09-30T09:05:55.939352-04:00","level":"INFO","msg":"mcp tool call completed","gen_ai.tool.name":"search_dependency_docs","duration_ms":1078}
@@ -38,10 +38,10 @@ Fields were chosen by checking what Phoenix/Arize, promptfoo, and OTel-based too
 | `gen_ai.operation.name` | OTel GenAI | embed (`"embeddings"`) |
 | `embedding.model_name` | [OpenInference](https://github.com/Arize-ai/openinference) (Arize Phoenix's own spec) | embed |
 | `retrieval.top_k` / `retrieval.documents.count` | OpenInference | query |
-| `ragctl.project_id` / `.dependency` / `.version` / `.job_id` / `.generation` / `.backend` / `.stage` | ragctl-specific, namespaced | every lifecycle stage |
+| `depctl.project_id` / `.dependency` / `.version` / `.job_id` / `.generation` / `.backend` / `.stage` | depctl-specific, namespaced | every lifecycle stage |
 | `duration_ms` | plain, no namespace needed | every completion log |
 
-The `ragctl.*` prefix is the standard OTel-recommended way to add custom attributes without risking a future collision with a real convention key — this is also why OBS-002's spans below reuse these exact same key names as attributes, with zero renaming.
+The `depctl.*` prefix is the standard OTel-recommended way to add custom attributes without risking a future collision with a real convention key — this is also why OBS-002's spans below reuse these exact same key names as attributes, with zero renaming.
 
 Every stage logs at least one completion (or failure) event: `resolve`, `acquire`, `normalize`, `embed`, `replicate`, `validate`, `promote`, `query`, `gc` — plus the MCP tool-call boundary. See `docs/tickets/completed/27-observability/OBS-001-structured-logging.md` for the full call-site list.
 
@@ -56,19 +56,19 @@ observability:
     endpoint: 127.0.0.1:4318   # host:port, or a full http(s):// URL — see note below
 ```
 
-`endpoint` accepts either a plain `host:port` or a full URL; either way, ragctl's exporter always appends OTLP's standard `/v1/traces` path itself (the same behavior every other OTel SDK gives `OTEL_EXPORTER_OTLP_ENDPOINT`) — you never need to add `/v1/traces` yourself.
+`endpoint` accepts either a plain `host:port` or a full URL; either way, depctl's exporter always appends OTLP's standard `/v1/traces` path itself (the same behavior every other OTel SDK gives `OTEL_EXPORTER_OTLP_ENDPOINT`) — you never need to add `/v1/traces` yourself.
 
 ### Try it against a real Jaeger
 
 ```bash
-podman run -d --name ragctl-jaeger -p 16686:16686 -p 4318:4318 jaegertracing/all-in-one:latest
+podman run -d --name depctl-jaeger -p 16686:16686 -p 4318:4318 jaegertracing/all-in-one:latest
 ```
 
-Set `observability.otel.enabled: true` and `endpoint: 127.0.0.1:4318` in your `config.yaml`, then run a normal `ragctl scan`/`sync`/`gc`/query through the daemon. Jaeger's own UI is at <http://127.0.0.1:16686>; its API confirms the same thing:
+Set `observability.otel.enabled: true` and `endpoint: 127.0.0.1:4318` in your `config.yaml`, then run a normal `depctl scan`/`sync`/`gc`/query through the daemon. Jaeger's own UI is at <http://127.0.0.1:16686>; its API confirms the same thing:
 
 ```bash
 curl -s http://127.0.0.1:16686/api/services
-# {"data":["jaeger-all-in-one","ragctl"],"total":2,...}
+# {"data":["jaeger-all-in-one","depctl"],"total":2,...}
 ```
 
 A real trace from this session's own verification carried every one of these spans, one per pipeline stage, plus the MCP tool-call boundary:
@@ -95,44 +95,44 @@ observability:
 
 | Metric | Type | What it tracks |
 |---|---|---|
-| `ragctl_sync_jobs_total{type,state}` | counter | sync actions processed, by action kind and outcome |
-| `ragctl_sync_failures_total` | counter | sync actions that failed, across all types |
-| `ragctl_acquire_seconds` | histogram | time spent acquiring a generation's source content |
-| `ragctl_normalize_seconds` | histogram | time spent normalizing acquired content |
-| `ragctl_embed_seconds` | histogram | time spent preparing one batch of chunks for the index, including embedding (a keyword-only sync — `retrieval.mode: keyword`, or `auto` without Ollama — still records it, with no embedding time) |
-| `ragctl_backend_upsert_seconds` | histogram | time spent upserting one batch into the search index (the vector store and/or keyword index `retrieval.mode` writes) |
-| `ragctl_active_generations` | gauge | active generations for the configured backend, refreshed every 30s |
-| `ragctl_gc_candidates` | gauge | GC candidates found by the most recent planning pass |
-| `ragctl_badger_bytes` | gauge | on-disk Badger data-store size, refreshed every 30s |
+| `depctl_sync_jobs_total{type,state}` | counter | sync actions processed, by action kind and outcome |
+| `depctl_sync_failures_total` | counter | sync actions that failed, across all types |
+| `depctl_acquire_seconds` | histogram | time spent acquiring a generation's source content |
+| `depctl_normalize_seconds` | histogram | time spent normalizing acquired content |
+| `depctl_embed_seconds` | histogram | time spent preparing one batch of chunks for the index, including embedding (a keyword-only sync — `retrieval.mode: keyword`, or `auto` without Ollama — still records it, with no embedding time) |
+| `depctl_backend_upsert_seconds` | histogram | time spent upserting one batch into the search index (the vector store and/or keyword index `retrieval.mode` writes) |
+| `depctl_active_generations` | gauge | active generations for the configured backend, refreshed every 30s |
+| `depctl_gc_candidates` | gauge | GC candidates found by the most recent planning pass |
+| `depctl_badger_bytes` | gauge | on-disk Badger data-store size, refreshed every 30s |
 
 ### Try it against a real Prometheus
 
 ```bash
 cat > prometheus.yml <<'EOF'
 scrape_configs:
-  - job_name: ragctl
+  - job_name: depctl
     static_configs:
       - targets: ["host.containers.internal:9090"]
 EOF
-podman run -d --name ragctl-prom -p 9091:9090 \
+podman run -d --name depctl-prom -p 9091:9090 \
   -v "$PWD/prometheus.yml:/etc/prometheus/prometheus.yml:ro" \
   prom/prometheus:latest
 ```
 
-(`host.containers.internal` is how a podman container reaches the host's own loopback — same convention `hack/test-linux.sh` already uses.) After running a real `ragctl sync`, a real query from Prometheus's own API:
+(`host.containers.internal` is how a podman container reaches the host's own loopback — same convention `hack/test-linux.sh` already uses.) After running a real `depctl sync`, a real query from Prometheus's own API:
 
 ```bash
-curl -s 'http://127.0.0.1:9091/api/v1/query?query=ragctl_sync_jobs_total'
+curl -s 'http://127.0.0.1:9091/api/v1/query?query=depctl_sync_jobs_total'
 ```
 
 ```json
 {"status":"success","data":{"resultType":"vector","result":[
-  {"metric":{"__name__":"ragctl_sync_jobs_total","state":"success","type":"SYNC_VERSION"},"value":[...,"1"]},
-  {"metric":{"__name__":"ragctl_sync_jobs_total","state":"success","type":"ADD_REFERENCE"},"value":[...,"1"]}
+  {"metric":{"__name__":"depctl_sync_jobs_total","state":"success","type":"SYNC_VERSION"},"value":[...,"1"]},
+  {"metric":{"__name__":"depctl_sync_jobs_total","state":"success","type":"ADD_REFERENCE"},"value":[...,"1"]}
 ]}}
 ```
 
-`ragctl_active_generations`/`ragctl_badger_bytes` are correct immediately on daemon startup — a background refresh (every 30s) keeps them current even if no client ever runs `ragctl status`; a bind failure is only fatal when `enabled: true` (nothing to fail when metrics are off).
+`depctl_active_generations`/`depctl_badger_bytes` are correct immediately on daemon startup — a background refresh (every 30s) keeps them current even if no client ever runs `depctl status`; a bind failure is only fatal when `enabled: true` (nothing to fail when metrics are off).
 
 ## Putting it together
 
@@ -151,4 +151,4 @@ observability:
     listen: 127.0.0.1:9090
 ```
 
-See also [security-hardening.md](security-hardening.md) for `SEC-005`, the companion invariant that ragctl's *own* telemetry never leaves the machine regardless of any of the above — these three layers are for *you* to point at infrastructure *you* configured; there is no default endpoint ragctl reports to on its own.
+See also [security-hardening.md](security-hardening.md) for `SEC-005`, the companion invariant that depctl's *own* telemetry never leaves the machine regardless of any of the above — these three layers are for *you* to point at infrastructure *you* configured; there is no default endpoint depctl reports to on its own.

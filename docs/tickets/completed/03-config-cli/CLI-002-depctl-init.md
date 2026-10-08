@@ -1,4 +1,4 @@
-# CLI-002: `ragctl init`
+# CLI-002: `depctl init`
 
 **Epic:** Configuration and CLI Skeleton
 **Status:** done
@@ -6,25 +6,25 @@
 **Estimated size:** small
 
 ## Goal
-Implement `ragctl init`, which creates all local directories/files needed for ragctl to operate, and is safe to run repeatedly.
+Implement `depctl init`, which creates all local directories/files needed for depctl to operate, and is safe to run repeatedly.
 
 ## Non-goals
-- No project scanning (that's `ragctl scan`, PROJ-003).
+- No project scanning (that's `depctl scan`, PROJ-003).
 - No interactive prompts/wizard — v0.1 `init` is non-interactive with sane defaults.
 
 ## Simplicity constraints
 - `init` is a straight sequence of `os.MkdirAll` + "write config if absent" + "open and close each store once to create files" calls. No plugin hooks, no template system.
 
 ## Design
-Command: `cmd/ragctl` (Cobra), package `internal/app` or `internal/cli`.
+Command: `cmd/depctl` (Cobra), package `internal/app` or `internal/cli`.
 
 Creates, if missing:
 ```
-~/.config/ragctl/config.yaml        (CLI-001 defaults, only if absent)
-~/.local/share/ragctl/control.db    (bbolt, via STORE-001 Open, then Close)
-~/.local/share/ragctl/badger/       (Badger dir, via STORE-003 Open, then Close)
-~/.local/share/ragctl/git/          (empty dir, for GIT-001 later)
-~/.local/share/ragctl/registry/     (empty dir, for REG-002 user registry cache)
+~/.config/depctl/config.yaml        (CLI-001 defaults, only if absent)
+~/.local/share/depctl/control.db    (bbolt, via STORE-001 Open, then Close)
+~/.local/share/depctl/badger/       (Badger dir, via STORE-003 Open, then Close)
+~/.local/share/depctl/git/          (empty dir, for GIT-001 later)
+~/.local/share/depctl/registry/     (empty dir, for REG-002 user registry cache)
 ```
 Respect `$XDG_CONFIG_HOME` / `$XDG_DATA_HOME` if set; otherwise fall back to the documented default paths above.
 
@@ -42,6 +42,6 @@ Idempotency: if `config.yaml` already exists, do not overwrite it. If the DB fil
 - Run `init` twice in a row: second run succeeds, does not destroy or reset the config file or DB contents (write a marker record before the second `init`, verify it survives).
 
 ## Acceptance criteria
-- [x] `ragctl init && ragctl init` succeeds twice without destroying data.
+- [x] `depctl init && depctl init` succeeds twice without destroying data.
 - [x] All required directories/files exist after a single `init` on a clean environment.
 - [x] Config file is created only if absent; never overwritten by a repeat `init`.

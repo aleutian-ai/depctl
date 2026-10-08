@@ -6,7 +6,7 @@ import (
 	"os"
 	"testing"
 
-	"aleutian-ai/ragctl/internal/httplimit"
+	"github.com/aleutian-ai/depctl/internal/httplimit"
 )
 
 // SEC-003: fetch limits — a real repository's mirror clone is rejected

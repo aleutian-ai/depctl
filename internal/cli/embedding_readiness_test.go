@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"aleutian-ai/ragctl/internal/config"
+	"github.com/aleutian-ai/depctl/internal/config"
 )
 
 func TestEmbeddingReadinessCheckReadyNilIsAlwaysReady(t *testing.T) {

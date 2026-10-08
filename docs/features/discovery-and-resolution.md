@@ -1,6 +1,6 @@
 # Feature: discovery, resolution, and registry matching
 
-Before anything can be synced or queried, ragctl has to answer three separate questions that are easy to conflate but resolved by three different packages: *what projects exist* (`internal/project`), *what do they actually depend on, at exactly which versions* (`internal/resolver`), and *does ragctl know a knowledge source for that dependency* (`internal/registry`). This doc traces that front door — `ragctl scan` through to the point where `internal/planner` (see [sync](sync.md)) can turn a resolved dependency into an action.
+Before anything can be synced or queried, depctl has to answer three separate questions that are easy to conflate but resolved by three different packages: *what projects exist* (`internal/project`), *what do they actually depend on, at exactly which versions* (`internal/resolver`), and *does depctl know a knowledge source for that dependency* (`internal/registry`). This doc traces that front door — `depctl scan` through to the point where `internal/planner` (see [sync](sync.md)) can turn a resolved dependency into an action.
 
 Related package docs: [project](../internal/project.md), [resolver](../internal/resolver.md), [registry](../internal/registry.md), [control](../internal/control.md), [cli](../internal/cli.md).
 
@@ -14,7 +14,7 @@ flowchart LR
     subgraph Q2["2. What do they depend on?"]
         resolve["resolver.Resolver\nDetect + Resolve per ecosystem"]
     end
-    subgraph Q3["3. Does ragctl know a source for it?"]
+    subgraph Q3["3. Does depctl know a source for it?"]
         match["registry.Registry.Match\necosystem + package -> Manifest"]
     end
 
@@ -23,9 +23,9 @@ flowchart LR
     match -->|Manifest or 'no match'| planner["internal/planner.Plan\n(see sync.md)"]
 ```
 
-These three are deliberately decoupled: `project.Scan` never imports `resolver`, and neither imports `registry` — `cli.scanAndResolve` (`ragctl scan`'s work) and `cli.computePlans` are the only places that wire them together, which keeps each package testable (and swappable — e.g. adding a Rust resolver) without touching the others.
+These three are deliberately decoupled: `project.Scan` never imports `resolver`, and neither imports `registry` — `cli.scanAndResolve` (`depctl scan`'s work) and `cli.computePlans` are the only places that wire them together, which keeps each package testable (and swappable — e.g. adding a Rust resolver) without touching the others.
 
-## `ragctl scan` end to end
+## `depctl scan` end to end
 
 ```mermaid
 sequenceDiagram
@@ -36,7 +36,7 @@ sequenceDiagram
     participant Store as control/bbolt.Store
     participant Resolver as resolvers[ecosystem]
 
-    User->>CLI: ragctl scan [path]\n(cli.runScan makes the path absolute\nand sends it to the daemon)
+    User->>CLI: depctl scan [path]\n(cli.runScan makes the path absolute\nand sends it to the daemon)
     CLI->>Scanner: Scan(ctx, path)
     Scanner->>FS: walk tree, skip .git/node_modules/vendor/...
     FS-->>Scanner: manifest matches (go.mod, package.json,\nCargo.toml, pyproject.toml/requirements.txt,\npom.xml/build.gradle*)
@@ -96,7 +96,7 @@ flowchart TD
 
 ## Where registry matching happens
 
-`registry.Match` isn't called during `ragctl scan` at all — resolution and registry matching are separate steps on purpose, since a project can be scanned and resolved long before anyone runs `sync`. The match happens inside `cli.computePlans` (shared by `ragctl plan` and `ragctl sync`) and again inside `syncVersion` itself right before `generation.Create` — see [sync](sync.md)'s "Where the trigger comes from" section for that half of the flow. `ragctl registry list` is the standalone command for inspecting what's loaded without touching any project state — see `docs/architecture.md`'s "`ragctl registry list` flow" for that diagram.
+`registry.Match` isn't called during `depctl scan` at all — resolution and registry matching are separate steps on purpose, since a project can be scanned and resolved long before anyone runs `sync`. The match happens inside `cli.computePlans` (shared by `depctl plan` and `depctl sync`) and again inside `syncVersion` itself right before `generation.Create` — see [sync](sync.md)'s "Where the trigger comes from" section for that half of the flow. `depctl registry list` is the standalone command for inspecting what's loaded without touching any project state — see `docs/architecture.md`'s "`depctl registry list` flow" for that diagram.
 
 ## Notes
 

@@ -14,7 +14,7 @@ import (
 	"github.com/santhosh-tekuri/jsonschema/v5"
 	"gopkg.in/yaml.v3"
 
-	"aleutian-ai/ragctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/domain"
 )
 
 //go:embed schema/knowledge-package.schema.json
@@ -35,7 +35,7 @@ func mustCompileSchema() *jsonschema.Schema {
 }
 
 // Manifest is a KnowledgePackage: it maps an ecosystem+package identity to
-// the knowledge sources ragctl can acquire for it.
+// the knowledge sources depctl can acquire for it.
 type Manifest struct {
 	APIVersion string          `yaml:"apiVersion" json:"apiVersion"`
 	Kind       string          `yaml:"kind" json:"kind"`

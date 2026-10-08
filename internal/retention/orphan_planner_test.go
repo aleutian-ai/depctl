@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"aleutian-ai/ragctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/domain"
 )
 
 func testGen(id string, eco domain.Ecosystem, pkg, version string, state domain.GenerationState, updatedAt time.Time) domain.Generation {

@@ -1,18 +1,18 @@
 # Demo: keyword search, no Ollama
 
-**Shows:** ragctl with no embedding model at all. It syncs and searches a dependency's docs by keyword (BM25), still scoped to the exact version your project uses. Then, in the default `auto` mode, it searches by keyword while Ollama is unavailable and adds semantic search on the first sync after Ollama is back, with no rebuild.
+**Shows:** depctl with no embedding model at all. It syncs and searches a dependency's docs by keyword (BM25), still scoped to the exact version your project uses. Then, in the default `auto` mode, it searches by keyword while Ollama is unavailable and adds semantic search on the first sync after Ollama is back, with no rebuild.
 
 ## Part 1: keyword mode
 
 ```bash
 source docs/demos/demo-env.sh
-ragctl init --retrieval-mode keyword
-dir=$(demo_project v1.6.0); ragctl scan "$dir"; pid=$(demo_project_id "$dir")
-ragctl sync --project "$pid"
+depctl init --retrieval-mode keyword
+dir=$(demo_project v1.6.0); depctl scan "$dir"; pid=$(demo_project_id "$dir")
+depctl sync --project "$pid"
 demo_search "$pid" "NewRandom"
 demo_search "$pid" "parse a UUID from a string"
-ragctl doctor | grep -E "config  |embedding backend|vector backend  "
-ls "$DEMO_RAGCTL_DIR"
+depctl doctor | grep -E "config  |embedding backend|vector backend  "
+ls "$DEMO_DEPCTL_DIR"
 ```
 
 ### What to look for
@@ -24,24 +24,24 @@ ls "$DEMO_RAGCTL_DIR"
 
 ## Part 2: auto mode, Ollama unavailable, then back
 
-`auto` is the default. To simulate Ollama being unavailable without stopping yours, point ragctl at a closed port:
+`auto` is the default. To simulate Ollama being unavailable without stopping yours, point depctl at a closed port:
 
 ```bash
 demo_reset; source docs/demos/demo-env.sh
-ragctl init
-sed -i.bak 's#endpoint: http://127.0.0.1:11434#endpoint: http://127.0.0.1:1#' "$DEMO_RAGCTL_DIR/config.yaml"
-dir=$(demo_project v1.6.0); ragctl scan "$dir"; pid=$(demo_project_id "$dir")
-ragctl sync --project "$pid"
+depctl init
+sed -i.bak 's#endpoint: http://127.0.0.1:11434#endpoint: http://127.0.0.1:1#' "$DEMO_DEPCTL_DIR/config.yaml"
+dir=$(demo_project v1.6.0); depctl scan "$dir"; pid=$(demo_project_id "$dir")
+depctl sync --project "$pid"
 demo_search "$pid" "how do I generate a random UUID"
-ragctl doctor | grep -E "embedding backend|embedding model"
+depctl doctor | grep -E "embedding backend|embedding model"
 ```
 
 Now "Ollama is back":
 
 ```bash
-mv "$DEMO_RAGCTL_DIR/config.yaml.bak" "$DEMO_RAGCTL_DIR/config.yaml"; ragctl daemon stop
-ragctl sync --project "$pid"
-ragctl doctor | grep -E "embedding backend|embedding model"
+mv "$DEMO_DEPCTL_DIR/config.yaml.bak" "$DEMO_DEPCTL_DIR/config.yaml"; depctl daemon stop
+depctl sync --project "$pid"
+depctl doctor | grep -E "embedding backend|embedding model"
 demo_search "$pid" "how do I generate a random UUID"
 ```
 

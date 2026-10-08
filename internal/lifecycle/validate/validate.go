@@ -1,4 +1,4 @@
-// Package validate implements ragctl's deterministic pre-promotion
+// Package validate implements depctl's deterministic pre-promotion
 // checks (VAL-001..003): structural completeness, sanity thresholds
 // against the prior active generation, and a version-correctness smoke
 // test against the live search index. Everything here is deterministic
@@ -10,9 +10,9 @@ import (
 	"context"
 	"fmt"
 
-	"aleutian-ai/ragctl/internal/data/badger"
-	"aleutian-ai/ragctl/internal/data/generation"
-	"aleutian-ai/ragctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/data/badger"
+	"github.com/aleutian-ai/depctl/internal/data/generation"
+	"github.com/aleutian-ai/depctl/internal/domain"
 )
 
 // StructuralResult is the shared pass/fail-with-reasons shape every
@@ -30,7 +30,7 @@ type StructuralResult struct {
 // fail-fast, so one run reports everything wrong at once.
 //
 // Deviates from the original sketch in two ways, both because the
-// fields it assumed don't exist in ragctl's actual manifest/generation
+// fields it assumed don't exist in depctl's actual manifest/generation
 // shapes: "manifest.Hash != """ becomes "manifest.ID == gen.ID" (the
 // generation package's Manifest has no content-hash field, so this
 // checks the more directly useful invariant — that the manifest

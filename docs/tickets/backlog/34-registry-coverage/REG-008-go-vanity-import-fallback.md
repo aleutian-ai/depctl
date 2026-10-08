@@ -6,7 +6,7 @@
 **Estimated size:** small
 
 ## Goal
-Live-found gap, running a real fresh Go project through ragctl end to end (WATCH-015/016/017's own live verification): `github.com/spf13/cobra` synced fine via REG-005's fallback, but two of its own transitive dependencies — `go.yaml.in/yaml/v3` and `gopkg.in/check.v1` — failed with `no registry manifest for go.yaml.in/yaml/v3` (and the same for the other). Both are real, syncable Go modules; neither has a registry manifest, and neither module path is shaped like `github.com/<org>/<repo>`, so REG-005's `fallbackManifest` (`internal/cli/sync.go`) correctly declines them today, exactly as it was scoped to do. Resolve the module path the same way `go get` itself does — an HTTP `go-import` meta-tag lookup — so these sync via the fallback path too, instead of failing every project that happens to depend on a vanity-import-path package.
+Live-found gap, running a real fresh Go project through depctl end to end (WATCH-015/016/017's own live verification): `github.com/spf13/cobra` synced fine via REG-005's fallback, but two of its own transitive dependencies — `go.yaml.in/yaml/v3` and `gopkg.in/check.v1` — failed with `no registry manifest for go.yaml.in/yaml/v3` (and the same for the other). Both are real, syncable Go modules; neither has a registry manifest, and neither module path is shaped like `github.com/<org>/<repo>`, so REG-005's `fallbackManifest` (`internal/cli/sync.go`) correctly declines them today, exactly as it was scoped to do. Resolve the module path the same way `go get` itself does — an HTTP `go-import` meta-tag lookup — so these sync via the fallback path too, instead of failing every project that happens to depend on a vanity-import-path package.
 
 ## Non-goals
 - No change to `fallbackManifest`'s `github.com`-shaped fast path (`internal/cli/sync.go`) — this ticket adds a second, slower resolution path tried only when the fast path doesn't apply, never replaces it.
@@ -40,7 +40,7 @@ Extend the `github.com` check's failure branch: instead of returning `false` imm
 // resolveVanityImport performs the same lookup `go get` uses for a
 // module path with no known VCS host: GET .../<path>?go-get=1 and parse
 // the go-import meta tag. Only git-VCS results are usable — nothing
-// else in ragctl can acquire from them.
+// else in depctl can acquire from them.
 func resolveVanityImport(ctx context.Context, modulePath string) (repoURL string, ok bool)
 ```
 
@@ -50,7 +50,7 @@ func resolveVanityImport(ctx context.Context, modulePath string) (repoURL string
 
 ## Failure behavior
 - Vanity-import host unreachable, slow, or returns no `go-import` meta tag: falls through to today's exact `"no registry manifest for %s"` error — this ticket only adds cases that succeed where they previously failed, same guarantee REG-005 itself made.
-- A resolved `go-import` tag naming a non-git VCS (`bzr`, `svn`, `hg` are all valid per the spec): treated as not-found, since `internal/source/git` is the only acquisition path ragctl has.
+- A resolved `go-import` tag naming a non-git VCS (`bzr`, `svn`, `hg` are all valid per the spec): treated as not-found, since `internal/source/git` is the only acquisition path depctl has.
 
 ## Tests
 - A module path served by a local `httptest.Server` returning a real `go-import` meta tag resolves and syncs via the fallback, same as a `github.com`-shaped path does today.
@@ -68,6 +68,6 @@ func resolveVanityImport(ctx context.Context, modulePath string) (repoURL string
 ## Post-implementation note
 Shipped per spec. `fallbackManifest` (`internal/cli/sync.go`) gained a `ctx context.Context` parameter; its `github.com`-shaped fast path was factored out unchanged into `githubModuleURL`, and `resolveVanityImport` (new) is tried only when that fails — one `GET https://<modulePath>?go-get=1`, parsed via a `regexp` for the `go-import` meta tag, matching the resolved root against the requested module path as a prefix (so a subpackage import like `go.yaml.in/yaml/v3`, whose `go-import` root is `go.yaml.in/yaml`, still resolves). Bounded by a 5s `vanityImportTimeout`. The HTTP client is a package-level `vanityImportHTTPClient` var (same "swappable seam" pattern as WATCH-016's `execLookPath`), letting tests redirect requests at a local `httptest.Server` via a custom `http.RoundTripper` instead of touching the real network — all 6 new/updated tests in `sync_test.go` are hermetic.
 
-Verified live against the exact two dependencies that surfaced this gap (found running WATCH-015/016/017's own live opencode verification): `gopkg.in/check.v1` (39 chunks, `backend replica: status=complete`) and `go.yaml.in/yaml/v3` (588 chunks, `status=complete`) — both `ragctl describe` outputs show `no registry manifest` alongside a fully complete active generation, which is only reachable through this ticket's fallback path. `go build`/`go vet`/`gofmt -l .`/`go test ./...` all clean.
+Verified live against the exact two dependencies that surfaced this gap (found running WATCH-015/016/017's own live opencode verification): `gopkg.in/check.v1` (39 chunks, `backend replica: status=complete`) and `go.yaml.in/yaml/v3` (588 chunks, `status=complete`) — both `depctl describe` outputs show `no registry manifest` alongside a fully complete active generation, which is only reachable through this ticket's fallback path. `go build`/`go vet`/`gofmt -l .`/`go test ./...` all clean.
 
-Unrelated incident during live verification: an `ragctl sync` invocation without `--project` (an operator mistake, not a code bug) queued a fleet-wide re-sync across every real registered project; killing the CLI client didn't stop it (by design — the daemon owns sync work server-side, per ADR-011), and it ran long enough that the daemon was eventually force-killed rather than waited out. `ragctl doctor` afterward reported 15/15 OK with zero corruption — bbolt/Badger/Qdrant all survived the hard kill cleanly, confirming generation writes are safely atomic per-action rather than needing a graceful shutdown to avoid leaving partial state.
+Unrelated incident during live verification: an `depctl sync` invocation without `--project` (an operator mistake, not a code bug) queued a fleet-wide re-sync across every real registered project; killing the CLI client didn't stop it (by design — the daemon owns sync work server-side, per ADR-011), and it ran long enough that the daemon was eventually force-killed rather than waited out. `depctl doctor` afterward reported 15/15 OK with zero corruption — bbolt/Badger/Qdrant all survived the hard kill cleanly, confirming generation writes are safely atomic per-action rather than needing a graceful shutdown to avoid leaving partial state.

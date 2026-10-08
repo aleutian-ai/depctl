@@ -1,6 +1,6 @@
 # Demo: Cognee
 
-**Shows:** `ragctl export cognee` adds ragctl's version-correct docs to a Cognee dataset and runs Cognee's own `cognify` pipeline over them, so they're searchable through Cognee.
+**Shows:** `depctl export cognee` adds depctl's version-correct docs to a Cognee dataset and runs Cognee's own `cognify` pipeline over them, so they're searchable through Cognee.
 
 It runs fully local using Cognee's documented Ollama settings.
 
@@ -22,10 +22,10 @@ until curl -sf http://localhost:8000/health; do sleep 2; done
 
 ```bash
 source docs/demos/demo-env.sh
-ragctl init
-dir=$(demo_project v1.6.0); ragctl scan "$dir"; pid=$(demo_project_id "$dir")
-ragctl sync --project "$pid"
-ragctl export cognee --project "$pid" --endpoint http://localhost:8000
+depctl init
+dir=$(demo_project v1.6.0); depctl scan "$dir"; pid=$(demo_project_id "$dir")
+depctl sync --project "$pid"
+depctl export cognee --project "$pid" --endpoint http://localhost:8000
 curl -s -X POST http://localhost:8000/api/v1/search -H 'Content-Type: application/json' \
   -d "{\"searchType\":\"CHUNKS\",\"query\":\"How do I generate a new random UUID?\",\"datasets\":[\"$pid\"]}" |
   python3 -c 'import json,sys; [print("-", r["text"][:160].replace("\\n"," ")) for r in json.load(sys.stdin)[:3]]'
@@ -34,8 +34,8 @@ curl -s -X POST http://localhost:8000/api/v1/search -H 'Content-Type: applicatio
 ## What to look for
 
 - The export reports `added` and then `cognify triggered`. `cognify` runs Cognee's full extraction pipeline before it returns, which takes a few minutes on a local model. That's expected.
-- Cognee's dataset list (`curl -s http://localhost:8000/api/v1/datasets`) shows one dataset named for the ragctl project.
-- Cognee's search returns ragctl's `uuid` v1.6.0 docs (e.g. `NewRandom returns a Random (Version 4) UUID`).
+- Cognee's dataset list (`curl -s http://localhost:8000/api/v1/datasets`) shows one dataset named for the depctl project.
+- Cognee's search returns depctl's `uuid` v1.6.0 docs (e.g. `NewRandom returns a Random (Version 4) UUID`).
 - Exporting again finishes in about a second: Cognee skips content it has already processed.
 
 ## Clean up

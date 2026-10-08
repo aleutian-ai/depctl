@@ -1,27 +1,27 @@
-# ragctl: Current Architecture, New Retrieval Concepts, Eval Strategy, and Next Steps
+# depctl: Current Architecture, New Retrieval Concepts, Eval Strategy, and Next Steps
 
 ## Executive summary
 
-ragctl has crossed the line from “local RAG prototype” into a coherent software system with a real control plane, generation lifecycle, version-aware query path, and explicit cleanup semantics. The strongest architectural idea is still the same: **repository state determines which dependency knowledge is valid**. Retrieval happens only after that state has been resolved.
+depctl has crossed the line from “local RAG prototype” into a coherent software system with a real control plane, generation lifecycle, version-aware query path, and explicit cleanup semantics. The strongest architectural idea is still the same: **repository state determines which dependency knowledge is valid**. Retrieval happens only after that state has been resolved.
 
-The next phase should therefore avoid turning ragctl into a generic “better RAG” project. The work should concentrate on four things:
+The next phase should therefore avoid turning depctl into a generic “better RAG” project. The work should concentrate on four things:
 
 1. **Preserve more structure inside a valid dependency generation**: heading paths, code fences, OpenAPI operations, protobuf services/RPCs, and symbol identity.
 2. **Improve evidence returned to agents**: breadcrumbs, compact neighborhood expansion, and eventually a call-site symbol join from a repo graph into exact-version dependency knowledge.
-3. **Build an independent eval repository** that can test ragctl, model-only baselines, graph systems, and combinations without importing ragctl internals.
+3. **Build an independent eval repository** that can test depctl, model-only baselines, graph systems, and combinations without importing depctl internals.
 4. **Close lifecycle correctness gaps** such as orphaned failed generations while resisting attractive but unproven optimizations such as SimHash near-dup reuse and elaborate drift dashboards.
 
 The near-term goal is not a larger platform. It is a smaller number of high-signal changes followed by measured evidence.
 
 ---
 
-## 1. What ragctl is now
+## 1. What depctl is now
 
 A useful one-line definition is:
 
-> **ragctl is a repo-state-synchronized knowledge layer that gives coding agents authoritative, exact-version dependency context.**
+> **depctl is a repo-state-synchronized knowledge layer that gives coding agents authoritative, exact-version dependency context.**
 
-That wording matters. It separates ragctl from generic semantic retrieval.
+That wording matters. It separates depctl from generic semantic retrieval.
 
 The current system already implements a lifecycle closer to package management and release engineering than to a toy vector search pipeline:
 
@@ -219,7 +219,7 @@ The recent paper discussions and architecture review add several principles with
 
 STAIR is useful because it formalizes a simple point: flattening content destroys signal.
 
-For ragctl, useful structure already exists in richer forms than a document table of contents:
+For depctl, useful structure already exists in richer forms than a document table of contents:
 
 ```text
 dependency@version
@@ -253,7 +253,7 @@ search everything
  -> add version as a score boost
 ```
 
-The first is ragctl. The second is generic retrieval with metadata.
+The first is depctl. The second is generic retrieval with metadata.
 
 ### 3.3 Returned evidence should be self-describing
 
@@ -300,7 +300,7 @@ Examples:
 - Does overlap improve conceptual queries?
 - Does section hierarchy improve recall after version filtering?
 - Does SimHash meaningfully reduce work?
-- Does graph + ragctl outperform either independently?
+- Does graph + depctl outperform either independently?
 - Does embedding-model drift matter at the task level?
 
 The eval repository exists to answer these questions before the implementation becomes permanent architecture.
@@ -321,8 +321,8 @@ Do not create separate repositories merely because a package is technically reus
 
 ```text
 aleutianai/
-  ragctl/
-  context-evals/        # or ragctl-evals if scope should stay narrow
+  depctl/
+  context-evals/        # or depctl-evals if scope should stay narrow
 ```
 
 Potential later extraction only after a second real consumer:
@@ -341,7 +341,7 @@ Do not create separate repos now for:
 - drift tracking;
 - storage abstractions.
 
-Those are still implementation details of ragctl or the eval harness.
+Those are still implementation details of depctl or the eval harness.
 
 ### 4.3 Why eval is different
 
@@ -350,18 +350,18 @@ The eval repo has a different scientific and operational role.
 It should be able to evaluate:
 
 - model-only;
-- ragctl;
+- depctl;
 - repo-graph providers;
-- ragctl + graph;
+- depctl + graph;
 - future web/Context7-like systems;
 - alternative embedding and retrieval strategies.
 
-It should not need to import ragctl internals in order to grade ragctl.
+It should not need to import depctl internals in order to grade depctl.
 
 That separation strengthens both projects:
 
 ```text
-ragctl        = builds/serves state-aware dependency knowledge
+depctl        = builds/serves state-aware dependency knowledge
 context-evals = independently measures whether context systems help
 ```
 
@@ -369,12 +369,12 @@ context-evals = independently measures whether context systems help
 
 ## 5. Internal Go package reshuffling
 
-### 5.1 Do not put ordinary Go code under `/go` unless ragctl becomes a true multi-language monorepo
+### 5.1 Do not put ordinary Go code under `/go` unless depctl becomes a true multi-language monorepo
 
 For a Go-first repository, standard Go layout is clearer:
 
 ```text
-ragctl/
+depctl/
   cmd/
   internal/
   docs/
@@ -388,9 +388,9 @@ The better reshuffle is to group existing Go packages by **responsibility/plane*
 ### 5.2 Proposed target layout
 
 ```text
-ragctl/
+depctl/
 ├── cmd/
-│   └── ragctl/
+│   └── depctl/
 │
 ├── internal/
 │   ├── discovery/
@@ -617,14 +617,14 @@ Near-term:
 - use language-native tooling where cheap;
 - defer universal tree-sitter integration until evals show source-symbol chunking materially helps.
 
-The repo-graph provider may already own project-side AST/LSP structure. ragctl should not duplicate that role unnecessarily.
+The repo-graph provider may already own project-side AST/LSP structure. depctl should not duplicate that role unnecessarily.
 
 ---
 
 
 ## 6A. Multi-text source mappings and curated text ingestion
 
-ragctl should stay focused on **text-first knowledge** for now. Video/audio ingestion is deliberately out of scope. Text sources are already powerful enough to validate the core thesis without introducing media extraction, platform Terms-of-Service questions, ASR quality, or multimodal preprocessing.
+depctl should stay focused on **text-first knowledge** for now. Video/audio ingestion is deliberately out of scope. Text sources are already powerful enough to validate the core thesis without introducing media extraction, platform Terms-of-Service questions, ASR quality, or multimodal preprocessing.
 
 The registry should support **multiple curated text sources for one dependency**. A dependency entry is not limited to its source repository or official documentation.
 
@@ -709,7 +709,7 @@ A source can be conceptual and still be useful even if it cannot be tied to an e
 
 ### Website and wiki ingestion should be explicitly curated, not broadly spidered
 
-For v0.x, ragctl should **not crawl arbitrary websites or recursively spider an entire wiki**.
+For v0.x, depctl should **not crawl arbitrary websites or recursively spider an entire wiki**.
 
 A registry entry should name the exact page or explicit page set that the curator wants indexed.
 
@@ -753,7 +753,7 @@ sources:
 
 The principle is:
 
-> **Curators select the corpus; ragctl acquires and indexes it.**
+> **Curators select the corpus; depctl acquires and indexes it.**
 
 Do not make a crawler silently decide which neighboring pages become trusted context.
 
@@ -771,7 +771,7 @@ collection:
     - ...
 ```
 
-This provides convenience without converting ragctl into a general web crawler.
+This provides convenience without converting depctl into a general web crawler.
 
 ### Internal wiki / Confluence support
 
@@ -1041,8 +1041,8 @@ Retention.OrphanAge = 24h
 Start with:
 
 ```text
-ragctl gc --orphans --dry-run
-ragctl gc --orphans
+depctl gc --orphans --dry-run
+depctl gc --orphans
 ```
 
 Do not make orphan cleanup implicit until behavior is well tested.
@@ -1067,9 +1067,9 @@ This keeps user-query filtering semantics separate from lifecycle management sem
 
 “Drift” currently covers several different concepts that should not be conflated.
 
-### 12.1 ragctl-owned integrity checks
+### 12.1 depctl-owned integrity checks
 
-These belong in ragctl:
+These belong in depctl:
 
 - unchanged content unexpectedly receives incompatible identity;
 - active-generation pointer is inconsistent;
@@ -1179,7 +1179,7 @@ This should first be tested in evals before becoming complex production orchestr
 
 ---
 
-## 14. The repo-graph + ragctl symbol join
+## 14. The repo-graph + depctl symbol join
 
 This is the most compelling cross-system feature to prototype.
 
@@ -1195,7 +1195,7 @@ project source
  -> external symbol identity
  -> dependency/module identity
  -> exact project-resolved version
- -> ragctl exact-version source/docs
+ -> depctl exact-version source/docs
  -> evidence bundle
 ```
 
@@ -1205,13 +1205,13 @@ Example:
 client.go calls bbolt.(*Tx).Bucket
     -> graph resolves external symbol
     -> resolver says go.etcd.io/bbolt@1.3.11
-    -> ragctl fetches exact symbol/docs/source for 1.3.11
+    -> depctl fetches exact symbol/docs/source for 1.3.11
 ```
 
 This is valuable because both sides contribute deterministic information:
 
 - graph system: **what symbol is this code referring to?**
-- ragctl: **what knowledge is valid for that dependency version?**
+- depctl: **what knowledge is valid for that dependency version?**
 
 Then the LLM interprets the evidence.
 
@@ -1231,7 +1231,7 @@ type ExternalSymbolRef struct {
 }
 ```
 
-ragctl then owns mapping that identity into its resolved dependency state.
+depctl then owns mapping that identity into its resolved dependency state.
 
 ### 14.2 Candidate providers
 
@@ -1262,12 +1262,12 @@ if the goal is a reusable public benchmark across context systems.
 Use:
 
 ```text
-ragctl-evals
+depctl-evals
 ```
 
 if you want to keep scope intentionally narrow for the first release.
 
-My preference is `context-evals`, but keep the README honest that the first benchmark is ragctl-focused.
+My preference is `context-evals`, but keep the README honest that the first benchmark is depctl-focused.
 
 ### 15.1 Repository layout
 
@@ -1281,7 +1281,7 @@ context-evals/
 │   ├── conditions/
 │   ├── adapters/
 │   │   ├── modelonly/
-│   │   ├── ragctl/
+│   │   ├── depctl/
 │   │   ├── graph/
 │   │   └── composite/
 │   ├── graders/
@@ -1316,7 +1316,7 @@ If you prefer Python for experimentation/statistics, the eval repo does not have
 
 ### 15.2 Independence rule
 
-The evaluator may call ragctl through public interfaces:
+The evaluator may call depctl through public interfaces:
 
 - CLI;
 - MCP;
@@ -1340,7 +1340,7 @@ B. flat retrieval
 C. flat retrieval + exact-version filter
 D. hierarchy-aware retrieval + exact-version filter
 E. repo graph only
-F. repo graph + ragctl
+F. repo graph + depctl
 ```
 
 Optional later:
@@ -1361,7 +1361,7 @@ Primary comparison:
 B vs C
 ```
 
-If this is the biggest gain, it strongly validates ragctl's core thesis.
+If this is the biggest gain, it strongly validates depctl's core thesis.
 
 ### 16.2 H2: structure hypothesis
 
@@ -1401,7 +1401,7 @@ Examples:
 
 ### 17.2 VERSION_TRAP
 
-The signature ragctl category.
+The signature depctl category.
 
 Construct tasks where:
 
@@ -1447,7 +1447,7 @@ Core lifecycle test:
 fixture at dependency version A
  -> run task
  -> update dependency to B
- -> ragctl scan/sync
+ -> depctl scan/sync
  -> rerun equivalent task
  -> expected knowledge/output changes
 ```
@@ -1570,7 +1570,7 @@ LLM judges remain useful for qualities that lack deterministic ground truth, but
 
 ## 20. Future learned-state / memory evaluations
 
-This is not a current ragctl feature, but the eval framework should leave conceptual room for it.
+This is not a current depctl feature, but the eval framework should leave conceptual room for it.
 
 Rule:
 
@@ -1586,7 +1586,7 @@ candidate memory update
 
 Do not allow generated self-critique to become authoritative state simply because it sounds plausible.
 
-This aligns with ragctl's broader philosophy: authoritative state should be externally grounded.
+This aligns with depctl's broader philosophy: authoritative state should be externally grounded.
 
 ---
 
@@ -1654,7 +1654,7 @@ Define stable schemas for:
 Implement:
 
 - model-only adapter;
-- ragctl adapter;
+- depctl adapter;
 - deterministic runner;
 - JSONL or SQLite result storage.
 
@@ -1718,7 +1718,7 @@ call site
  -> external symbol
  -> exact dependency
  -> exact version
- -> ragctl evidence
+ -> depctl evidence
 ```
 
 Then run the composite condition in evals.
@@ -1758,7 +1758,7 @@ Add:
 - [ ] Add structured code-fence preservation.
 - [ ] Add `VERSION_LOOKUP` fixtures.
 - [ ] Add `VERSION_TRAP` fixtures.
-- [ ] Add model-only and ragctl eval adapters.
+- [ ] Add model-only and depctl eval adapters.
 - [ ] Add exact-version-only benchmark condition.
 - [ ] Implement orphan-GC dry run.
 
@@ -1802,13 +1802,13 @@ The next release should be able to demonstrate all of the following:
 - A real repository is scanned and its exact dependency state resolved.
 - An exact dependency/version is acquired and turned into a validated active generation.
 - Query results visibly identify dependency, version, source, and structural breadcrumb.
-- A version-trap task fails or performs worse without exact state and succeeds more often with ragctl.
+- A version-trap task fails or performs worse without exact state and succeeds more often with depctl.
 - Updating the fixture dependency causes the active knowledge state to update and the benchmark result to follow it.
 - The benchmark is reproducible without hidden network dependence.
 - Raw tasks, outputs, and graders are public.
 - At least one deterministic task-level metric is reported, not just retrieval similarity.
 - Failed/abandoned generations can be detected and safely reclaimed.
-- The README explains both where ragctl helps and where it does not.
+- The README explains both where depctl helps and where it does not.
 
 ---
 
@@ -1820,7 +1820,7 @@ The strongest launch story is not:
 
 It is:
 
-> **Coding agents routinely answer against the wrong version of a dependency. ragctl binds knowledge to the repository's real dependency state, validates that knowledge before promotion, and serves only the version that is actually true for the project. Here is the benchmark showing when that matters.**
+> **Coding agents routinely answer against the wrong version of a dependency. depctl binds knowledge to the repository's real dependency state, validates that knowledge before promotion, and serves only the version that is actually true for the project. Here is the benchmark showing when that matters.**
 
 Then the structure work becomes an additional finding:
 
@@ -1828,7 +1828,7 @@ Then the structure work becomes an additional finding:
 
 And the graph integration becomes:
 
-> Project-side code intelligence identifies what symbol the code actually uses; ragctl supplies authoritative knowledge for that symbol at the exact pinned dependency version.
+> Project-side code intelligence identifies what symbol the code actually uses; depctl supplies authoritative knowledge for that symbol at the exact pinned dependency version.
 
 That is a coherent progression rather than a collection of RAG features.
 
@@ -1862,7 +1862,7 @@ agent
 
 The model may eventually become much better at asking for information, reranking it, and packing context.
 
-ragctl's durable responsibility is different:
+depctl's durable responsibility is different:
 
 > **Know which dependency knowledge is true now, preserve where that knowledge came from, and make state changes observable and testable.**
 

@@ -1,6 +1,6 @@
 # Demo: your own Weaviate
 
-**Shows:** ragctl stores its index in a Weaviate you already run, in a collection of its own, and never touches anything else on the server. The API key comes from an environment variable, never from the config file.
+**Shows:** depctl stores its index in a Weaviate you already run, in a collection of its own, and never touches anything else on the server. The API key comes from an environment variable, never from the config file.
 
 ## Run
 
@@ -16,27 +16,27 @@ sleep 8
 curl -s -H 'Authorization: Bearer wvdemo' -H 'Content-Type: application/json' -X POST http://localhost:18080/v1/schema \
   -d '{"class":"MyApp","vectorizer":"none","properties":[{"name":"note","dataType":["text"]}]}' >/dev/null
 curl -s -H 'Authorization: Bearer wvdemo' -H 'Content-Type: application/json' -X POST http://localhost:18080/v1/objects \
-  -d '{"class":"MyApp","vector":[1,0,0,0],"properties":{"note":"not ragctl data"}}' >/dev/null
+  -d '{"class":"MyApp","vector":[1,0,0,0],"properties":{"note":"not depctl data"}}' >/dev/null
 ```
 
-Point a sandboxed ragctl at it:
+Point a sandboxed depctl at it:
 
 ```bash
 source docs/demos/demo-env.sh
-export RAGCTL_WEAVIATE_KEY=wvdemo       # before the first ragctl command: the daemon reads it
-ragctl init
-python3 - "$DEMO_RAGCTL_DIR/config.yaml" <<'EOF'
+export DEPCTL_WEAVIATE_KEY=wvdemo       # before the first depctl command: the daemon reads it
+depctl init
+python3 - "$DEMO_DEPCTL_DIR/config.yaml" <<'EOF'
 import sys, yaml
 p = sys.argv[1]; c = yaml.safe_load(open(p))
 c["vector"]["backend"] = "weaviate"
 c["vector"]["endpoint"] = "http://127.0.0.1:18080"
-c["vector"]["api_key_env"] = "RAGCTL_WEAVIATE_KEY"
+c["vector"]["api_key_env"] = "DEPCTL_WEAVIATE_KEY"
 c["vector"]["managed"] = False
 yaml.safe_dump(c, open(p, "w"), sort_keys=False)
 EOF
-ragctl doctor | grep -i vector
-dir=$(demo_project v1.6.0); ragctl scan "$dir"; pid=$(demo_project_id "$dir")
-ragctl sync --project "$pid"
+depctl doctor | grep -i vector
+dir=$(demo_project v1.6.0); depctl scan "$dir"; pid=$(demo_project_id "$dir")
+depctl sync --project "$pid"
 demo_search "$pid" "How do I generate a new random UUID?"
 wv() { curl -s -H 'Authorization: Bearer wvdemo' -H 'Content-Type: application/json' "$@"; }
 wv http://localhost:18080/v1/schema | python3 -c 'import json,sys; print([c["class"] for c in json.load(sys.stdin)["classes"]])'
@@ -45,18 +45,18 @@ wv -X POST http://localhost:18080/v1/graphql -d '{"query":"{ Aggregate { MyApp {
 
 ## What to look for
 
-- `doctor` reports the vector backend as `weaviate` and reachable. With `RAGCTL_WEAVIATE_KEY` wrong or unset, it says so instead.
+- `doctor` reports the vector backend as `weaviate` and reachable. With `DEPCTL_WEAVIATE_KEY` wrong or unset, it says so instead.
 - The search returns `uuid`'s `New`/`NewRandom` docs at `v1.6.0`.
-- The schema lists `MyApp` plus one `Ragctl_<random>` collection. ragctl names its collection uniquely per install (`ragctl-<random>`, made into a valid Weaviate name).
+- The schema lists `MyApp` plus one `Depctl_<random>` collection. depctl names its collection uniquely per install (`depctl-<random>`, made into a valid Weaviate name).
 - `MyApp` still holds its 1 object.
-- **Two versions side by side.** Add a second project pinned to `v1.5.0`. Each project answers from its own version, and ragctl's collection holds both: 84 objects for `v1.6.0`, 81 for `v1.5.0`:
+- **Two versions side by side.** Add a second project pinned to `v1.5.0`. Each project answers from its own version, and depctl's collection holds both: 84 objects for `v1.6.0`, 81 for `v1.5.0`:
 
   ```bash
-  dir=$(demo_project v1.5.0); ragctl scan "$dir"; pid5=$(demo_project_id "$dir")
-  ragctl sync --project "$pid5"
+  dir=$(demo_project v1.5.0); depctl scan "$dir"; pid5=$(demo_project_id "$dir")
+  depctl sync --project "$pid5"
   demo_search "$pid5" "random UUID"                                  # v1.5.0
   demo_search "$pid" "How do I generate a new random UUID?"          # still v1.6.0
-  C=$(wv http://localhost:18080/v1/schema | python3 -c 'import json,sys; print([c["class"] for c in json.load(sys.stdin)["classes"] if c["class"].startswith("Ragctl_")][0])')
+  C=$(wv http://localhost:18080/v1/schema | python3 -c 'import json,sys; print([c["class"] for c in json.load(sys.stdin)["classes"] if c["class"].startswith("Depctl_")][0])')
   versions() { wv -X POST http://localhost:18080/v1/graphql -d "{\"query\":\"{ Aggregate { $C(groupBy: [\\\"version\\\"]) { groupedBy { value } meta { count } } } }\"}" |
     python3 -c 'import json,sys; [print(g["groupedBy"]["value"], g["meta"]["count"]) for g in list(json.load(sys.stdin)["data"]["Aggregate"].values())[0]]'; }
   versions
@@ -66,9 +66,9 @@ wv -X POST http://localhost:18080/v1/graphql -d '{"query":"{ Aggregate { MyApp {
 
   ```bash
   cp "$(dirname "$dir")/proj-v1.6.0/go.mod" "$(dirname "$dir")/proj-v1.6.0/go.sum" "$dir"/
-  ragctl scan "$dir"; ragctl sync --project "$pid5"
-  sed -i.bak 's/grace_period: .*/grace_period: 1s/' "$DEMO_RAGCTL_DIR/config.yaml"; ragctl daemon stop; sleep 2
-  ragctl gc                                                          # 1 deleted: v1.5.0
+  depctl scan "$dir"; depctl sync --project "$pid5"
+  sed -i.bak 's/grace_period: .*/grace_period: 1s/' "$DEMO_DEPCTL_DIR/config.yaml"; depctl daemon stop; sleep 2
+  depctl gc                                                          # 1 deleted: v1.5.0
   versions                                                           # v1.6.0 84
   wv -X POST http://localhost:18080/v1/graphql -d '{"query":"{ Aggregate { MyApp { meta { count } } } }"}'; echo   # still 1
   ```
@@ -80,4 +80,4 @@ demo_reset
 podman rm -f demo-weaviate
 ```
 
-Notes: if pulling the image hits Docker Hub's rate limit, `mirror.gcr.io/semitechnologies/weaviate:1.32.4` is the same image. ragctl uses cosine distance and stores no text in Weaviate, so it reports no keyword or hybrid search there.
+Notes: if pulling the image hits Docker Hub's rate limit, `mirror.gcr.io/semitechnologies/weaviate:1.32.4` is the same image. depctl uses cosine distance and stores no text in Weaviate, so it reports no keyword or hybrid search there.

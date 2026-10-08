@@ -8,8 +8,8 @@ import (
 	"fmt"
 	"os/exec"
 
-	"aleutian-ai/ragctl/internal/domain"
-	"aleutian-ai/ragctl/internal/normalize"
+	"github.com/aleutian-ai/depctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/normalize"
 )
 
 //go:embed extract.js
@@ -37,7 +37,7 @@ type extractedModule struct {
 // object per exported declaration. A dependency with no resolvable
 // entry point, or no `node` on PATH, never reaches here — Supports
 // already returned false for both. A `node` present but the embedded
-// extract.js itself failing to run is distinct from either: a ragctl
+// extract.js itself failing to run is distinct from either: a depctl
 // packaging defect, not this dependency's own documentation gap, so
 // it's returned as a real error rather than silently producing zero
 // objects.

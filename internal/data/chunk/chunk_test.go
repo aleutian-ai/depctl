@@ -5,7 +5,7 @@ import (
 	"regexp"
 	"testing"
 
-	"aleutian-ai/ragctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/domain"
 )
 
 // fakeChunker is a minimal Chunker used to exercise the interface

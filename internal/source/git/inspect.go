@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"aleutian-ai/ragctl/internal/executil"
+	"github.com/aleutian-ai/depctl/internal/executil"
 )
 
 // ListFiles returns every repo-relative path at commit whose base name is

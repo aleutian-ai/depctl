@@ -2,9 +2,9 @@
 
 **Status: done** — all four tickets verified done against `docs/architecture.md`.
 
-Stop discarding cheap structure ragctl's normalizers and chunkers already derive in-memory but currently throw away or leave stranded at the wrong layer. Implements `docs/scratch/ragctl_architecture_eval_next_steps-2.md` §6.1 (Markdown heading paths), §6.2 (fenced code-block preservation), §8.1 (chunk self-description), and the breadcrumb half of §13.1 (query-serving evidence) — Phase 1 of that document's recommended sequence.
+Stop discarding cheap structure depctl's normalizers and chunkers already derive in-memory but currently throw away or leave stranded at the wrong layer. Implements `docs/scratch/depctl_architecture_eval_next_steps-2.md` §6.1 (Markdown heading paths), §6.2 (fenced code-block preservation), §8.1 (chunk self-description), and the breadcrumb half of §13.1 (query-serving evidence) — Phase 1 of that document's recommended sequence.
 
-The core idea, straight from that doc: `dependency@version > package/module > file > symbol > section > example` is real structure ragctl already walks during normalization and chunking. This epic promotes pieces of that walk onto `domain.Chunk.Metadata` and into query/MCP output, instead of re-deriving it later or forcing a second store lookup.
+The core idea, straight from that doc: `dependency@version > package/module > file > symbol > section > example` is real structure depctl already walks during normalization and chunking. This epic promotes pieces of that walk onto `domain.Chunk.Metadata` and into query/MCP output, instead of re-deriving it later or forcing a second store lookup.
 
 ## Tickets
 - [STRUCT-001](STRUCT-001-markdown-section-paths.md) (done) — structured ancestor heading path (`section_path`) alongside the Markdown chunker's existing flat `heading_path` breadcrumb string.

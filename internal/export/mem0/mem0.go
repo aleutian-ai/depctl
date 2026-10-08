@@ -1,4 +1,4 @@
-// Package mem0 is a plain HTTP client for pushing ragctl's synced
+// Package mem0 is a plain HTTP client for pushing depctl's synced
 // dependency knowledge into a user's own self-hosted Mem0 server as
 // tagged memories (MEM0-001). Used only from inside the daemon's own
 // engine.ExportMem0 (ADR-011) — never from a CLI process directly.
@@ -45,7 +45,7 @@ type message struct {
 }
 
 // addMemoryRequest is POST /memories' body (the server's MemoryCreate).
-// Infer is always false: ragctl hands over already-chunked, verbatim
+// Infer is always false: depctl hands over already-chunked, verbatim
 // docs, so Mem0 should store them as-is rather than run its LLM fact
 // extraction over them. It also keeps the call fast and synchronous, so
 // each chunk's success or failure is known immediately.
@@ -58,7 +58,7 @@ type addMemoryRequest struct {
 }
 
 // AddMemory pushes one memory (chunk content, tagged with metadata) to
-// Mem0, scoped to userID (ragctl's project ID) and tagged with runID so
+// Mem0, scoped to userID (depctl's project ID) and tagged with runID so
 // DeleteMemories can later replace exactly this set.
 func (c *Client) AddMemory(ctx context.Context, userID, runID, text string, metadata map[string]string) error {
 	body, err := json.Marshal(addMemoryRequest{
@@ -121,7 +121,7 @@ func (c *Client) Health(ctx context.Context) error {
 }
 
 // DeleteMemories removes every memory tagged with both userID and runID
-// (DELETE /memories, whose filters AND together), so only memories ragctl
+// (DELETE /memories, whose filters AND together), so only memories depctl
 // itself wrote for one project's dependency are touched. The self-hosted
 // server requires an admin key for deletes.
 func (c *Client) DeleteMemories(ctx context.Context, userID, runID string) error {

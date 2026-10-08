@@ -6,13 +6,13 @@ import (
 	"os"
 	"strings"
 
-	"aleutian-ai/ragctl/internal/domain"
-	"aleutian-ai/ragctl/internal/resolver"
+	"github.com/aleutian-ai/depctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/resolver"
 )
 
 // bunLockFile is the subset of bun.lock's schema (the text/JSONC format
 // introduced in Bun 1.1.39, default since 1.2 — not the older binary
-// bun.lockb) ragctl needs. "packages" values are heterogeneous arrays
+// bun.lockb) depctl needs. "packages" values are heterogeneous arrays
 // (element 0 is always the resolved "name@version"/"name@github:..."
 // specifier string; the remaining elements — a metadata object, then an
 // integrity/cache-key string — vary by entry and aren't needed here),

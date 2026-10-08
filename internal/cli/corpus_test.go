@@ -41,7 +41,7 @@ func TestCorpusAddScansOneNewDependency(t *testing.T) {
 	requireGitForCorpus(t)
 	requireGo(t)
 	runInitForTest(t)
-	useRealRagctlBinary(t)
+	useRealDepctlBinary(t)
 	repo := newCorpusFixtureRepo(t)
 
 	cmd := NewRootCmd()
@@ -63,12 +63,12 @@ func TestCorpusAddScansOneNewDependency(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadCorpusFiles: %v", err)
 	}
-	if len(pkg.Dependencies) != 1 || pkg.Dependencies["ragctl-corpus-widget"] != "1" {
-		t.Errorf("Dependencies = %+v, want exactly ragctl-corpus-widget=1", pkg.Dependencies)
+	if len(pkg.Dependencies) != 1 || pkg.Dependencies["depctl-corpus-widget"] != "1" {
+		t.Errorf("Dependencies = %+v, want exactly depctl-corpus-widget=1", pkg.Dependencies)
 	}
 
 	regDir, _ := userRegistryDirPath()
-	if _, err := os.Stat(filepath.Join(regDir, "ragctl-corpus-widget.yaml")); err != nil {
+	if _, err := os.Stat(filepath.Join(regDir, "depctl-corpus-widget.yaml")); err != nil {
 		t.Errorf("registry manifest not written: %v", err)
 	}
 }
@@ -78,7 +78,7 @@ func TestCorpusAddWithoutResyncIsNoOp(t *testing.T) {
 	requireGitForCorpus(t)
 	requireGo(t)
 	runInitForTest(t)
-	useRealRagctlBinary(t)
+	useRealDepctlBinary(t)
 	repo := newCorpusFixtureRepo(t)
 
 	add := func() string {
@@ -99,7 +99,7 @@ func TestCorpusAddWithoutResyncIsNoOp(t *testing.T) {
 
 	dir, _ := corpusProjectDir()
 	pkg, _, _ := loadCorpusFiles(dir)
-	if pkg.Dependencies["ragctl-corpus-widget"] != "1" {
+	if pkg.Dependencies["depctl-corpus-widget"] != "1" {
 		t.Errorf("version changed on a no-op add: %+v", pkg.Dependencies)
 	}
 }
@@ -109,7 +109,7 @@ func TestCorpusAddResyncBumpsVersion(t *testing.T) {
 	requireGitForCorpus(t)
 	requireGo(t)
 	runInitForTest(t)
-	useRealRagctlBinary(t)
+	useRealDepctlBinary(t)
 	repo := newCorpusFixtureRepo(t)
 
 	run := func(extraArgs ...string) {
@@ -125,7 +125,7 @@ func TestCorpusAddResyncBumpsVersion(t *testing.T) {
 
 	dir, _ := corpusProjectDir()
 	pkg, _, _ := loadCorpusFiles(dir)
-	if pkg.Dependencies["ragctl-corpus-widget"] == "1" {
+	if pkg.Dependencies["depctl-corpus-widget"] == "1" {
 		t.Error("--resync did not change the version")
 	}
 }
@@ -135,7 +135,7 @@ func TestCorpusRemoveDropsEntry(t *testing.T) {
 	requireGitForCorpus(t)
 	requireGo(t)
 	runInitForTest(t)
-	useRealRagctlBinary(t)
+	useRealDepctlBinary(t)
 	repo := newCorpusFixtureRepo(t)
 
 	add := NewRootCmd()
@@ -154,14 +154,14 @@ func TestCorpusRemoveDropsEntry(t *testing.T) {
 
 	dir, _ := corpusProjectDir()
 	pkg, lock, _ := loadCorpusFiles(dir)
-	if _, ok := pkg.Dependencies["ragctl-corpus-widget"]; ok {
+	if _, ok := pkg.Dependencies["depctl-corpus-widget"]; ok {
 		t.Error("dependency still present after remove")
 	}
-	if _, ok := lock.Packages["node_modules/ragctl-corpus-widget"]; ok {
+	if _, ok := lock.Packages["node_modules/depctl-corpus-widget"]; ok {
 		t.Error("lockfile entry still present after remove")
 	}
 	regDir, _ := userRegistryDirPath()
-	if _, err := os.Stat(filepath.Join(regDir, "ragctl-corpus-widget.yaml")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(regDir, "depctl-corpus-widget.yaml")); !os.IsNotExist(err) {
 		t.Errorf("registry manifest still present after remove: err=%v", err)
 	}
 }

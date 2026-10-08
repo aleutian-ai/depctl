@@ -8,7 +8,7 @@
 ## Goal
 A version a project references but that has no active generation gets rebuilt on the next plain `sync`. No `--rebuild` needed. Live-found in `VEC-016`, and the likely cause of the real-user "referenced but never built" incidents (`OPS-005`, `MCP-010`): when a sync records a version's reference and then fails to build it, every later plan sees "reference unchanged" and emits nothing, forever.
 
-The one exception: a version ragctl has *determined* has no usable docs source (no registry manifest and no fallback source) is not retried every sync.
+The one exception: a version depctl has *determined* has no usable docs source (no registry manifest and no fallback source) is not retried every sync.
 
 ## Design
 - **No-source is its own record, not a failed generation.** A failed build and "we looked, no source exists" have different retry semantics, so they're structurally distinct: a separate `no_source_versions` bbolt bucket keyed `ecosystem|dependency|version`, written by `syncVersion` when neither the registry nor the fallback finds a source. It's never inferred from error text, so nothing that retries FAILED generations can pick it up by accident.

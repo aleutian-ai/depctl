@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"os"
 
-	"aleutian-ai/ragctl/internal/executil"
+	"github.com/aleutian-ai/depctl/internal/executil"
 )
 
 // MaterializeWorktree checks out commit from repoPath into a fresh
@@ -26,7 +26,7 @@ import (
 // difference, and normalization never silently sees an empty worktree
 // because of the sparse pattern set alone.
 func (c *Cache) MaterializeWorktree(ctx context.Context, repoPath, commit string, sparsePatterns []string) (string, func() error, error) {
-	worktreeDir, err := os.MkdirTemp("", "ragctl-worktree-*")
+	worktreeDir, err := os.MkdirTemp("", "depctl-worktree-*")
 	if err != nil {
 		return "", nil, &CacheError{Op: "MaterializeWorktree", Kind: ErrKindPermanent, Cause: err}
 	}

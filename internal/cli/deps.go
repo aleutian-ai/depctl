@@ -27,7 +27,7 @@ func runDeps(cmd *cobra.Command, projectID string) error {
 		return err
 	}
 	if !p.HasResolution {
-		return fmt.Errorf("no resolution for project %s (run `ragctl scan` against its root)", projectID)
+		return fmt.Errorf("no resolution for project %s (run `depctl scan` against its root)", projectID)
 	}
 
 	out := cmd.OutOrStdout()

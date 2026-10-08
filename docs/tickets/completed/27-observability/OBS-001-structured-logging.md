@@ -59,7 +59,7 @@ Logging itself must never panic or block program correctness; a broken log write
 researched how this vocabulary is actually consumed downstream (per explicit
 request, so logs would be genuinely usable by tools like Phoenix, Arize, or
 promptfoo, not just internally consistent). Two live conventions cover
-ragctl's own operations exactly:
+depctl's own operations exactly:
 
 - [OpenTelemetry GenAI semantic conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/)
   (now its own `semantic-conventions-genai` spec) — `gen_ai.operation.name`,
@@ -69,12 +69,12 @@ ragctl's own operations exactly:
   retrieval-document vocabulary that motivated `retrieval.top_k` /
   `retrieval.documents.count`.
 
-Where ragctl's own operation genuinely is the thing a convention names
+Where depctl's own operation genuinely is the thing a convention names
 (embedding a batch, serving an MCP tool call), the real key is used verbatim
 — `embedding.model_name` on embed, `gen_ai.tool.name` on every MCP tool call,
 `retrieval.top_k`/`retrieval.documents.count` on query. Everything
-ragctl-specific (project id, dependency, version, job id, generation,
-backend, stage) is namespaced under `ragctl.*`, the OTel-recommended way to
+depctl-specific (project id, dependency, version, job id, generation,
+backend, stage) is namespaced under `depctl.*`, the OTel-recommended way to
 add custom attributes without risking a future collision with a real
 convention key. This also means OBS-002 (OpenTelemetry spans) can reuse
 these exact attribute keys as span attributes later with zero renaming.
@@ -103,7 +103,7 @@ in `registerTools`, so a future tool can't be added without logging by
 omission.
 
 **Two real bugs found via live verification** (real daemon, real Qdrant
-container via podman, real fixture project, real `ragctl serve` subprocess
+container via podman, real fixture project, real `depctl serve` subprocess
 driven by a real MCP client — not just unit tests):
 
 1. **HTTP handler contexts didn't inherit the daemon's base context.**
@@ -125,10 +125,10 @@ driven by a real MCP client — not just unit tests):
    call. Fixed by refactoring `RunGC` to named returns plus a single
    `defer func() { ... }()` that logs exactly once regardless of which exit
    path is taken. Caught during review, then confirmed live: a real
-   `ragctl gc` with zero candidates correctly produced
+   `depctl gc` with zero candidates correctly produced
    `{"msg":"gc completed",...,"candidates":0,"deleted":0,"failed":0}`.
 
-**Live verification result.** Driving a real `ragctl serve` subprocess with
+**Live verification result.** Driving a real `depctl serve` subprocess with
 a real MCP client (`sdkmcp`) calling `search_dependency_docs` against a real
 daemon produced, on the server's stderr:
 
@@ -136,7 +136,7 @@ daemon produced, on the server's stderr:
 {"time":"2026-09-30T09:05:55.939352-04:00","level":"INFO","msg":"mcp tool call completed","gen_ai.tool.name":"search_dependency_docs","duration_ms":1078}
 ```
 
-confirming the full path — MCP tool call in the `ragctl serve` process,
+confirming the full path — MCP tool call in the `depctl serve` process,
 scheduler-routed daemon operations, and now every HTTP-handler-routed
 operation — all emit correctly-configured JSON through the same
 `internal/observability` package.

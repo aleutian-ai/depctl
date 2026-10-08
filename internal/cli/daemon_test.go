@@ -8,12 +8,12 @@ import (
 	"testing"
 	"time"
 
-	"aleutian-ai/ragctl/internal/config"
-	bboltstore "aleutian-ai/ragctl/internal/control/bbolt"
-	"aleutian-ai/ragctl/internal/daemon/client"
+	"github.com/aleutian-ai/depctl/internal/config"
+	bboltstore "github.com/aleutian-ai/depctl/internal/control/bbolt"
+	"github.com/aleutian-ai/depctl/internal/daemon/client"
 )
 
-// daemonHarness is a `ragctl daemon run` running in this process.
+// daemonHarness is a `depctl daemon run` running in this process.
 type daemonHarness struct {
 	out    *syncBuffer
 	done   <-chan error
@@ -21,7 +21,7 @@ type daemonHarness struct {
 	exited bool
 }
 
-// startDaemon runs `ragctl daemon run` in the background and waits until
+// startDaemon runs `depctl daemon run` in the background and waits until
 // it is listening. It is stopped at test cleanup.
 func startDaemon(t *testing.T) *daemonHarness {
 	t.Helper()
@@ -130,7 +130,7 @@ func TestDaemonRunReportsLockHolderThatIsNotADaemon(t *testing.T) {
 	isolateEnv(t)
 	runInitForTest(t)
 
-	// Hold the lock without serving anything, as an old `ragctl serve`
+	// Hold the lock without serving anything, as an old `depctl serve`
 	// would.
 	holder, err := openControlStore()
 	if err != nil {
@@ -256,7 +256,7 @@ func TestDaemonStatusWithoutDaemon(t *testing.T) {
 	}
 }
 
-// runCommandOutput runs one ragctl command and returns its stdout,
+// runCommandOutput runs one depctl command and returns its stdout,
 // failing the test if it errors.
 func runCommandOutput(t *testing.T, args ...string) string {
 	t.Helper()

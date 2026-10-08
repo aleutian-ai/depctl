@@ -10,8 +10,8 @@ import (
 	"sync"
 	"testing"
 
-	"aleutian-ai/ragctl/internal/config"
-	"aleutian-ai/ragctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/config"
+	"github.com/aleutian-ai/depctl/internal/domain"
 )
 
 // fakeQdrantCount returns an httptest server whose /points/count always

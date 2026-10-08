@@ -4,7 +4,7 @@
 // way the generation builder (internal/data/generation) does, then
 // chunking it and checking basic invariants: no panics/errors, no empty
 // chunks, no duplicate chunk IDs within an object, and no wildly
-// oversized chunks. A dev tool, not part of ragctl itself — the
+// oversized chunks. A dev tool, not part of depctl itself — the
 // chunking analog of hack/normalize-sweep.
 package main
 
@@ -19,16 +19,16 @@ import (
 	"sort"
 	"strings"
 
-	dchunk "aleutian-ai/ragctl/internal/data/chunk"
-	chunkmd "aleutian-ai/ragctl/internal/data/chunk/markdown"
-	"aleutian-ai/ragctl/internal/data/chunk/symbol"
-	"aleutian-ai/ragctl/internal/data/fingerprint"
-	"aleutian-ai/ragctl/internal/domain"
-	"aleutian-ai/ragctl/internal/normalize"
-	"aleutian-ai/ragctl/internal/normalize/godoc"
-	"aleutian-ai/ragctl/internal/normalize/markdown"
-	"aleutian-ai/ragctl/internal/normalize/plaintext"
-	"aleutian-ai/ragctl/internal/normalize/releasenotes"
+	dchunk "github.com/aleutian-ai/depctl/internal/data/chunk"
+	chunkmd "github.com/aleutian-ai/depctl/internal/data/chunk/markdown"
+	"github.com/aleutian-ai/depctl/internal/data/chunk/symbol"
+	"github.com/aleutian-ai/depctl/internal/data/fingerprint"
+	"github.com/aleutian-ai/depctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/normalize"
+	"github.com/aleutian-ai/depctl/internal/normalize/godoc"
+	"github.com/aleutian-ai/depctl/internal/normalize/markdown"
+	"github.com/aleutian-ai/depctl/internal/normalize/plaintext"
+	"github.com/aleutian-ai/depctl/internal/normalize/releasenotes"
 )
 
 var skipDirNames = map[string]bool{

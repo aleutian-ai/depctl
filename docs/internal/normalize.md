@@ -5,7 +5,7 @@
 - per-file document normalizers: `markdown`, `plaintext`, `releasenotes`;
 - per-directory API-doc normalizers: `godoc` (Go source), `pydoc` (Python source), `tsdoc` (a Node package's `.d.ts`, or JSDoc over its `.js` entry point).
 
-No normalizer ever executes the dependency's code: `godoc` uses Go's static parser, and `pydoc`/`tsdoc` run ragctl's own embedded extraction script (`extract.py`/`extract.js`, piped to `python3`/`node` over stdin) that parses the dependency's files as text. This is the pipeline stage between source acquisition (git worktree materialization) and chunking/storage.
+No normalizer ever executes the dependency's code: `godoc` uses Go's static parser, and `pydoc`/`tsdoc` run depctl's own embedded extraction script (`extract.py`/`extract.js`, piped to `python3`/`node` over stdin) that parses the dependency's files as text. This is the pipeline stage between source acquisition (git worktree materialization) and chunking/storage.
 
 ## Key types and functions
 
@@ -49,7 +49,7 @@ No normalizer ever executes the dependency's code: `godoc` uses Go's static pars
 
 - `Normalizer` — implements `normalize.Normalizer` for a Python package directory; `Version()` is `v1` (internal/normalize/pydoc/pydoc.go).
 - `Supports` — true when `python3` is on PATH and the directory has an entry module (`__init__.py`, else a single/first `.py` file); a missing `python3` is a silent skip, not a sync failure (internal/normalize/pydoc/pydoc.go, entrypoint.go).
-- `Normalize` — runs the embedded `extract.py` (stdlib `ast` only) over the entry module and emits one `package_doc` object (the module docstring) plus one `symbol_doc` per public symbol, following single-hop relative re-exports. If `extract.py` itself fails to run, that is a ragctl bug and is returned as an error (internal/normalize/pydoc/normalize.go).
+- `Normalize` — runs the embedded `extract.py` (stdlib `ast` only) over the entry module and emits one `package_doc` object (the module docstring) plus one `symbol_doc` per public symbol, following single-hop relative re-exports. If `extract.py` itself fails to run, that is a depctl bug and is returned as an error (internal/normalize/pydoc/normalize.go).
 
 ### internal/normalize/tsdoc
 
@@ -105,7 +105,7 @@ flowchart TD
 
 ## Walkthrough
 
-Scenario: continuing from source-git.md's example, `generation.normalizeSources` walks the materialized grpc-go worktree at `/tmp/ragctl-worktree-482913567` and reaches `README.md`, whose real content includes something like:
+Scenario: continuing from source-git.md's example, `generation.normalizeSources` walks the materialized grpc-go worktree at `/tmp/depctl-worktree-482913567` and reaches `README.md`, whose real content includes something like:
 
 ````markdown
 # gRPC-Go
@@ -125,7 +125,7 @@ go get google.golang.org/grpc
 See the [gRPC Go documentation](https://pkg.go.dev/google.golang.org/grpc).
 ````
 
-1. **Snapshot and file-type routing.** `snapshotFor` builds `domain.SourceSnapshot{ID: "repository@7f6a3c1e...", SourceID: "repository", URI: "https://github.com/grpc/grpc-go", LocalPath: "/tmp/ragctl-worktree-482913567/README.md", LogicalPath: "README.md", Commit: "7f6a3c1e2b8d4f0a9c5e6b7d8f9a0b1c2d3e4f5a"}` — `SourceID` is the manifest source's `id` (`repository` in grpc-go.yaml). It leaves `Version` empty; the dependency version is attached later by `appendAttributed`. Since `LocalPath` is a regular file (not a directory containing `.go` files — the `godoc` special case), `generation` falls to the per-file path: `normalize.Registry.Select(src)` tries `releasenotes`, then `markdown`, then `plaintext` in that order (internal/normalize/normalize.go). `releasenotes.Supports` checks the basename against `changelog`/`changes`/`releases`/`history` and the `github-releases` metadata hint — `README.md` matches neither (internal/normalize/releasenotes/releasenotes.go) — so selection falls through to `markdown.Normalizer.Supports`, which matches the `.md` suffix case-insensitively (internal/normalize/markdown/markdown.go) and wins.
+1. **Snapshot and file-type routing.** `snapshotFor` builds `domain.SourceSnapshot{ID: "repository@7f6a3c1e...", SourceID: "repository", URI: "https://github.com/grpc/grpc-go", LocalPath: "/tmp/depctl-worktree-482913567/README.md", LogicalPath: "README.md", Commit: "7f6a3c1e2b8d4f0a9c5e6b7d8f9a0b1c2d3e4f5a"}` — `SourceID` is the manifest source's `id` (`repository` in grpc-go.yaml). It leaves `Version` empty; the dependency version is attached later by `appendAttributed`. Since `LocalPath` is a regular file (not a directory containing `.go` files — the `godoc` special case), `generation` falls to the per-file path: `normalize.Registry.Select(src)` tries `releasenotes`, then `markdown`, then `plaintext` in that order (internal/normalize/normalize.go). `releasenotes.Supports` checks the basename against `changelog`/`changes`/`releases`/`history` and the `github-releases` metadata hint — `README.md` matches neither (internal/normalize/releasenotes/releasenotes.go) — so selection falls through to `markdown.Normalizer.Supports`, which matches the `.md` suffix case-insensitively (internal/normalize/markdown/markdown.go) and wins.
 
 2. **Read and line-ending normalization.** `markdown.Normalize` reads the file with `os.ReadFile` and immediately runs the bytes through `normalize.NormalizeLineEndings`, converting any CRLF/CR to LF before anything else touches the content — required because `HASH-001` content-fingerprinting assumes whitespace-normalized input (internal/normalize/markdown/normalize.go, internal/normalize/lineendings.go).
 

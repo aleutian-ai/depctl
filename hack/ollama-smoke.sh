@@ -1,5 +1,5 @@
 #!/bin/sh
-# Measures what happens when a ragctl sync and a local chat model share one
+# Measures what happens when a depctl sync and a local chat model share one
 # Ollama (and one machine): three phases against the same dependency list.
 #
 #   A  chat model alone            -> its tokens/sec
@@ -46,9 +46,9 @@ echo "model=$MODEL  concurrency=$CONC  deps=$(grep -c . "$WORKDIR/$DEPS_FILE")  
 echo "machine: $(sysctl -n machdep.cpu.brand_string), $(( $(sysctl -n hw.memsize) / 1073741824 )) GB RAM, podman VM $(podman machine list --format '{{.Memory}}' 2>/dev/null | head -1)"
 
 go build -o "$WORKDIR/ollama-smoke" ./hack/ollama-smoke
-echo "== building ragctl for the container"
+echo "== building depctl for the container"
 podman run --rm --pull=never -v "$PWD":/src:Z -v "$WORKDIR":/out:Z -w /src "$GO_IMAGE" \
-  sh -c 'export GOMODCACHE=/out/gomodcache; go build -o /out/ragctl ./cmd/ragctl'
+  sh -c 'export GOMODCACHE=/out/gomodcache; go build -o /out/depctl ./cmd/depctl'
 
 unload() { curl -s "$ENDPOINT/api/generate" -d "{\"model\":\"$MODEL\",\"keep_alive\":0}" >/dev/null; sleep 3; }
 warm()   { curl -s "$ENDPOINT/api/generate" -d "{\"model\":\"$MODEL\",\"prompt\":\"hi\",\"stream\":false,\"options\":{\"num_predict\":1}}" >/dev/null; }

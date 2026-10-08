@@ -13,9 +13,9 @@ import (
 
 	"github.com/oklog/ulid/v2"
 
-	"aleutian-ai/ragctl/internal/control/bbolt"
-	"aleutian-ai/ragctl/internal/data/badger"
-	"aleutian-ai/ragctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/control/bbolt"
+	"github.com/aleutian-ai/depctl/internal/data/badger"
+	"github.com/aleutian-ai/depctl/internal/domain"
 )
 
 // Manifest is a generation's Badger-resident summary: what it was built

@@ -9,16 +9,16 @@ import (
 	"testing"
 	"time"
 
-	"aleutian-ai/ragctl/internal/backend"
-	"aleutian-ai/ragctl/internal/backend/backendtest"
-	"aleutian-ai/ragctl/internal/control/bbolt"
-	"aleutian-ai/ragctl/internal/data/badger"
-	"aleutian-ai/ragctl/internal/data/generation"
-	"aleutian-ai/ragctl/internal/domain"
-	"aleutian-ai/ragctl/internal/embedding"
-	"aleutian-ai/ragctl/internal/registry"
-	"aleutian-ai/ragctl/internal/retention"
-	"aleutian-ai/ragctl/internal/source/git"
+	"github.com/aleutian-ai/depctl/internal/backend"
+	"github.com/aleutian-ai/depctl/internal/backend/backendtest"
+	"github.com/aleutian-ai/depctl/internal/control/bbolt"
+	"github.com/aleutian-ai/depctl/internal/data/badger"
+	"github.com/aleutian-ai/depctl/internal/data/generation"
+	"github.com/aleutian-ai/depctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/embedding"
+	"github.com/aleutian-ai/depctl/internal/registry"
+	"github.com/aleutian-ai/depctl/internal/retention"
+	"github.com/aleutian-ai/depctl/internal/source/git"
 )
 
 func requireGit(t *testing.T) {
@@ -33,8 +33,8 @@ func runGit(t *testing.T, dir string, args ...string) {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(),
-		"GIT_AUTHOR_NAME=ragctl-test", "GIT_AUTHOR_EMAIL=ragctl-test@example.com",
-		"GIT_COMMITTER_NAME=ragctl-test", "GIT_COMMITTER_EMAIL=ragctl-test@example.com",
+		"GIT_AUTHOR_NAME=depctl-test", "GIT_AUTHOR_EMAIL=depctl-test@example.com",
+		"GIT_COMMITTER_NAME=depctl-test", "GIT_COMMITTER_EMAIL=depctl-test@example.com",
 	)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git %v: %v\n%s", args, err, out)
@@ -107,7 +107,7 @@ func TestGCEndToEndRemovesOrphanedVersionLeavesReferencedVersionUntouched(t *tes
 	gitCache := git.NewCache(t.TempDir())
 	embedder := &fakeEmbedder{dims: 4}
 	vb := backendtest.New()
-	ns := backend.Namespace{Name: "ragctl", Dimensions: 4}
+	ns := backend.Namespace{Name: "depctl", Dimensions: 4}
 
 	repoDir := newFixtureRepo(t, "v1.0.0")
 	sources := []registry.Source{{ID: "repository", Type: "git", URL: repoDir, Ref: "v${version}", Authority: 100}}

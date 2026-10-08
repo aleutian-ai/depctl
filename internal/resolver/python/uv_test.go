@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"aleutian-ai/ragctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/domain"
 )
 
 func TestNormalizeUVDirectVsTransitive(t *testing.T) {

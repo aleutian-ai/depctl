@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"aleutian-ai/ragctl/internal/config"
+	"github.com/aleutian-ai/depctl/internal/config"
 )
 
 // isolateEnv points HOME, XDG_CONFIG_HOME, and XDG_DATA_HOME at fresh temp
@@ -33,7 +33,7 @@ func isolateEnv(t *testing.T) {
 
 func tempDirRetryCleanup(t *testing.T) string {
 	t.Helper()
-	dir, err := os.MkdirTemp("", "ragctl-test-")
+	dir, err := os.MkdirTemp("", "depctl-test-")
 	if err != nil {
 		t.Fatalf("MkdirTemp: %v", err)
 	}

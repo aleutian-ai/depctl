@@ -1,6 +1,6 @@
 # internal/executil
 
-`internal/executil` runs subprocesses safely: argv-style invocation only, no shell interpretation, with context cancellation/timeout support. It is the shared chokepoint for ragctl's short, capture-the-output tool calls (`go`, `git`, `python3`, the container runtime) instead of each calling `os/exec` directly — centralizing the "no shell, always respect context" guarantee in one place.
+`internal/executil` runs subprocesses safely: argv-style invocation only, no shell interpretation, with context cancellation/timeout support. It is the shared chokepoint for depctl's short, capture-the-output tool calls (`go`, `git`, `python3`, the container runtime) instead of each calling `os/exec` directly — centralizing the "no shell, always respect context" guarantee in one place.
 
 Not everything goes through it: the Python and Node resolvers parse lockfiles and run no subprocess at all; the `pydoc`/`tsdoc` normalizers call `os/exec` directly because they pipe an embedded script over stdin, which `RunOptions` has no field for; and the CLI's daemon auto-start uses `os/exec` directly because it launches a long-lived background process rather than waiting for output.
 
@@ -26,7 +26,7 @@ flowchart TD
     Run -->|RunResult, error| Callers[calling package]
 ```
 
-`executil.Run` has no upstream dependency inside `internal/` beyond the standard library (`os/exec`, `context`, `bytes`). Every caller (git mirror/worktree/delta operations, the Go module resolver's `go list` and `go env` invocations, registry source liveness checks, `ragctl corpus`, the managed Qdrant container bootstrap, and the local module-cache probes) builds a `RunOptions` and interprets the returned `RunResult`/error itself — `executil` has no opinion on exit-code semantics beyond "non-zero is not automatically an error."
+`executil.Run` has no upstream dependency inside `internal/` beyond the standard library (`os/exec`, `context`, `bytes`). Every caller (git mirror/worktree/delta operations, the Go module resolver's `go list` and `go env` invocations, registry source liveness checks, `depctl corpus`, the managed Qdrant container bootstrap, and the local module-cache probes) builds a `RunOptions` and interprets the returned `RunResult`/error itself — `executil` has no opinion on exit-code semantics beyond "non-zero is not automatically an error."
 
 ## Walkthrough
 

@@ -6,20 +6,20 @@
 **Estimated size:** small
 
 ## Goal
-The Grounded Docs comparison's clearest actionable recommendation was about framing, not code: don't position ragctl as a better general-purpose documentation RAG system — Grounded Docs (and Tessl, differently) already occupy real, credible territory there, including local-first, MIT-licensed, broader-format acquisition. ragctl's precise, defensible claim is narrower and already written down: *"ragctl keeps a coding agent's dependency knowledge synchronized with the actual state of the repository it's working on."* Update the docs that currently lead with the broader framing to lead with this one instead.
+The Grounded Docs comparison's clearest actionable recommendation was about framing, not code: don't position depctl as a better general-purpose documentation RAG system — Grounded Docs (and Tessl, differently) already occupy real, credible territory there, including local-first, MIT-licensed, broader-format acquisition. depctl's precise, defensible claim is narrower and already written down: *"depctl keeps a coding agent's dependency knowledge synchronized with the actual state of the repository it's working on."* Update the docs that currently lead with the broader framing to lead with this one instead.
 
 ## Non-goals
 - No new marketing copy invented here beyond what's already in the project's own one-pagers/specs — this ticket applies existing language, it doesn't draft new positioning from scratch.
-- No removal of legitimate "also locally hosted, also private by default" claims — those remain true and worth stating, just not as the lead differentiator (per the comparison: "do not position ragctl as the only locally hosted or private option").
+- No removal of legitimate "also locally hosted, also private by default" claims — those remain true and worth stating, just not as the lead differentiator (per the comparison: "do not position depctl as the only locally hosted or private option").
 
 ## Simplicity constraints
 - Doc-only change: `README.md`'s opening framing, `docs/architecture.md`'s introduction if it leads with a general-RAG framing, and any one-pager/spec doc surfaced in this comparison that still says something like "documentation RAG for AI agents" without the repository-state qualifier.
 
 ## Design
 Lead framing becomes some variant of:
-> ragctl keeps a coding agent's dependency knowledge synchronized with the actual state of the repository it's working on — native dependency resolution, local acquisition, demand-driven synchronization, version-scoped retrieval, and explicit missing-knowledge states (never a silent cross-version fallback).
+> depctl keeps a coding agent's dependency knowledge synchronized with the actual state of the repository it's working on — native dependency resolution, local acquisition, demand-driven synchronization, version-scoped retrieval, and explicit missing-knowledge states (never a silent cross-version fallback).
 
-Followed by an explicit, honest scoping statement modeled on the comparison's own framing: ragctl is not the only locally-hosted or private documentation option, and does not (yet) match broader tools' acquisition format coverage (arbitrary websites, PDFs, Office docs) — its bet is that automatic, validated repository-state synchronization matters more for a coding agent than acquisition breadth.
+Followed by an explicit, honest scoping statement modeled on the comparison's own framing: depctl is not the only locally-hosted or private documentation option, and does not (yet) match broader tools' acquisition format coverage (arbitrary websites, PDFs, Office docs) — its bet is that automatic, validated repository-state synchronization matters more for a coding agent than acquisition breadth.
 
 ## Inputs / Outputs
 - Input: current `README.md` / `docs/architecture.md` framing language.

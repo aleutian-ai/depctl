@@ -12,9 +12,9 @@ import (
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"aleutian-ai/ragctl/internal/domain"
-	"aleutian-ai/ragctl/internal/query"
-	"aleutian-ai/ragctl/internal/symbolgraph"
+	"github.com/aleutian-ai/depctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/query"
+	"github.com/aleutian-ai/depctl/internal/symbolgraph"
 )
 
 func goDep(name string) domain.DependencyVersion {

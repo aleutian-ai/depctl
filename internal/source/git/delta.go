@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"aleutian-ai/ragctl/internal/executil"
+	"github.com/aleutian-ai/depctl/internal/executil"
 )
 
 // FileStatus classifies how a file changed between two commits.

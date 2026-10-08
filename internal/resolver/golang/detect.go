@@ -1,4 +1,4 @@
-// Package golang is ragctl's Go ecosystem resolver: detects Go module
+// Package golang is depctl's Go ecosystem resolver: detects Go module
 // roots, resolves the module graph via the go toolchain, and normalizes it
 // into the domain model. See docs/tickets/completed/06-go-resolver.
 package golang

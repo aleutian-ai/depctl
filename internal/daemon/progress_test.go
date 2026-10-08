@@ -6,7 +6,7 @@ import (
 	"sync"
 	"testing"
 
-	"aleutian-ai/ragctl/internal/daemon/api"
+	"github.com/aleutian-ai/depctl/internal/daemon/api"
 )
 
 func TestSyncProgressTracksInFlightAndDone(t *testing.T) {

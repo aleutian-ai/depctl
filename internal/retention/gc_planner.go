@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"aleutian-ai/ragctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/domain"
 )
 
 // GCCandidate is one (ecosystem, package, version) tuple RET-003 has

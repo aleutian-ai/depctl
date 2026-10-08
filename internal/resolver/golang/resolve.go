@@ -3,8 +3,8 @@ package golang
 import (
 	"context"
 
-	"aleutian-ai/ragctl/internal/domain"
-	"aleutian-ai/ragctl/internal/resolver"
+	"github.com/aleutian-ai/depctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/resolver"
 )
 
 // Resolve runs `go list -m -json all` in root, normalizes the result, and

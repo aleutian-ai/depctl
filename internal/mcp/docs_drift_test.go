@@ -9,7 +9,7 @@ import (
 )
 
 // VERIFY-002: a mechanical check that every tool registerTools actually
-// registers is mentioned in the docs that describe ragctl's MCP surface
+// registers is mentioned in the docs that describe depctl's MCP surface
 // — this session's own documentation sweep found README.md,
 // docs/internal/mcp.md, and docs/features/query-serving.md each
 // independently drift from the real tool list at different points. Not
@@ -31,7 +31,7 @@ var registeredToolNames = []string{
 
 // docsCheckedForToolSurface are the docs whose actual job is to be an
 // exhaustive tool reference. README.md is deliberately excluded: its
-// "Using ragctl through an MCP agent" section intentionally names only
+// "Using depctl through an MCP agent" section intentionally names only
 // a representative subset ("a handful of tools... and read-only lookups
 // like list_project_dependencies") for a skimming reader, not an
 // exhaustive list — an earlier draft of this ticket assumed README.md

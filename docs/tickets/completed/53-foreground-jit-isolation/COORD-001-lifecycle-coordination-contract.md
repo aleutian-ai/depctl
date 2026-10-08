@@ -39,7 +39,7 @@ A build whose context is cancelled (MCP tool timeout, daemon shutdown) or that f
 - A GC call that can't acquire the exclusive gate within a reasonable bound should report that clearly (e.g. via the existing GC result/error shape) rather than hang the caller indefinitely — exact bound TBD, informed by real measurement, not guessed here.
 
 ## Tests
-- Two concurrent `Build` calls for the *identical* key: exactly one real build happens, both callers get the same result, no duplicate generation is created (`ragctl gc --dry-run` or a direct store check afterward shows one generation, not two).
+- Two concurrent `Build` calls for the *identical* key: exactly one real build happens, both callers get the same result, no duplicate generation is created (`depctl gc --dry-run` or a direct store check afterward shows one generation, not two).
 - `ExcludeForGC` blocks until every currently-`RLock`-holding build finishes, and a *new* `Build` call made while `ExcludeForGC` is pending/held blocks until GC releases — proving the RWMutex writer-priority property holds under real concurrent goroutines, not just in isolation.
 - A cancelled build releases its `singleflight` key promptly — a second caller for the same key started immediately after cancellation gets its *own* fresh attempt, not stuck waiting on a dead one.
 - The RLock-scope audit's conclusion (step 2 above) gets a concrete regression test: GC racing against whatever operation was found to need coverage (reference mutation, promotion, or both) must never delete a generation that operation just made active/referenced.

@@ -5,11 +5,11 @@ import (
 
 	"github.com/BurntSushi/toml"
 
-	"aleutian-ai/ragctl/internal/domain"
-	"aleutian-ai/ragctl/internal/resolver"
+	"github.com/aleutian-ai/depctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/resolver"
 )
 
-// poetryLockFile is the subset of poetry.lock's schema ragctl needs.
+// poetryLockFile is the subset of poetry.lock's schema depctl needs.
 type poetryLockFile struct {
 	Package []poetryPackage `toml:"package"`
 }

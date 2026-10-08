@@ -13,11 +13,11 @@ import (
 	"testing"
 	"time"
 
-	bboltstore "aleutian-ai/ragctl/internal/control/bbolt"
-	badgerstore "aleutian-ai/ragctl/internal/data/badger"
-	"aleutian-ai/ragctl/internal/data/generation"
-	"aleutian-ai/ragctl/internal/domain"
-	"aleutian-ai/ragctl/internal/registry"
+	bboltstore "github.com/aleutian-ai/depctl/internal/control/bbolt"
+	badgerstore "github.com/aleutian-ai/depctl/internal/data/badger"
+	"github.com/aleutian-ai/depctl/internal/data/generation"
+	"github.com/aleutian-ai/depctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/registry"
 )
 
 func describeTestStores(t *testing.T) (*bboltstore.Store, *badgerstore.Store) {
@@ -38,7 +38,7 @@ func describeTestStores(t *testing.T) (*bboltstore.Store, *badgerstore.Store) {
 	return store, badgerStore
 }
 
-const describeManifestYAML = `apiVersion: ragctl.dev/v1alpha1
+const describeManifestYAML = `apiVersion: depctl.dev/v1alpha1
 kind: KnowledgePackage
 metadata:
   name: %[1]s
@@ -314,7 +314,7 @@ func TestBuildPackageEntryChecksLivenessWhenRequested(t *testing.T) {
 	defer srv.Close()
 
 	dir := t.TempDir()
-	manifestYAML := fmt.Sprintf(`apiVersion: ragctl.dev/v1alpha1
+	manifestYAML := fmt.Sprintf(`apiVersion: depctl.dev/v1alpha1
 kind: KnowledgePackage
 metadata:
   name: pkg-live

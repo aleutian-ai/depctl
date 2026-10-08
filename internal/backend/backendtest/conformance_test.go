@@ -3,8 +3,8 @@ package backendtest
 import (
 	"testing"
 
-	"aleutian-ai/ragctl/internal/backend"
-	"aleutian-ai/ragctl/internal/backend/conformance"
+	"github.com/aleutian-ai/depctl/internal/backend"
+	"github.com/aleutian-ai/depctl/internal/backend/conformance"
 )
 
 // TestFakeConformance holds the in-memory fake to the same contract as

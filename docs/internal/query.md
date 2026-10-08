@@ -70,7 +70,7 @@ An MCP client working in project `proj_a1b2` (root `/home/jin/work/checkout-svc`
 
 6. `search` embeds the query text once: `s.embedder.Embed(ctx, []string{text})`, which with the default Ollama model returns one 768-dimension vector. A keyword-only service skips this step and leaves `Vector` nil.
 
-7. `search` queries the index: `s.backend.Query(ctx, backend.QueryRequest{Namespace: "ragctl-1a2b3c4d", Vector: vectors[0], Text: text, TopK: 10, Filter: filter})`. The `searchIndex` sends it to the embedded vector store (falling back to the keyword index if there were no vector, or no vector matches), which returns, say, two matches:
+7. `search` queries the index: `s.backend.Query(ctx, backend.QueryRequest{Namespace: "depctl-1a2b3c4d", Vector: vectors[0], Text: text, TopK: 10, Filter: filter})`. The `searchIndex` sends it to the embedded vector store (falling back to the keyword index if there were no vector, or no vector matches), which returns, say, two matches:
    ```go
    []backend.ScoredPoint{
        {ID: "chk_7f3a", Score: 0.912, Metadata: backend.PointMetadata{

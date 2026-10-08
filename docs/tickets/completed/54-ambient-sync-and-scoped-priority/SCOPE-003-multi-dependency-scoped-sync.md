@@ -27,7 +27,7 @@ Two *different* single-dependency requests for the same project, arriving close 
 1. `SyncOptions.Dependency string` → `SyncOptions.Dependencies []string` (`internal/daemon/scheduler.go`). An empty/nil slice means "everything," matching today's empty-string semantics exactly.
 2. `mergeOptions` unions the two sets instead of requiring exact equality — two different single-dependency requests now correctly merge into "these two specifically," not "everything."
 3. `RunSync`'s filter (`internal/cli/sync.go`) checks set membership instead of string equality.
-4. `api.SyncRequest`/`api.SyncOptions` (wire types) gain the same shape; the HTTP client (`internal/daemon/client/client.go`) and `ragctl sync --dependency` CLI flag stay backward compatible — a single `--dependency` value becomes a one-element set at the CLI boundary, not a breaking change to the flag itself.
+4. `api.SyncRequest`/`api.SyncOptions` (wire types) gain the same shape; the HTTP client (`internal/daemon/client/client.go`) and `depctl sync --dependency` CLI flag stay backward compatible — a single `--dependency` value becomes a one-element set at the CLI boundary, not a breaking change to the flag itself.
 5. `SyncPriority.Bump`/`Drain` already handle multiple names correctly (it's already a slice-based FIFO) — no change needed there, confirmed by COORD-003's own `TestWorkerPoolHonorsPriorityBump`.
 
 ## Inputs / Outputs
@@ -39,17 +39,17 @@ Two *different* single-dependency requests for the same project, arriving close 
 
 ## Tests
 - Two concurrent single-dependency requests for *different* names, for the same project, correctly coalesce into "these two, exactly" — not "everything." This is the direct regression test for the bug above; construct it by deliberately timing two `Scheduler.Request` calls to land in the same coalescing window (matching `TestSchedulerMergesFollowUpOptions`'s existing timing approach) and asserting the resulting sync only touched the two named dependencies.
-- An empty set still means everything (no regression against today's default `ragctl sync` behavior).
+- An empty set still means everything (no regression against today's default `depctl sync` behavior).
 - The CLI's single `--dependency` flag still works unchanged end-to-end.
 
 ## Acceptance criteria
 - [x] `mergeOptions` unions dependency sets instead of collapsing to "everything" on any mismatch.
 - [x] A direct regression test proves two colliding single-dependency requests no longer accidentally trigger a full sync.
-- [x] `ragctl sync --dependency` and the existing single-dependency JIT path (`search_dependency_docs`) are both unaffected by the internal shape change — verified by re-running COORD-002's own cross-project regression tests unmodified.
+- [x] `depctl sync --dependency` and the existing single-dependency JIT path (`search_dependency_docs`) are both unaffected by the internal shape change — verified by re-running COORD-002's own cross-project regression tests unmodified.
 
 ## Post-implementation notes
 - `SyncOptions.Dependency string` is now `Dependencies []string`; `mergeOptions` unions the sets (sorted, de-duplicated). An empty set on either side still means "everything" and absorbs a named one, so a named request can never narrow someone else's full sync.
-- Wire compatibility: `api.SyncRequest` keeps the legacy `dependency` field and gains `dependencies`; `DependencySet()` combines both, so existing clients (including the MCP JIT path's single-name request) are unchanged. `ragctl sync --dependency` is now repeatable.
+- Wire compatibility: `api.SyncRequest` keeps the legacy `dependency` field and gains `dependencies`; `DependencySet()` combines both, so existing clients (including the MCP JIT path's single-name request) are unchanged. `depctl sync --dependency` is now repeatable.
 - `RunSync`'s filtering moved into `flattenActions`, extracted so the set filter is unit-testable (no test called `RunSync` end to end).
 - The old `TestSchedulerMergesFollowUpOptions` asserted the imprecise behavior ("dependency: differed" collapsing to everything); it now asserts the union. `TestMergeOptionsUnionsDependencySets` is the direct regression for the bug.
-- **2026-09: verified live.** `TestPrioritizeFileAndExplainCallSiteOverARealDaemon` (`internal/cli/scope_004_live_test.go`) drives a real `ragctl serve` subprocess with a real MCP client over stdio, a real go.mod depending on two genuinely different real Go modules (`github.com/spf13/pflag`, `github.com/google/go-cmp`). `prioritize_file`'s single call correctly matched and synced both as one set — real proof of SCOPE-003's own mechanism, not just a unit-tested union function.
+- **2026-09: verified live.** `TestPrioritizeFileAndExplainCallSiteOverARealDaemon` (`internal/cli/scope_004_live_test.go`) drives a real `depctl serve` subprocess with a real MCP client over stdio, a real go.mod depending on two genuinely different real Go modules (`github.com/spf13/pflag`, `github.com/google/go-cmp`). `prioritize_file`'s single call correctly matched and synced both as one set — real proof of SCOPE-003's own mechanism, not just a unit-tested union function.

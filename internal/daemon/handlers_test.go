@@ -1,17 +1,17 @@
 package daemon
 
 import (
-	"aleutian-ai/ragctl/internal/watch"
 	"bytes"
 	"context"
 	"encoding/json"
+	"github.com/aleutian-ai/depctl/internal/watch"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
-	"aleutian-ai/ragctl/internal/daemon/api"
+	"github.com/aleutian-ai/depctl/internal/daemon/api"
 )
 
 // fakeEngine embeds Engine (nil) so a test only has to implement the one
@@ -228,7 +228,7 @@ func (e *statusEngine) Status(context.Context) (api.Status, error)        { retu
 func (e *statusEngine) Projects(context.Context) ([]watch.Project, error) { return e.projects, nil }
 
 // TestStatusReportsInFlightSyncsWithProjectNames is SCOPE-001's status
-// surface: a running sync appears in `ragctl status` with its project
+// surface: a running sync appears in `depctl status` with its project
 // named, its counts and its in-flight dependency; nothing running means
 // no "syncs" at all.
 func TestStatusReportsInFlightSyncsWithProjectNames(t *testing.T) {

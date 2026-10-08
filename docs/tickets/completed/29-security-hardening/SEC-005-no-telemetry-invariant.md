@@ -6,14 +6,14 @@
 **Estimated size:** small
 
 ## Goal
-ragctl's own one-pager states no customer code, embeddings, or traces are sent to Aleutian by default and no hosted account is required. That's currently true by omission — there is no telemetry code in the repo — but it's an assumption resting on nobody adding one later without noticing. The Grounded Docs comparison surfaced this concretely: that project ships real telemetry (PostHog, `telemetryEnabled: true` by default, disableable via `--no-telemetry`/`DOCS_MCP_TELEMETRY=false`), which is a legitimate, disclosed design choice on their part but underlines that "no telemetry" is a claim worth testing for ragctl, not assuming.
+depctl's own one-pager states no customer code, embeddings, or traces are sent to Aleutian by default and no hosted account is required. That's currently true by omission — there is no telemetry code in the repo — but it's an assumption resting on nobody adding one later without noticing. The Grounded Docs comparison surfaced this concretely: that project ships real telemetry (PostHog, `telemetryEnabled: true` by default, disableable via `--no-telemetry`/`DOCS_MCP_TELEMETRY=false`), which is a legitimate, disclosed design choice on their part but underlines that "no telemetry" is a claim worth testing for depctl, not assuming.
 
 ## Non-goals
 - Not adding telemetry with an opt-out — this ticket enforces the opposite: no telemetry exists, full stop, unless a future explicit decision changes that (which would itself need a new ticket, not a quiet addition).
 - Not a network-sandboxing mechanism — this is a code-level/CI-level check, not a runtime firewall.
 
 ## Simplicity constraints
-- A grep-based CI check (no analytics SDK imports, no known telemetry-endpoint hostnames in the codebase) plus one integration test asserting a normal `ragctl sync`/`ragctl serve` run makes no outbound HTTP calls beyond the ones the user's own config explicitly names (git remotes, the configured embedder endpoint, the configured vector backend endpoint) — not a new subsystem.
+- A grep-based CI check (no analytics SDK imports, no known telemetry-endpoint hostnames in the codebase) plus one integration test asserting a normal `depctl sync`/`depctl serve` run makes no outbound HTTP calls beyond the ones the user's own config explicitly names (git remotes, the configured embedder endpoint, the configured vector backend endpoint) — not a new subsystem.
 
 ## Design
 1. **Static check**: a `hack/`-script or CI step that fails if the module graph ever pulls in a known analytics SDK (PostHog, Segment, Mixpanel, etc.) or if any Go source string-literals a known telemetry-endpoint hostname.

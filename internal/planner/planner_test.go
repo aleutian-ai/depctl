@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"aleutian-ai/ragctl/internal/domain"
-	"aleutian-ai/ragctl/internal/registry"
+	"github.com/aleutian-ai/depctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/registry"
 )
 
 func testRegistry(t *testing.T) *registry.Registry {

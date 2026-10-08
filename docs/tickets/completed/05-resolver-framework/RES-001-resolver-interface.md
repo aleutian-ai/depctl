@@ -34,7 +34,7 @@ type Registry struct { resolvers []Resolver }
 func NewRegistry(resolvers ...Resolver) *Registry
 func (r *Registry) DetectAll(ctx context.Context, root string) ([]Resolver, error) // resolvers whose Detect() returned true, in fixed registration order
 ```
-Registration order is the deterministic priority (no dynamic priority scoring system needed for v0.1 — order of registration in `main.go`/`cmd/ragctl` is the priority).
+Registration order is the deterministic priority (no dynamic priority scoring system needed for v0.1 — order of registration in `main.go`/`cmd/depctl` is the priority).
 
 ## Inputs / Outputs
 - Input: a project root path.

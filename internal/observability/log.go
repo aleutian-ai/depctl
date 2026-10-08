@@ -1,4 +1,4 @@
-// Package observability provides ragctl's structured logging (OBS-001):
+// Package observability provides depctl's structured logging (OBS-001):
 // one small helper building a configured *slog.Logger (standard library
 // only — no zap/zerolog), plus a context-carried accessor so lifecycle
 // code can log with structured fields without every function in the call
@@ -6,20 +6,20 @@
 // context.Context; this package makes that the injection point, exactly
 // as OBS-001's own ticket allows ("via context or explicit parameter").
 //
-// Field naming is deliberately not ragctl-invented where a real,
+// Field naming is deliberately not depctl-invented where a real,
 // external standard already exists, so the same key names double as
 // OpenTelemetry span attributes (internal/observability/trace) with no
 // rename: gen_ai.* is the OpenTelemetry GenAI semantic convention
 // (https://opentelemetry.io/docs/specs/semconv/registry/attributes/gen-ai/),
 // and embedding.model_name/retrieval.* are OpenInference's
 // (https://github.com/Arize-ai/openinference/blob/main/spec/semantic_conventions.md,
-// the convention Arize Phoenix traces use) — both chosen because ragctl's
+// the convention Arize Phoenix traces use) — both chosen because depctl's
 // own embed/query operations are exactly what those two conventions
 // describe (an embeddings call, a retriever call), and Promptfoo's own
 // OTLP ingestion understands the same OTel-rooted attribute shape. Every
-// other field here is ragctl's own domain vocabulary (which project,
+// other field here is depctl's own domain vocabulary (which project,
 // which dependency, which generation) that no external convention
-// covers — those are namespaced under "ragctl." specifically so they can
+// covers — those are namespaced under "depctl." specifically so they can
 // never collide with, or be mistaken for, a real semantic-convention key
 // a downstream tool interprets specially.
 package observability
@@ -33,16 +33,16 @@ import (
 // Standard field keys, used consistently across every lifecycle stage
 // that logs through this package. See the package doc comment for why
 // gen_ai.*/embedding.*/retrieval.* are spelled exactly as their external
-// conventions define them, while everything else is ragctl.*-namespaced.
+// conventions define them, while everything else is depctl.*-namespaced.
 const (
-	// ragctl's own domain vocabulary — no external convention covers these.
-	KeyProjectID  = "ragctl.project_id"
-	KeyDependency = "ragctl.dependency"
-	KeyVersion    = "ragctl.version"
-	KeyJobID      = "ragctl.job_id"
-	KeyGeneration = "ragctl.generation"
-	KeyBackend    = "ragctl.backend"
-	KeyStage      = "ragctl.stage"
+	// depctl's own domain vocabulary — no external convention covers these.
+	KeyProjectID  = "depctl.project_id"
+	KeyDependency = "depctl.dependency"
+	KeyVersion    = "depctl.version"
+	KeyJobID      = "depctl.job_id"
+	KeyGeneration = "depctl.generation"
+	KeyBackend    = "depctl.backend"
+	KeyStage      = "depctl.stage"
 
 	// KeyDurationMS is a plain, unnamespaced field — not part of either
 	// external convention, but a common enough structured-logging idiom
@@ -51,7 +51,7 @@ const (
 
 	// OpenTelemetry GenAI semantic conventions (gen_ai.*) — used at the
 	// MCP tool-call boundary and the embed lifecycle stage, the two
-	// places ragctl's own operations are exactly what this convention
+	// places depctl's own operations are exactly what this convention
 	// names.
 	KeyGenAIOperationName = "gen_ai.operation.name"
 	KeyGenAIToolName      = "gen_ai.tool.name"
@@ -84,7 +84,7 @@ type contextKey struct{}
 
 // WithLogger returns a context carrying logger, retrievable via
 // FromContext by any function further down the same call chain —
-// ragctl's chosen alternative to threading a *slog.Logger parameter
+// depctl's chosen alternative to threading a *slog.Logger parameter
 // through every lifecycle function, per OBS-001's own ticket.
 func WithLogger(ctx context.Context, logger *slog.Logger) context.Context {
 	return context.WithValue(ctx, contextKey{}, logger)

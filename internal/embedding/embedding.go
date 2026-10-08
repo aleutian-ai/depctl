@@ -1,4 +1,4 @@
-// Package embedding defines ragctl's narrow embedding-provider contract
+// Package embedding defines depctl's narrow embedding-provider contract
 // and the identity metadata that keeps vectors from different
 // providers/models from ever being silently mixed. Concrete providers
 // (internal/embedding/ollama) and the content-hash cache
@@ -142,7 +142,7 @@ func (p *Prompted) EmbedDocuments(ctx context.Context, docs []Document) ([][]flo
 }
 
 // truncate keeps the first Prompts.Dimensions values. No renormalizing:
-// every vector store ragctl uses compares by cosine, which divides by
+// every vector store depctl uses compares by cosine, which divides by
 // length.
 func (p *Prompted) truncate(v []float32) []float32 {
 	if n := p.Prompts.Dimensions; n > 0 && n < len(v) {

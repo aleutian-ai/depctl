@@ -42,7 +42,7 @@ version = resolved version (or commit for git deps)
 - Output: `domain.Resolution{Ecosystem: EcosystemRust, Dependencies: [...], Fingerprint}`.
 
 ## Failure behavior
-- `cargo` binary missing → typed `ResolutionError` ("cargo not found on PATH"), surfaced later by `ragctl doctor`.
+- `cargo` binary missing → typed `ResolutionError` ("cargo not found on PATH"), surfaced later by `depctl doctor`.
 - Non-zero exit / malformed JSON → typed `ResolutionError` with captured stderr.
 - Context cancellation → propagate cancellation error from `executil`.
 

@@ -1,6 +1,6 @@
-# Contributing to ragctl
+# Contributing to depctl
 
-Thanks for your interest in `ragctl`. The project is pre-1.0 (released versions are in the [CHANGELOG](CHANGELOG.md); it's built CLI-first, see [docs/architecture.md](docs/architecture.md) for what's actually implemented) and moving quickly, so please open an issue to discuss non-trivial changes before investing time in a PR.
+Thanks for your interest in `depctl`. The project is pre-1.0 (released versions are in the [CHANGELOG](CHANGELOG.md); it's built CLI-first, see [docs/architecture.md](docs/architecture.md) for what's actually implemented) and moving quickly, so please open an issue to discuss non-trivial changes before investing time in a PR.
 
 ## How contributions are reviewed
 
@@ -28,7 +28,7 @@ export CONTAINER_HOST=unix://$(podman machine inspect --format '{{.ConnectionInf
 go test ./internal/backend/...
 ```
 
-The regular suite talks to fake Ollama servers, so it passes without Ollama installed (as on CI). Two live checks need a real Ollama and Qdrant; they only run with `RAGCTL_LIVE_BENCHMARK=1`.
+The regular suite talks to fake Ollama servers, so it passes without Ollama installed (as on CI). Two live checks need a real Ollama and Qdrant; they only run with `DEPCTL_LIVE_BENCHMARK=1`.
 
 ## Pull request expectations
 

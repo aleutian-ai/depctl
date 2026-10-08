@@ -1,5 +1,5 @@
-// Package client talks to the local ragctl daemon over its Unix socket.
-// Every ragctl command that needs persistent state goes through here
+// Package client talks to the local depctl daemon over its Unix socket.
+// Every depctl command that needs persistent state goes through here
 // instead of opening bbolt or Badger itself (ADR-011).
 package client
 
@@ -15,12 +15,12 @@ import (
 	"syscall"
 	"time"
 
-	"aleutian-ai/ragctl/internal/daemon/api"
+	"github.com/aleutian-ai/depctl/internal/daemon/api"
 )
 
 // ErrNotRunning means nothing is listening on the daemon socket: the
 // socket file is absent, or it's stale and refuses connections.
-var ErrNotRunning = errors.New("ragctl daemon is not running")
+var ErrNotRunning = errors.New("depctl daemon is not running")
 
 // Request timeouts. c.http itself sets none (unlike http.DefaultClient,
 // which also sets none — the exact gap found and fixed in the qdrant
@@ -36,7 +36,7 @@ var (
 	// succeeds.
 	defaultRequestTimeout = 90 * time.Second
 
-	// describeRequestTimeout is more generous: `ragctl describe
+	// describeRequestTimeout is more generous: `depctl describe
 	// --check-liveness` can run many bounded (10s each,
 	// registry.livenessTimeout) but numerous liveness probes across a
 	// large registered fleet.
@@ -111,7 +111,7 @@ func (c *Client) Health(ctx context.Context) (api.Health, error) {
 	return h, err
 }
 
-// Status returns the `ragctl status` snapshot.
+// Status returns the `depctl status` snapshot.
 func (c *Client) Status(ctx context.Context) (api.Status, error) {
 	ctx, cancel := context.WithTimeout(ctx, defaultRequestTimeout)
 	defer cancel()
@@ -128,7 +128,7 @@ func (c *Client) Shutdown(ctx context.Context) error {
 	return c.do(ctx, http.MethodPost, api.PathShutdown, nil, nil)
 }
 
-// Resolve runs `ragctl scan`'s work for root in the daemon, relaying
+// Resolve runs `depctl scan`'s work for root in the daemon, relaying
 // progress to out.
 func (c *Client) Resolve(ctx context.Context, root string, out io.Writer) (api.ResolveResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, longRunningRequestTimeout)
@@ -277,7 +277,7 @@ func (c *Client) KnowledgeStatus(ctx context.Context) (api.KnowledgeStatusRespon
 }
 
 // ProjectList lists every registered project, the work behind
-// `ragctl project list`.
+// `depctl project list`.
 func (c *Client) ProjectList(ctx context.Context) (api.ProjectListResponse, error) {
 	ctx, cancel := context.WithTimeout(ctx, defaultRequestTimeout)
 	defer cancel()
@@ -287,7 +287,7 @@ func (c *Client) ProjectList(ctx context.Context) (api.ProjectListResponse, erro
 }
 
 // ProjectGet gets one project's full detail, the work behind
-// `ragctl project show` and `ragctl deps`.
+// `depctl project show` and `depctl deps`.
 func (c *Client) ProjectGet(ctx context.Context, projectID string) (api.ProjectGetResponse, error) {
 	ctx, cancel := context.WithTimeout(ctx, defaultRequestTimeout)
 	defer cancel()
@@ -296,7 +296,7 @@ func (c *Client) ProjectGet(ctx context.Context, projectID string) (api.ProjectG
 	return res, err
 }
 
-// Describe decodes `ragctl describe`'s report into report, which is the
+// Describe decodes `depctl describe`'s report into report, which is the
 // CLI's own Report type: the wire format is whatever that marshals to
 // (the same pattern Plan uses for its own CLI-side type).
 func (c *Client) Describe(ctx context.Context, args []string, checkLiveness bool, report any) error {
@@ -323,7 +323,7 @@ func (c *Client) stream(ctx context.Context, path string, body any, out io.Write
 	if err != nil {
 		return fmt.Errorf("encode request: %w", err)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://ragctl"+path, bytes.NewReader(b))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://depctl"+path, bytes.NewReader(b))
 	if err != nil {
 		return err
 	}
@@ -383,7 +383,7 @@ func (c *Client) do(ctx context.Context, method, path string, body, out any) err
 	}
 	// The host is ignored — the transport always dials c.socket — but
 	// net/http requires a syntactically valid URL.
-	req, err := http.NewRequestWithContext(ctx, method, "http://ragctl"+path, rdr)
+	req, err := http.NewRequestWithContext(ctx, method, "http://depctl"+path, rdr)
 	if err != nil {
 		return err
 	}

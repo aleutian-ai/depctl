@@ -22,15 +22,15 @@ Package: `internal/observability/metrics`
 Metrics (names from the design spec):
 
 ```text
-ragctl_sync_jobs_total (counter, labels: type, state)
-ragctl_sync_failures_total (counter)
-ragctl_acquire_seconds (histogram)
-ragctl_normalize_seconds (histogram)
-ragctl_embed_seconds (histogram)
-ragctl_backend_upsert_seconds (histogram)
-ragctl_active_generations (gauge)
-ragctl_gc_candidates (gauge)
-ragctl_badger_bytes (gauge)
+depctl_sync_jobs_total (counter, labels: type, state)
+depctl_sync_failures_total (counter)
+depctl_acquire_seconds (histogram)
+depctl_normalize_seconds (histogram)
+depctl_embed_seconds (histogram)
+depctl_backend_upsert_seconds (histogram)
+depctl_active_generations (gauge)
+depctl_gc_candidates (gauge)
+depctl_badger_bytes (gauge)
 ```
 
 Config:
@@ -66,8 +66,8 @@ Endpoint bind failure at startup is a fatal error only if metrics are explicitly
 
 **Call sites reuse OBS-001/OBS-002's own instrumentation points**, per this ticket's own design note ("wire at the same call sites"): `AcquireSeconds`/`NormalizeSeconds` in `internal/data/generation/build.go`, `EmbedSeconds`/`BackendUpsertSeconds` in `internal/data/generation/replicate.go` (one observation per batch), `SyncJobsTotal{type,state}`/`SyncFailuresTotal` in `internal/cli/sync.go`'s `runSyncAction` (a `defer`, so every action-kind exit path — success, failure, skip — records exactly once, the same pattern `RunGC`'s own defer-based logging already established), and `GCCandidates` in `internal/cli/gc.go`'s `RunGC` right after planning.
 
-**`ActiveGenerations`/`BadgerBytes` needed a different treatment — a real gap found during live verification, not assumed.** These two have no natural per-request call site (nothing on ragctl's own request path needs "how many active generations exist right now"); the first implementation set them only inside `buildStatus` (the function backing `ragctl status`/`/v1/status`), which meant a real Prometheus scrape between `status` calls would read stale or zero-value data — confirmed live: right after a fresh daemon restart, `/metrics` reported `ragctl_active_generations 0` despite a real active generation existing, until a manual `ragctl status` call refreshed it. Fixed with `refreshStorageMetrics` (`internal/cli/status.go`), a small periodic goroutine — matching the existing `checkEmbeddingReadiness`/`checkVectorReadiness` background-goroutine pattern already established in `internal/cli/daemon.go` — started only when metrics are enabled, computing both gauges once immediately and then every 30s.
+**`ActiveGenerations`/`BadgerBytes` needed a different treatment — a real gap found during live verification, not assumed.** These two have no natural per-request call site (nothing on depctl's own request path needs "how many active generations exist right now"); the first implementation set them only inside `buildStatus` (the function backing `depctl status`/`/v1/status`), which meant a real Prometheus scrape between `status` calls would read stale or zero-value data — confirmed live: right after a fresh daemon restart, `/metrics` reported `depctl_active_generations 0` despite a real active generation existing, until a manual `depctl status` call refreshed it. Fixed with `refreshStorageMetrics` (`internal/cli/status.go`), a small periodic goroutine — matching the existing `checkEmbeddingReadiness`/`checkVectorReadiness` background-goroutine pattern already established in `internal/cli/daemon.go` — started only when metrics are enabled, computing both gauges once immediately and then every 30s.
 
-**Live verification.** A real Prometheus container (`prom/prometheus`) and a fresh isolated Qdrant, both via podman, scraping a real isolated `ragctl daemon run` (real Ollama, read-only, for embedding) over `host.containers.internal`. Ran a real `scan`+`sync`+`sync --rebuild`+`gc --dry-run` against a real fixture, then queried Prometheus's own HTTP API (`/api/v1/targets`, `/api/v1/query`) directly — confirmed `health: "up"` with no scrape error, and real, non-empty query results for `ragctl_active_generations` (immediately correct on daemon startup, before any `ragctl status` call, once the periodic-refresh fix landed), `ragctl_sync_jobs_total{type="SYNC_VERSION",state="success"}`, and `ragctl_embed_seconds_count`. Also re-ran `hack/test-linux.sh` (Alpine/Podman) afterward — all packages pass there too.
+**Live verification.** A real Prometheus container (`prom/prometheus`) and a fresh isolated Qdrant, both via podman, scraping a real isolated `depctl daemon run` (real Ollama, read-only, for embedding) over `host.containers.internal`. Ran a real `scan`+`sync`+`sync --rebuild`+`gc --dry-run` against a real fixture, then queried Prometheus's own HTTP API (`/api/v1/targets`, `/api/v1/query`) directly — confirmed `health: "up"` with no scrape error, and real, non-empty query results for `depctl_active_generations` (immediately correct on daemon startup, before any `depctl status` call, once the periodic-refresh fix landed), `depctl_sync_jobs_total{type="SYNC_VERSION",state="success"}`, and `depctl_embed_seconds_count`. Also re-ran `hack/test-linux.sh` (Alpine/Podman) afterward — all packages pass there too.
 
 **New dependency:** `github.com/prometheus/client_golang` (direct), pulling in `prometheus/client_model`, `prometheus/common`, `prometheus/procfs`, `beorn7/perks` as transitive deps — verified with a full `go build`/`go vet`/`go test ./...` (native and Linux) afterward, no regressions.

@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	bboltstore "aleutian-ai/ragctl/internal/control/bbolt"
-	"aleutian-ai/ragctl/internal/domain"
+	bboltstore "github.com/aleutian-ai/depctl/internal/control/bbolt"
+	"github.com/aleutian-ai/depctl/internal/domain"
 )
 
 // SEC-004: no downloaded code execution. See
@@ -91,7 +91,7 @@ func TestExtractionScriptsNeverDynamicallyExecuteTargetContent(t *testing.T) {
 
 // TestNormalizerSubprocessesOnlyExecuteInterpretersNotFetchedContent
 // confirms pydoc/tsdoc's own subprocess invocations run a real language
-// interpreter (python3/node) with ragctl's own script piped over stdin —
+// interpreter (python3/node) with depctl's own script piped over stdin —
 // never a path into the fetched dependency's worktree passed as the
 // executable itself.
 func TestNormalizerSubprocessesOnlyExecuteInterpretersNotFetchedContent(t *testing.T) {

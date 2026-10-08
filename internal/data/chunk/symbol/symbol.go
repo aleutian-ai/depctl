@@ -1,4 +1,4 @@
-// Package symbol implements ragctl's symbol chunker (CHUNK-003):
+// Package symbol implements depctl's symbol chunker (CHUNK-003):
 // NORM-004 already emits one KnowledgeObject per exported Go symbol, so
 // this chunker's job is close to a 1:1 passthrough with metadata
 // shaping — one chunk per symbol_doc/package_doc object, no splitting or
@@ -9,8 +9,8 @@ import (
 	"bytes"
 	"context"
 
-	dchunk "aleutian-ai/ragctl/internal/data/chunk"
-	"aleutian-ai/ragctl/internal/domain"
+	dchunk "github.com/aleutian-ai/depctl/internal/data/chunk"
+	"github.com/aleutian-ai/depctl/internal/domain"
 )
 
 // Chunker implements chunk.Chunker for NORM-004-produced KnowledgeObjects

@@ -14,7 +14,7 @@ Reduce the manual-typing cost of registering a new package by proposing candidat
 - No Go vanity-import HTTP resolution in this ticket — that's a distinct, smaller mechanism REG-005 already scoped out; fold in later only if genuinely needed.
 
 ## Simplicity constraints
-- One new subcommand (`ragctl registry discover <ecosystem>/<package>`), not a background/automatic process — discovery runs on request, for one package at a time, because it may need network access this repo's other commands don't otherwise require.
+- One new subcommand (`depctl registry discover <ecosystem>/<package>`), not a background/automatic process — discovery runs on request, for one package at a time, because it may need network access this repo's other commands don't otherwise require.
 - Output is a YAML manifest *draft* printed to stdout (or written with `--out`), in the exact REG-001 schema shape, ready for a human to review, edit, and drop into their user/project registry directory — not a new storage format.
 
 ## Design
@@ -30,7 +30,7 @@ func Discover(ctx context.Context, ecosystem domain.Ecosystem, pkg string) ([]re
 
 - Node: `https://registry.npmjs.org/<pkg>` → `.repository.url` (git source, authority left at 0 for the human to set).
 - Python: `https://pypi.org/pypi/<pkg>/json` → `info.project_urls`/`info.home_page` (git or website source depending on host).
-- `ragctl registry discover` prints a draft manifest (or `no candidate sources found in <ecosystem> metadata for <pkg>` — never fabricates a source).
+- `depctl registry discover` prints a draft manifest (or `no candidate sources found in <ecosystem> metadata for <pkg>` — never fabricates a source).
 
 ## Inputs / Outputs
 - Input: ecosystem + package name.
@@ -47,10 +47,10 @@ func Discover(ctx context.Context, ecosystem domain.Ecosystem, pkg string) ([]re
 - Output YAML round-trips through `registry.ParseManifest`.
 
 ## Acceptance criteria
-- [x] `ragctl registry discover <ecosystem> <package>` implemented for Node and Python.
+- [x] `depctl registry discover <ecosystem> <package>` implemented for Node and Python.
 - [x] Output is a draft manifest in REG-001's exact schema, never auto-written to a loaded registry directory.
 - [x] No network call happens except when this command is explicitly invoked.
 
 ## Post-implementation note
-CLI shape is two positional arguments (`<ecosystem> <package>`), not a single `<ecosystem>/<package>` string — same reasoning as `ragctl describe`'s own fix earlier this session (a package identifier can contain slashes). Verified against the real npm and PyPI registries (`express`, `requests`), and the draft manifest round-trips through `registry.ParseManifest` (its own real schema validator), not just checked for well-formed YAML.
+CLI shape is two positional arguments (`<ecosystem> <package>`), not a single `<ecosystem>/<package>` string — same reasoning as `depctl describe`'s own fix earlier this session (a package identifier can contain slashes). Verified against the real npm and PyPI registries (`express`, `requests`), and the draft manifest round-trips through `registry.ParseManifest` (its own real schema validator), not just checked for well-formed YAML.
 

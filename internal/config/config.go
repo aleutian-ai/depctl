@@ -1,4 +1,4 @@
-// Package config defines ragctl's global configuration model: its YAML
+// Package config defines depctl's global configuration model: its YAML
 // shape, defaults, and validation. Nothing here talks to bbolt, Badger, or
 // the network — this package is pure data plus loading/validation logic.
 package config
@@ -16,11 +16,11 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"aleutian-ai/ragctl/internal/embedding"
+	"github.com/aleutian-ai/depctl/internal/embedding"
 )
 
 // ErrConfigNotFound is returned by Load when the config file does not
-// exist, so callers (like `ragctl init`) can distinguish "not yet
+// exist, so callers (like `depctl init`) can distinguish "not yet
 // initialized" from "malformed config".
 var ErrConfigNotFound = errors.New("config file not found")
 
@@ -45,7 +45,7 @@ type Config struct {
 
 // ExportConfig groups epic 65's opt-in cross-agent-memory push
 // connectors (Mem0, Graphiti, Cognee) — a zero
-// value means none are configured, so `ragctl export <target>` always
+// value means none are configured, so `depctl export <target>` always
 // requires an explicit endpoint (here or via its own flags) rather than
 // silently defaulting to somewhere data could be sent.
 type ExportConfig struct {
@@ -209,9 +209,9 @@ func (f FetchConfig) MaxSourceTotalBytesOrDefault() int64 {
 // config file with no "git" key at all sees no behavior change.
 type GitConfig struct {
 	// MirrorSearchPaths (GIT-006): external directories laid out
-	// identically to ragctl's own mirror cache convention
+	// identically to depctl's own mirror cache convention
 	// (<host>/<org>/<repo>.git) — e.g. a backup of another machine's
-	// ragctl data dir. Checked by exact path, in order, before a
+	// depctl data dir. Checked by exact path, in order, before a
 	// network clone; the first hit wins.
 	MirrorSearchPaths []string `yaml:"mirror_search_paths,omitempty"`
 	// CheckoutSearchPaths (GIT-007): external directories containing
@@ -268,7 +268,7 @@ type VectorConfig struct {
 	APIKeyEnv  string `yaml:"api_key_env,omitempty"`
 	// Managed controls whether the daemon starts its own Qdrant
 	// container (WATCH-016) when the configured endpoint is
-	// unreachable. `ragctl init --vector-backend qdrant` sets it (see
+	// unreachable. `depctl init --vector-backend qdrant` sets it (see
 	// QdrantDefaults); a config file written before this field existed has no
 	// "managed" key, which unmarshals to false — so nobody who already
 	// points Endpoint at their own real Qdrant gets a surprise second
@@ -302,12 +302,12 @@ func (r RetrievalConfig) ModeOrDefault() string {
 	return r.Mode
 }
 
-// RetentionConfig controls when `ragctl gc` may delete generations.
+// RetentionConfig controls when `depctl gc` may delete generations.
 type RetentionConfig struct {
 	GracePeriod time.Duration `yaml:"grace_period"`
 	KeepLatest  bool          `yaml:"keep_latest"`
 	// OrphanAge is how long a FAILED or stuck-non-terminal generation
-	// must be untouched before `ragctl gc --orphans` considers it
+	// must be untouched before `depctl gc --orphans` considers it
 	// eligible for cleanup (GC-001) — independent of GracePeriod, which
 	// only governs the reference-based path.
 	OrphanAge time.Duration `yaml:"orphan_age"`
@@ -374,17 +374,17 @@ type ServerConfig struct {
 	MCP MCPServerConfig `yaml:"mcp"`
 }
 
-// MCPServerConfig controls the MCP server that `ragctl serve` runs.
+// MCPServerConfig controls the MCP server that `depctl serve` runs.
 type MCPServerConfig struct {
 	Enabled bool `yaml:"enabled"`
 	// EnableSyncTool gates the sync_project MCP tool (MCP-003) — on by
 	// default. sync_project runs the identical Scheduler.Request path a
-	// human's `ragctl sync` uses (bounded, collapsible, mutually
+	// human's `depctl sync` uses (bounded, collapsible, mutually
 	// exclusive with GC) and touches nothing an agent couldn't already
-	// trigger by asking a human to run `ragctl sync`; without it, an
+	// trigger by asking a human to run `depctl sync`; without it, an
 	// agent can register a project (scan_project) but never actually
 	// index it, undercutting the whole point of pointing an agent at
-	// ragctl in the first place. Set to false for a deliberately
+	// depctl in the first place. Set to false for a deliberately
 	// read-only MCP session.
 	EnableSyncTool bool `yaml:"enable_sync_tool"`
 }
@@ -394,7 +394,7 @@ type MCPServerConfig struct {
 var autostartDefault = true
 
 // defaultCollectionName returns a per-install-unique Qdrant collection
-// name — SAFE-001 (epic 61): a plain, identical "ragctl" literal on
+// name — SAFE-001 (epic 61): a plain, identical "depctl" literal on
 // every fresh install meant that two independent instances (a real
 // install and an isolated/test one) sharing one Qdrant server would
 // silently commingle data the moment either one synced, since ambient
@@ -402,7 +402,7 @@ var autostartDefault = true
 // Live-found: this happened for real, twice, during this session's own
 // live-verification work. A random suffix (not hostname-based — the
 // real incidents here were two installs on the *same* machine, in
-// different isolated $HOME directories) makes every fresh `ragctl init`
+// different isolated $HOME directories) makes every fresh `depctl init`
 // distinct by default, on any machine, without requiring the operator
 // to think about it. Never changes an existing config.yaml's already-
 // saved collection name — Load never re-derives defaults for a field
@@ -412,12 +412,12 @@ func defaultCollectionName() string {
 	var b [4]byte
 	if _, err := rand.Read(b[:]); err != nil {
 		// crypto/rand failing is effectively unheard-of on any real
-		// platform ragctl runs on; fall back to the old plain name
+		// platform depctl runs on; fall back to the old plain name
 		// rather than a zero-value/panic, since a collection name still
 		// has to be something.
-		return "ragctl"
+		return "depctl"
 	}
-	return "ragctl-" + hex.EncodeToString(b[:])
+	return "depctl-" + hex.EncodeToString(b[:])
 }
 
 // Default returns the defaults a fresh install gets, rooted at the given data
@@ -430,7 +430,7 @@ func Default(dataDir string) Config {
 			Data:    DataStoreConfig{Type: "badger", Path: dataDir + "/badger"},
 		},
 		// EmbeddingGemma 2's text model with its code-retrieval prompts,
-		// cut to 256 dimensions: on ragctl's retrieval eval this beat
+		// cut to 256 dimensions: on depctl's retrieval eval this beat
 		// nomic-embed-text-v2-moe (hybrid MRR 0.583 vs 0.528 on held-out
 		// questions, at 256 dimensions, which cost nothing measurable;
 		// docs/retrieval-eval.md).
@@ -444,7 +444,7 @@ func Default(dataDir string) Config {
 		},
 		// The embedded backend (VEC-015) is the default: one file in the
 		// data dir, no vector service or container to run. QdrantDefaults
-		// switches a config to ragctl-managed Qdrant.
+		// switches a config to depctl-managed Qdrant.
 		Vector: VectorConfig{
 			Backend:    "embedded",
 			Collection: defaultCollectionName(),
@@ -471,7 +471,7 @@ func Default(dataDir string) Config {
 }
 
 // QdrantDefaults switches v to a local Qdrant at the standard port that
-// ragctl starts itself (WATCH-016) if nothing is running there.
+// depctl starts itself (WATCH-016) if nothing is running there.
 func (v *VectorConfig) QdrantDefaults() {
 	v.Backend, v.Endpoint, v.Managed = "qdrant", "http://127.0.0.1:6333", true
 }
@@ -556,7 +556,7 @@ func (c Config) Save(path string) error {
 // bytes, so cosmetic differences (comments, key order, whitespace) never
 // register as a change. The daemon computes this once at startup
 // (runDaemonRun) and reports it over /v1/health; every ensureDaemon call
-// and `ragctl doctor` compare it against a fresh load's fingerprint to
+// and `depctl doctor` compare it against a fresh load's fingerprint to
 // warn when config.yaml has changed since the daemon started and hasn't
 // taken effect yet (config is loaded once for the daemon's whole
 // lifetime — see docs/internal/daemon.md).

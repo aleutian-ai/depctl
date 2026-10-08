@@ -3,7 +3,7 @@ package resolver
 import (
 	"testing"
 
-	"aleutian-ai/ragctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/domain"
 )
 
 func TestFingerprintStableRegardlessOfOrder(t *testing.T) {

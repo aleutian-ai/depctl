@@ -1,4 +1,4 @@
-# PLAN-003: `ragctl sync` command
+# PLAN-003: `depctl sync` command
 
 **Epic:** Planner and Sync
 **Status:** done
@@ -9,16 +9,16 @@
 Execute the actions produced by the planner: for each `SYNC_VERSION` action, run the full generation-builder → embed → replicate → validate → promote pipeline; apply reference add/drop bookkeeping for `ADD_REFERENCE`/`DROP_REFERENCE`.
 
 ## Non-goals
-- GC execution itself is a separate command (`ragctl gc`, RET-004) — `sync` only marks/updates reference state, it does not delete anything.
+- GC execution itself is a separate command (`depctl gc`, RET-004) — `sync` only marks/updates reference state, it does not delete anything.
 
 ## Simplicity constraints
 - Sequential execution per dependency in v0.1 — no concurrent worker pool. If one dependency's sync fails, continue with the next unless `--force` semantics say otherwise (see below); do not build a job queue/scheduler for this ticket (that's a later milestone if ever needed).
 
 ## Design
-- Cobra command: `ragctl sync [--dry-run] [--project <id>] [--dependency <name>] [--offline] [--force]`.
+- Cobra command: `depctl sync [--dry-run] [--project <id>] [--dependency <name>] [--offline] [--force]`.
 - Flow:
-  1. Run planner (PLAN-001) exactly as `ragctl plan` does.
-  2. `--dry-run`: print the plan (same as `ragctl plan`) and exit without executing.
+  1. Run planner (PLAN-001) exactly as `depctl plan` does.
+  2. `--dry-run`: print the plan (same as `depctl plan`) and exit without executing.
   3. For each `SYNC_VERSION` action (filtered by `--project`/`--dependency` if given): build generation (GEN-002), embed (EMB-*), replicate (VEC-002), validate (VAL-001/002/003), promote (VAL-004). Sanity-threshold failures (VAL-002) block promotion unless `--force` is set.
   4. For each `ADD_REFERENCE`/`DROP_REFERENCE`: update `VersionReference` records in bbolt (milestone 15's reference accounting, RET-001, is the actual reference-count logic; this ticket calls into it).
   5. `--offline`: skip any action requiring network access (Git fetch, HTTP acquisition, remote embedding/vector backend); those actions are reported as skipped, not failed.

@@ -11,18 +11,18 @@ import (
 	"github.com/spf13/cobra"
 	"go.opentelemetry.io/otel/attribute"
 
-	bboltstore "aleutian-ai/ragctl/internal/control/bbolt"
-	"aleutian-ai/ragctl/internal/domain"
-	"aleutian-ai/ragctl/internal/observability"
-	"aleutian-ai/ragctl/internal/observability/trace"
-	"aleutian-ai/ragctl/internal/project"
-	"aleutian-ai/ragctl/internal/resolver"
-	"aleutian-ai/ragctl/internal/resolver/golang"
-	"aleutian-ai/ragctl/internal/resolver/node"
-	"aleutian-ai/ragctl/internal/resolver/python"
+	bboltstore "github.com/aleutian-ai/depctl/internal/control/bbolt"
+	"github.com/aleutian-ai/depctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/observability"
+	"github.com/aleutian-ai/depctl/internal/observability/trace"
+	"github.com/aleutian-ai/depctl/internal/project"
+	"github.com/aleutian-ai/depctl/internal/resolver"
+	"github.com/aleutian-ai/depctl/internal/resolver/golang"
+	"github.com/aleutian-ai/depctl/internal/resolver/node"
+	"github.com/aleutian-ai/depctl/internal/resolver/python"
 )
 
-// supportedEcosystems are the ecosystems ragctl currently ships a resolver
+// supportedEcosystems are the ecosystems depctl currently ships a resolver
 // for. It's a static set for now — it'll grow one entry at a time as later
 // epics land.
 var supportedEcosystems = map[domain.Ecosystem]bool{
@@ -33,7 +33,7 @@ var supportedEcosystems = map[domain.Ecosystem]bool{
 
 // ErrUnregisteredProjectRoot is returned when something attempts to run
 // a resolver (for Go, which shells out to `go list`) against
-// a directory that isn't a project ragctl has actually registered
+// a directory that isn't a project depctl has actually registered
 // (SEC-004). In normal operation this is unreachable — scanAndResolve
 // and resolveProject both already only ever call a Resolver with a root
 // that was just persisted via PutProject, or read back from an existing
@@ -94,7 +94,7 @@ func runScan(cmd *cobra.Command, root string) error {
 
 // scanAndResolve discovers projects under root, registers them, and
 // resolves each one's dependencies, returning the project IDs it
-// touched. This is `ragctl scan`'s work, run inside the daemon.
+// touched. This is `depctl scan`'s work, run inside the daemon.
 //
 // lockProject is held around each project's own persist step (registration
 // plus resolve-and-store), never across the whole scan: two concurrent

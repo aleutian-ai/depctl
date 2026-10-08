@@ -8,9 +8,9 @@ import (
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
-	"aleutian-ai/ragctl/internal/domain"
-	"aleutian-ai/ragctl/internal/registry"
-	"aleutian-ai/ragctl/internal/registry/discover"
+	"github.com/aleutian-ai/depctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/registry"
+	"github.com/aleutian-ai/depctl/internal/registry/discover"
 )
 
 func newRegistryCmd() *cobra.Command {
@@ -50,7 +50,7 @@ func runRegistryDiscover(cmd *cobra.Command, ecosystem domain.Ecosystem, pkg str
 	}
 
 	draft := registry.Manifest{
-		APIVersion: "ragctl.dev/v1alpha1",
+		APIVersion: "depctl.dev/v1alpha1",
 		Kind:       "KnowledgePackage",
 		Metadata:   registry.Metadata{Name: pkg},
 		Match:      registry.Match{Ecosystems: []domain.Ecosystem{ecosystem}, Packages: []string{pkg}},

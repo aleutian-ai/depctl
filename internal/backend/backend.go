@@ -1,4 +1,4 @@
-// Package backend defines ragctl's narrow VectorBackend interface and the
+// Package backend defines depctl's narrow VectorBackend interface and the
 // mandatory point-metadata model every search index implements (the
 // embedded, qdrant, pgvector and weaviate vector stores, and the keyword
 // index). A lowest-common-denominator query DSL is deliberately avoided —
@@ -33,7 +33,7 @@ type VectorBackend interface {
 	// TopK-bounded approximation.
 	Count(ctx context.Context, namespace string, filter *Filter) (int, error)
 	// Health is a cheap read-only reachability check, used by
-	// `ragctl doctor`/`status`.
+	// `depctl doctor`/`status`.
 	Health(ctx context.Context) error
 }
 
@@ -71,7 +71,7 @@ type PointMetadata struct {
 	Authority  int
 }
 
-// Point is one vector plus its mandatory metadata. ID is the ragctl
+// Point is one vector plus its mandatory metadata. ID is the depctl
 // chunk ID, and a point's identity is (Metadata.Generation, ID): chunk
 // IDs are content-derived, so two generations (e.g. two versions of a
 // dependency) routinely share one, and each must keep its own point. A

@@ -53,7 +53,7 @@ sources:
 
 A `collection` file is a second, optional manifest shape that expands to ordinary `Source` entries at load time — not a new `Source.Type`:
 ```yaml
-apiVersion: ragctl.dev/v1alpha1
+apiVersion: depctl.dev/v1alpha1
 kind: KnowledgeCollection
 metadata:
   name: acme-kubernetes

@@ -1,19 +1,19 @@
 # internal/backend
 
-`internal/backend` defines `VectorBackend`, the one narrow interface every ragctl search index implements, and the mandatory `PointMetadata` every stored point carries. There is deliberately no lowest-common-denominator query DSL — `Capabilities` just reports what an adapter can do.
+`internal/backend` defines `VectorBackend`, the one narrow interface every depctl search index implements, and the mandatory `PointMetadata` every stored point carries. There is deliberately no lowest-common-denominator query DSL — `Capabilities` just reports what an adapter can do.
 
 Terms used below:
 
 - **Point** — one chunk as stored in an index: the chunk ID, its metadata, and either a vector (vector stores) or its text (the keyword index).
 - **Generation** — one build of one dependency version. Every point of a generation has the same ecosystem, dependency and version.
-- **Namespace** — the collection/table/bucket an index writes into. ragctl uses one per install, named by `vector.collection` (e.g. `ragctl-1a2b3c4d`), and filters by metadata inside it — never one namespace per dependency version.
+- **Namespace** — the collection/table/bucket an index writes into. depctl uses one per install, named by `vector.collection` (e.g. `depctl-1a2b3c4d`), and filters by metadata inside it — never one namespace per dependency version.
 
 Implementations:
 
 | Package | `Name()` | Search | Storage | Selected by |
 |---|---|---|---|---|
 | `internal/backend/embedded` | `embedded` | exact cosine over the filtered points | bbolt file `vectors.db` next to `control.db` (or `vector.endpoint` if set) | `vector.backend: embedded` — the default for fresh installs |
-| `internal/backend/qdrant` | `qdrant` | Qdrant HTTP API | Qdrant server (ragctl-managed container via `ragctl init --vector-backend qdrant`, or your own) | `vector.backend: qdrant` |
+| `internal/backend/qdrant` | `qdrant` | Qdrant HTTP API | Qdrant server (depctl-managed container via `depctl init --vector-backend qdrant`, or your own) | `vector.backend: qdrant` |
 | `internal/backend/pgvector` | `pgvector` | `pgvector` HNSW index, cosine | one Postgres table per namespace | `vector.backend: pgvector` |
 | `internal/backend/weaviate` | `weaviate` | Weaviate GraphQL `nearVector` | one Weaviate collection ("class") per namespace | `vector.backend: weaviate` |
 | `internal/backend/keyword` | `keyword` | BM25 over the filtered points | bbolt file `keyword.db` next to `control.db` | written whenever `retrieval.mode` is `auto` or `keyword` |
@@ -38,7 +38,7 @@ The vector store is built by `buildVectorBackend` (internal/cli/pipeline.go). `v
 - Qdrant, pgvector and Weaviate run it against a container (skipped when no container runtime is reachable); embedded, keyword and the fake run it directly.
 
 **internal/backend/embedded** (embedded.go, migrate.go) — see [Embedded and keyword stores](#embedded-and-keyword-stores)
-- `Store`, `New(path)` — one bbolt file; one open handle per path per process, shared by every `Store` for that path. Opening waits at most 2s for bbolt's file lock and then reports the file as in use by another ragctl process (normally the daemon).
+- `Store`, `New(path)` — one bbolt file; one open handle per path per process, shared by every `Store` for that path. Opening waits at most 2s for bbolt's file lock and then reports the file as in use by another depctl process (normally the daemon).
 - `ErrDimensionMismatch` — the namespace exists with a different dimension (e.g. the embedding model changed), or a point/query vector has the wrong length.
 - `DropNamespace(ctx, name)` — deletes a namespace with its points and dimension, so it can be recreated at another size; a missing namespace is a no-op. Not part of `VectorBackend`: only the embedded store has it, because its file belongs to one install, while a remote collection may be shared. The embedding switch (`internal/cli`'s `switchEmbedding`) uses it. The freed pages are reused for the new vectors; the file doesn't shrink.
 - `Upsert` writes the whole request in one transaction. `Query` scores every point in the generations the filter selects and returns an error if the namespace doesn't exist.
@@ -63,7 +63,7 @@ The vector store is built by `buildVectorBackend` (internal/cli/pipeline.go). `v
 
 **internal/backend/weaviate** (weaviate.go)
 - `Client`, `New(endpoint, apiKey)` — REST for schema, writes and deletes; GraphQL for search and counts. The API key is sent as a bearer token; with a key set, `Health` reads `/v1/meta` because the readiness endpoint is unauthenticated.
-- Namespaces map to class names (`ragctl-1a2b3c4d` → `Ragctl_1a2b3c4d`). Text properties use `field` tokenization so filters match whole values.
+- Namespaces map to class names (`depctl-1a2b3c4d` → `Depctl_1a2b3c4d`). Text properties use `field` tokenization so filters match whole values.
 - Object IDs use the same (generation, chunk ID) UUID scheme as Qdrant. Batch writes aren't transactional: on error, earlier objects in the request may already be written. Batch deletes repeat until a pass deletes fewer than Weaviate's per-request cap.
 
 **internal/backend/backendtest** (fake.go)
@@ -71,7 +71,7 @@ The vector store is built by `buildVectorBackend` (internal/cli/pipeline.go). `v
 
 ## Embedded and keyword stores
 
-Both bbolt-backed stores scope first and rank second: every ragctl search is filtered to one dependency version (hundreds to a few thousand chunks), so they compute exact scores over just those points at query time and keep no approximate or inverted index.
+Both bbolt-backed stores scope first and rank second: every depctl search is filtered to one dependency version (hundreds to a few thousand chunks), so they compute exact scores over just those points at query time and keep no approximate or inverted index.
 
 **Layout.** Each namespace is a top-level bucket holding:
 
@@ -104,7 +104,7 @@ flowchart TD
     Query["internal/query.Service"] -->|Query with Filter| SI
     Validate["internal/lifecycle/validate"] -->|Query filtered to the generation| SI
     GC["internal/lifecycle/gc"] -->|Delete by Filter| SI
-    Doctor["ragctl doctor / status"] -->|Count, Health| SI
+    Doctor["depctl doctor / status"] -->|Count, Health| SI
     SI -->|auto, keyword modes| KW["keyword.Store\n(keyword.db)"]
     SI -->|auto, vector modes| VS["vector store\n(vector.backend)"]
     VS --- EM["embedded.Store (vectors.db)"]
@@ -119,7 +119,7 @@ Writes and deletes go to every index in the `searchIndex`. A query with a vector
 
 Scenario: a fresh install (`vector.backend: embedded`, `retrieval.mode: auto`, Ollama running) syncs `github.com/jackc/pgx/v5@v5.7.1`. Generation `gen_01JA…` has 300 chunks; `generation.Replicate` upserts them in batches of 64.
 
-1. `Replicate` calls `EnsureNamespace(ctx, Namespace{Name: "ragctl-1a2b3c4d", Dimensions: 768, Distance: "cosine"})` on the `searchIndex`, which calls it on both stores. `embedded.Store` creates the namespace bucket, records `dims = 768`, and creates empty `generations` and `chunks` buckets; `keyword.Store` creates the same minus `dims`.
+1. `Replicate` calls `EnsureNamespace(ctx, Namespace{Name: "depctl-1a2b3c4d", Dimensions: 768, Distance: "cosine"})` on the `searchIndex`, which calls it on both stores. `embedded.Store` creates the namespace bucket, records `dims = 768`, and creates empty `generations` and `chunks` buckets; `keyword.Store` creates the same minus `dims`.
 
 2. For the first batch, `embedBatch` builds 64 `backend.Point`s, e.g.:
 
@@ -148,4 +148,4 @@ Scenario: a fresh install (`vector.backend: embedded`, `retrieval.mode: auto`, O
 - Point identity is (generation, chunk ID) because content reuse gives an unchanged chunk the same ID in every version that has it. A backend keyed on chunk ID alone lets one version's upsert overwrite another's point, silently emptying the older version's search — found end to end on pgvector before the conformance check existed.
 - Deleting or counting in a namespace that was never created must succeed (no-op / 0): in auto mode the vector store has no namespace until something is embedded, yet GC and doctor still touch every index.
 - Qdrant's `points/delete` takes "one of {points, filter}": sending both in one body silently deleted only by ID (verified against a live v1.13.1 server), so IDs and filter always go in separate requests.
-- The embedded and keyword stores hold bbolt's file lock for as long as the process keeps them open, so normally only the daemon has them open; another process gets the "in use by another ragctl process" error after 2s.
+- The embedded and keyword stores hold bbolt's file lock for as long as the process keeps them open, so normally only the daemon has them open; another process gets the "in use by another depctl process" error after 2s.

@@ -1,5 +1,5 @@
 #!/bin/sh
-# Runs go build/vet/test for ragctl inside an Alpine Linux container via
+# Runs go build/vet/test for depctl inside an Alpine Linux container via
 # Podman. Useful for a quick cross-platform sanity check (e.g. XDG path
 # behavior) without needing a real Linux machine.
 #
@@ -19,7 +19,7 @@ set -eu
 
 cd "$(dirname "$0")/.."
 
-GO_IMAGE="${RAGCTL_TEST_GO_IMAGE:-golang:1.25-alpine}"
+GO_IMAGE="${DEPCTL_TEST_GO_IMAGE:-golang:1.25-alpine}"
 
 podman run --rm -v "$PWD":/src:Z -w /src "$GO_IMAGE" sh -c "
 set -e

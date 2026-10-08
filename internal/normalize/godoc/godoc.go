@@ -1,8 +1,8 @@
-// Package godoc implements ragctl's Go source documentation normalizer
+// Package godoc implements depctl's Go source documentation normalizer
 // (NORM-004): package docs and exported symbol documentation extracted
 // via the standard library's go/parser and go/doc, not full code search.
 // Unexported symbols and full implementation bodies are never indexed —
-// ragctl is a dependency-documentation lifecycle tool, not a code search
+// depctl is a dependency-documentation lifecycle tool, not a code search
 // engine.
 package godoc
 
@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"aleutian-ai/ragctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/domain"
 )
 
 // Normalizer implements normalize.Normalizer for a Go package directory.

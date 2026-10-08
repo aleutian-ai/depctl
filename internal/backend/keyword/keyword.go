@@ -29,7 +29,7 @@ import (
 
 	bolt "go.etcd.io/bbolt"
 
-	"aleutian-ai/ragctl/internal/backend"
+	"github.com/aleutian-ai/depctl/internal/backend"
 )
 
 const (
@@ -309,7 +309,7 @@ func (s *Store) db() (*bolt.DB, error) {
 	}
 	db, err := bolt.Open(s.path, 0o600, &bolt.Options{Timeout: openTimeout})
 	if errors.Is(err, bolt.ErrTimeout) {
-		return nil, fmt.Errorf("keyword: %s is in use by another ragctl process (normally the daemon)", s.path)
+		return nil, fmt.Errorf("keyword: %s is in use by another depctl process (normally the daemon)", s.path)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("keyword: open %s: %w", s.path, err)

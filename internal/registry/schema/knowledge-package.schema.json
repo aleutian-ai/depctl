@@ -1,13 +1,13 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://ragctl.dev/schemas/knowledge-package.schema.json",
+  "$id": "https://depctl.dev/schemas/knowledge-package.schema.json",
   "title": "KnowledgePackage",
-  "description": "Maps an ecosystem+package identity to knowledge sources ragctl can acquire.",
+  "description": "Maps an ecosystem+package identity to knowledge sources depctl can acquire.",
   "type": "object",
   "required": ["apiVersion", "kind", "metadata", "match", "version", "sources"],
   "additionalProperties": false,
   "properties": {
-    "apiVersion": { "const": "ragctl.dev/v1alpha1" },
+    "apiVersion": { "const": "depctl.dev/v1alpha1" },
     "kind": { "const": "KnowledgePackage" },
     "metadata": {
       "type": "object",

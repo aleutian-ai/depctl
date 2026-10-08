@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"aleutian-ai/ragctl/internal/daemon/api"
-	"aleutian-ai/ragctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/daemon/api"
+	"github.com/aleutian-ai/depctl/internal/domain"
 )
 
 // fakeSyncKey gives fakeSync.run a distinct coordinator.Build identity

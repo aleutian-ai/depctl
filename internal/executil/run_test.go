@@ -158,7 +158,7 @@ func TestRunSurvivesADeletedCallerCWD(t *testing.T) {
 }
 
 func TestRunBinaryNotFound(t *testing.T) {
-	_, err := Run(context.Background(), RunOptions{Args: []string{"ragctl-nonexistent-binary-xyz"}})
+	_, err := Run(context.Background(), RunOptions{Args: []string{"depctl-nonexistent-binary-xyz"}})
 	if err == nil {
 		t.Fatal("expected error for missing binary, got nil")
 	}

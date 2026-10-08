@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"aleutian-ai/ragctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/domain"
 )
 
 // sectionPathOf unmarshals a chunk's Metadata["section_path"] (STRUCT-001)

@@ -10,7 +10,7 @@ import (
 
 	bg "github.com/dgraph-io/badger/v4"
 
-	"aleutian-ai/ragctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/domain"
 )
 
 func openTestStore(t *testing.T) (*Store, string) {

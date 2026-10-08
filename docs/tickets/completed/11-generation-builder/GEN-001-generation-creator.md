@@ -39,5 +39,5 @@ Create a staging `Generation` record in bbolt and its corresponding manifest in 
 - Two generations for the same dependency version get distinct IDs.
 
 ## Acceptance criteria
-- [x] `ragctl` internal API can create a generation and it appears as `PLANNED` via `GetGeneration`.
+- [x] `depctl` internal API can create a generation and it appears as `PLANNED` via `GetGeneration`.
 - [x] Manifest skeleton readable from Badger right after creation.

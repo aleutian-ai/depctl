@@ -7,10 +7,10 @@ import (
 	"path/filepath"
 	"testing"
 
-	"aleutian-ai/ragctl/internal/domain"
-	"aleutian-ai/ragctl/internal/query"
-	"aleutian-ai/ragctl/internal/symbolgraph"
-	"aleutian-ai/ragctl/internal/symbolgraph/gopackages"
+	"github.com/aleutian-ai/depctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/query"
+	"github.com/aleutian-ai/depctl/internal/symbolgraph"
+	"github.com/aleutian-ai/depctl/internal/symbolgraph/gopackages"
 )
 
 type fakeCallSiteResolver struct {

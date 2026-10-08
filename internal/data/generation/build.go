@@ -12,25 +12,25 @@ import (
 	"strings"
 	"time"
 
-	"aleutian-ai/ragctl/internal/control/bbolt"
-	"aleutian-ai/ragctl/internal/data/badger"
-	dchunk "aleutian-ai/ragctl/internal/data/chunk"
-	chunkmd "aleutian-ai/ragctl/internal/data/chunk/markdown"
-	"aleutian-ai/ragctl/internal/data/chunk/symbol"
-	"aleutian-ai/ragctl/internal/data/fingerprint"
-	"aleutian-ai/ragctl/internal/domain"
-	"aleutian-ai/ragctl/internal/normalize"
-	"aleutian-ai/ragctl/internal/normalize/godoc"
-	"aleutian-ai/ragctl/internal/normalize/markdown"
-	"aleutian-ai/ragctl/internal/normalize/plaintext"
-	"aleutian-ai/ragctl/internal/normalize/pydoc"
-	"aleutian-ai/ragctl/internal/normalize/releasenotes"
-	"aleutian-ai/ragctl/internal/normalize/tsdoc"
-	"aleutian-ai/ragctl/internal/observability"
-	"aleutian-ai/ragctl/internal/observability/metrics"
-	"aleutian-ai/ragctl/internal/observability/trace"
-	"aleutian-ai/ragctl/internal/registry"
-	"aleutian-ai/ragctl/internal/source/git"
+	"github.com/aleutian-ai/depctl/internal/control/bbolt"
+	"github.com/aleutian-ai/depctl/internal/data/badger"
+	dchunk "github.com/aleutian-ai/depctl/internal/data/chunk"
+	chunkmd "github.com/aleutian-ai/depctl/internal/data/chunk/markdown"
+	"github.com/aleutian-ai/depctl/internal/data/chunk/symbol"
+	"github.com/aleutian-ai/depctl/internal/data/fingerprint"
+	"github.com/aleutian-ai/depctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/normalize"
+	"github.com/aleutian-ai/depctl/internal/normalize/godoc"
+	"github.com/aleutian-ai/depctl/internal/normalize/markdown"
+	"github.com/aleutian-ai/depctl/internal/normalize/plaintext"
+	"github.com/aleutian-ai/depctl/internal/normalize/pydoc"
+	"github.com/aleutian-ai/depctl/internal/normalize/releasenotes"
+	"github.com/aleutian-ai/depctl/internal/normalize/tsdoc"
+	"github.com/aleutian-ai/depctl/internal/observability"
+	"github.com/aleutian-ai/depctl/internal/observability/metrics"
+	"github.com/aleutian-ai/depctl/internal/observability/trace"
+	"github.com/aleutian-ai/depctl/internal/registry"
+	"github.com/aleutian-ai/depctl/internal/source/git"
 )
 
 // normalizerNameKey/normalizerVersionKey stash which normalizer (and
@@ -326,7 +326,7 @@ func acquireGitSources(ctx context.Context, gitCache *git.Cache, depName, versio
 // (ambiguous true) — live-found: @babel/plugin-syntax-object-rest-spread's
 // registry-reported repository URL names a subdirectory that doesn't
 // exist at that version's actual tag (upstream metadata drift, not a
-// ragctl bug), and babel/babel's own root package.json is a different,
+// depctl bug), and babel/babel's own root package.json is a different,
 // unrelated package ("babel", the private monorepo-tooling root) —
 // falling back to indexing root-level content under the dependency's
 // name in that case would be exactly the wrong-content-under-a-

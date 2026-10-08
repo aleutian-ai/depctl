@@ -11,12 +11,12 @@ import (
 
 	bolt "go.etcd.io/bbolt"
 
-	"aleutian-ai/ragctl/internal/backend"
-	"aleutian-ai/ragctl/internal/backend/conformance"
+	"github.com/aleutian-ai/depctl/internal/backend"
+	"github.com/aleutian-ai/depctl/internal/backend/conformance"
 )
 
 // TestEmbeddedConformance runs the shared VectorBackend suite (VEC-010)
-// against a real file. Every subtest shares one file, as every ragctl
+// against a real file. Every subtest shares one file, as every depctl
 // namespace does; the suite gives each its own namespace.
 func TestEmbeddedConformance(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "vectors.db")
@@ -27,7 +27,7 @@ func TestEmbeddedSpecifics(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "vectors.db")
 	s := New(path)
-	ns := backend.Namespace{Name: "ragctl-specifics", Dimensions: 4, Distance: "cosine"}
+	ns := backend.Namespace{Name: "depctl-specifics", Dimensions: 4, Distance: "cosine"}
 	if err := s.EnsureNamespace(ctx, ns); err != nil {
 		t.Fatalf("EnsureNamespace: %v", err)
 	}
@@ -56,7 +56,7 @@ func TestEmbeddedSpecifics(t *testing.T) {
 	})
 
 	t.Run("DropNamespaceAllowsANewDimension", func(t *testing.T) {
-		dns := backend.Namespace{Name: "ragctl-drop", Dimensions: 4, Distance: "cosine"}
+		dns := backend.Namespace{Name: "depctl-drop", Dimensions: 4, Distance: "cosine"}
 		if err := s.EnsureNamespace(ctx, dns); err != nil {
 			t.Fatalf("EnsureNamespace: %v", err)
 		}
@@ -78,7 +78,7 @@ func TestEmbeddedSpecifics(t *testing.T) {
 	})
 
 	t.Run("UnsupportedDistanceIsRejected", func(t *testing.T) {
-		if err := s.EnsureNamespace(ctx, backend.Namespace{Name: "ragctl-dot", Dimensions: 4, Distance: "dot"}); err == nil {
+		if err := s.EnsureNamespace(ctx, backend.Namespace{Name: "depctl-dot", Dimensions: 4, Distance: "dot"}); err == nil {
 			t.Fatal("EnsureNamespace with distance \"dot\" succeeded, want an error")
 		}
 	})
@@ -86,7 +86,7 @@ func TestEmbeddedSpecifics(t *testing.T) {
 	// The daemon is the only writer (ADR-011), but it writes from several
 	// goroutines (sync, GC); bbolt serializes them, so nothing is lost.
 	t.Run("ConcurrentWritersAllLand", func(t *testing.T) {
-		cns := backend.Namespace{Name: "ragctl-concurrent", Dimensions: 4, Distance: "cosine"}
+		cns := backend.Namespace{Name: "depctl-concurrent", Dimensions: 4, Distance: "cosine"}
 		if err := s.EnsureNamespace(ctx, cns); err != nil {
 			t.Fatalf("EnsureNamespace: %v", err)
 		}
@@ -126,7 +126,7 @@ func TestFileHeldElsewhereIsAClearError(t *testing.T) {
 	}
 	defer holder.Close()
 	err = New(path).Health(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "in use by another ragctl process") {
+	if err == nil || !strings.Contains(err.Error(), "in use by another depctl process") {
 		t.Fatalf("Health on a locked file = %v, want an in-use error", err)
 	}
 }

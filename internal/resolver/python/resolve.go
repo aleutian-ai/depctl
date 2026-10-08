@@ -6,8 +6,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"aleutian-ai/ragctl/internal/domain"
-	"aleutian-ai/ragctl/internal/resolver"
+	"github.com/aleutian-ai/depctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/resolver"
 )
 
 // Resolve picks a strategy by priority (uv.lock, then poetry.lock, then

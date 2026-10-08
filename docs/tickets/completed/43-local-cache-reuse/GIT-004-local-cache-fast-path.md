@@ -9,7 +9,7 @@
 When a resolved dependency's source is already sitting in the local package manager's own cache (`$GOMODCACHE`, a scanned project's `node_modules`, `site-packages`), seed or skip `internal/source/git`'s mirror clone from that local copy instead of always re-cloning from the remote, cutting first-sync time and bandwidth for the common case where the user already has the dependency locally.
 
 ## Non-goals
-- No change to what ragctl treats as the source of truth for version history — release-note/cross-version work still needs the full mirror clone; this only fast-paths acquiring one version's current tree.
+- No change to what depctl treats as the source of truth for version history — release-note/cross-version work still needs the full mirror clone; this only fast-paths acquiring one version's current tree.
 - No custom cache-location configuration — use each ecosystem's own standard discovery (`go env GOMODCACHE`, project-relative `node_modules`, active virtualenv's `site-packages`), not a new config key users have to maintain.
 - No Rust/Java scope — Go, Node, Python only, matching the resolvers that exist today.
 
@@ -22,7 +22,7 @@ When a resolved dependency's source is already sitting in the local package mana
   - Go: `go env GOMODCACHE`, look for `<module>@<version>` under it.
   - Node: the scanned project's own `node_modules/<pkg>`, version-checked against its `package.json`.
   - Python: the active interpreter's `site-packages/<pkg>` (or `dist-info` metadata), version-checked.
-- A hit seeds the working tree ragctl reads from directly (no `.git` history needed for the current-version read path); a miss or version mismatch clones exactly as today.
+- A hit seeds the working tree depctl reads from directly (no `.git` history needed for the current-version read path); a miss or version mismatch clones exactly as today.
 - Log which path was taken (`local cache hit` vs `cloned`) — useful for profiling how much this actually saves in practice before investing further.
 
 ## Inputs / Outputs
@@ -54,7 +54,7 @@ A second simplification fell out of the first design pass, not added deliberatel
 
 Python's dist-info matching (`findDistInfoSeed`) deliberately never guesses an import directory from the distribution name — PyPI names routinely differ from their real import package (`PyYAML` imports as `yaml`, confirmed as the canonical real-world case and used directly in its own test) — a dist-info match with no usable `top_level.txt` is treated as a miss, not a best-effort guess that could silently seed from the wrong directory.
 
-**Measured, not just asserted** (the ticket's own explicit requirement): a real dependency already extracted in this machine's real `$GOMODCACHE` from building ragctl itself (`github.com/google/go-cmp@v0.6.0`), built once with the cache entry moved aside (forcing a genuine network clone) and once restored (a genuine GIT-004 hit), same dependency, same network, same machine: **1.18s (real clone) → 50ms (local-cache hit), a 23.5x speedup** for this one dependency. Real GOMODCACHE state confirmed restored correctly afterward; the measurement script itself was throwaway, not committed (network-dependent, temporarily touches real system cache state — not CI-safe).
+**Measured, not just asserted** (the ticket's own explicit requirement): a real dependency already extracted in this machine's real `$GOMODCACHE` from building depctl itself (`github.com/google/go-cmp@v0.6.0`), built once with the cache entry moved aside (forcing a genuine network clone) and once restored (a genuine GIT-004 hit), same dependency, same network, same machine: **1.18s (real clone) → 50ms (local-cache hit), a 23.5x speedup** for this one dependency. Real GOMODCACHE state confirmed restored correctly afterward; the measurement script itself was throwaway, not committed (network-dependent, temporarily touches real system cache state — not CI-safe).
 
 Tests: `internal/data/generation/localcache_test.go` — unit tests for each ecosystem's probe (`goModCacheSeed`'s module-path escaping, proven with a real uppercase-letter module path so the `!lowercase` encoding is actually exercised, not just a lucky all-lowercase match; `nodeModulesSeed`'s version-match/mismatch/no-project-root cases; `findDistInfoSeed`'s name-normalization, version-mismatch, and never-guess-without-top_level.txt cases; `normalizePyDistName` directly) plus one end-to-end `Build`-level regression test (`TestBuildUsesLocalGoModCacheAndNeverClonesOverTheNetwork`) using a deliberately unreachable registry-source URL — verified rigorously: temporarily disabled the local-cache-seed branch, confirmed the test fails with the real bug shape (`Could not resolve host`), restored it.
 

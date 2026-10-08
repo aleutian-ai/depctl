@@ -6,7 +6,7 @@ package resolver
 import (
 	"context"
 
-	"aleutian-ai/ragctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/domain"
 )
 
 // Resolver detects whether a project root matches its ecosystem and, if so,

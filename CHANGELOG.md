@@ -2,22 +2,26 @@
 
 ## Unreleased
 
+### Renamed: ragctl is now depctl
+- The project, binary (`depctl`, daemon log `depctld.log`), Go module (`github.com/aleutian-ai/depctl`), config and data directories (`~/Library/Application Support/depctl`, `~/.config/depctl`, `~/.local/share/depctl`), environment variables (`DEPCTL_*`), MCP server name, metrics (`depctl_*`), log attributes (`depctl.*`), the managed Qdrant container and volume (`depctl-qdrant`, `depctl-qdrant-data`), new installs' collection prefix (`depctl-`), and registry manifests' `apiVersion` (`depctl.dev/v1alpha1`) all changed. The name describes what it does: it controls which dependency context a coding agent sees. Retrieval is an implementation detail.
+- There's no automatic migration. An existing ragctl install isn't found under the new paths: run `depctl init` and sync again, or move the old data directory and update the paths in its `config.yaml`.
+
 ### Hybrid search
 - In `retrieval.mode: auto` with Ollama available, search now merges keyword and semantic rankings (reciprocal rank fusion) instead of using semantic search alone. On the retrieval eval's held-out questions that's 0.528 MRR against 0.466 for semantic search alone, and the right doc in the top 10 for 83% of questions against 75%. Without Ollama, search is keyword-only as before.
 
 ### Better semantic search by default
-- Fresh installs use [`embeddinggemma-2:270m`](https://ollama.com/library/embeddinggemma-2) (378 MB, Apache-2.0) instead of `nomic-embed-text-v2-moe` (957 MB). With its code-retrieval prompts and vectors kept to 256 dimensions, hybrid search on the eval's held-out questions scores 0.583 MRR against 0.528 with nomic, with the right doc in the top 3 for 69% of questions against 60%. The vector store is about 3x smaller. Ollama is still optional; when it's running, ragctl pulls the model itself.
-- New config keys `embedding.query_prompt`, `embedding.document_prompt` and `embedding.dimensions`. A config without them behaves exactly as before, so **existing installs keep their model**. To switch, set those keys and the model (see `docs/internal/config.md`), run `ragctl daemon stop`, then `ragctl sync`.
-- **Changing embedding settings re-embeds automatically.** When the model, prompts or size differ from what a version was embedded with, the next sync clears the old vectors and re-embeds every active version from its stored chunks: nothing is re-fetched or rebuilt. Until then, `auto` searches by keyword instead of comparing incompatible vectors, and `vector` mode says to sync. Before, the old vectors stayed and searches or syncs failed with a dimension mismatch. With a remote vector store, a new size needs a new `vector.collection` (a collection may be shared with another install, so ragctl never drops one).
+- Fresh installs use [`embeddinggemma-2:270m`](https://ollama.com/library/embeddinggemma-2) (378 MB, Apache-2.0) instead of `nomic-embed-text-v2-moe` (957 MB). With its code-retrieval prompts and vectors kept to 256 dimensions, hybrid search on the eval's held-out questions scores 0.583 MRR against 0.528 with nomic, with the right doc in the top 3 for 69% of questions against 60%. The vector store is about 3x smaller. Ollama is still optional; when it's running, depctl pulls the model itself.
+- New config keys `embedding.query_prompt`, `embedding.document_prompt` and `embedding.dimensions`. A config without them behaves exactly as before, so **existing installs keep their model**. To switch, set those keys and the model (see `docs/internal/config.md`), run `depctl daemon stop`, then `depctl sync`.
+- **Changing embedding settings re-embeds automatically.** When the model, prompts or size differ from what a version was embedded with, the next sync clears the old vectors and re-embeds every active version from its stored chunks: nothing is re-fetched or rebuilt. Until then, `auto` searches by keyword instead of comparing incompatible vectors, and `vector` mode says to sync. Before, the old vectors stayed and searches or syncs failed with a dimension mismatch. With a remote vector store, a new size needs a new `vector.collection` (a collection may be shared with another install, so depctl never drops one).
 
 ### Fixes
 - Searches in `auto` mode right after the daemon starts now wait up to 3 seconds for the Ollama check instead of quietly falling back to keyword-only results.
-- A `ragctl sync --rebuild` (or an MCP `sync_project` with `rebuild: true`) that arrives while that project is already syncing now runs as a rebuild. Before, it could merge into a queued plain sync and be silently dropped.
-- A real `ragctl gc` that arrives while a GC is running is no longer turned into a dry run when a dry-run request is also queued. Each queues its own run, and a dry run still never deletes.
+- A `depctl sync --rebuild` (or an MCP `sync_project` with `rebuild: true`) that arrives while that project is already syncing now runs as a rebuild. Before, it could merge into a queued plain sync and be silently dropped.
+- A real `depctl gc` that arrives while a GC is running is no longer turned into a dry run when a dry-run request is also queued. Each queues its own run, and a dry run still never deletes.
 
 ### Retrieval eval
 - `hack/retrieval-eval` measures keyword, vector and hybrid search on a real synced install, using 48 hand-written and 275 generated questions. On 12 Go dependencies, keyword and vector search performed the same within noise (MRR 0.527 against 0.496), and a hybrid of the two was measurably better (0.556). See `docs/retrieval-eval.md`. Its held-out half (162 questions) is now a frozen benchmark; new questions use `dev-` IDs and only ever join the tune half.
-- Code-aware experiments on the tune half: a symbol-match signal and heading-path titles for prose made no measurable difference; reranking the top 20 with a 9B chat model helped (+0.058 MRR) but costs about 5 s per search, so nothing changed in ragctl. The eval tool gained agent-style question generation (`gen -style agent`), `-split`, `-misses`, `-symbol` and `-rerank`.
+- Code-aware experiments on the tune half: a symbol-match signal and heading-path titles for prose made no measurable difference; reranking the top 20 with a 9B chat model helped (+0.058 MRR) but costs about 5 s per search, so nothing changed in depctl. The eval tool gained agent-style question generation (`gen -style agent`), `-split`, `-misses`, `-symbol` and `-rerank`.
 
 ## v0.3.1 — 2026-10-07
 

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"aleutian-ai/ragctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/domain"
 )
 
 func testDep(name, version string) domain.DependencyVersion {

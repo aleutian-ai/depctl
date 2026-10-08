@@ -1,4 +1,4 @@
-// Package plaintext implements ragctl's plain-text normalizer
+// Package plaintext implements depctl's plain-text normalizer
 // (NORM-003): the simplest normalizer, producing one KnowledgeObject per
 // file with no structure extraction beyond trimming. Handles .txt, .rst
 // (as plain text — no reStructuredText parsing), and LICENSE-like files
@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"aleutian-ai/ragctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/domain"
 )
 
 // Normalizer implements normalize.Normalizer for .txt/.rst files and,

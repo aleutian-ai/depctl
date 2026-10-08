@@ -1,4 +1,4 @@
-// Package domain defines ragctl's core data types, shared by every other
+// Package domain defines depctl's core data types, shared by every other
 // package. It has no dependencies on storage, network, or CLI packages —
 // see docs/tickets/completed/02-core-domain-storage/CORE-001-domain-types.md.
 //
@@ -173,7 +173,7 @@ type BackendReplica struct {
 }
 
 // Job is a restartable background unit of work — currently only GC uses
-// this: re-invoking `ragctl gc` re-claims any PENDING/RETRY job by its
+// this: re-invoking `depctl gc` re-claims any PENDING/RETRY job by its
 // deterministic ID and resumes it, rather than starting over or
 // duplicating work.
 type Job struct {

@@ -18,7 +18,7 @@ Choose and record a single supported Go toolchain version so local development a
 ## Design
 - Set the `go` directive in `go.mod` to the chosen version.
 - Record the same version in `README.md` (a "Requirements" section) and in `.github/workflows/test.yml` (`actions/setup-go` `go-version` input, see BOOT-003).
-- Add a `ragctl doctor`-visible diagnostic later (out of scope here) that reports `go env GOVERSION`; for this ticket, just ensure the version is consistent across the three locations above.
+- Add a `depctl doctor`-visible diagnostic later (out of scope here) that reports `go env GOVERSION`; for this ticket, just ensure the version is consistent across the three locations above.
 
 ## Inputs / Outputs
 - Input: chosen Go version (a decision, not code).

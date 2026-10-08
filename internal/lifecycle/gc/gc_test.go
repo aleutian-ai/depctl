@@ -5,10 +5,10 @@ import (
 	"errors"
 	"testing"
 
-	"aleutian-ai/ragctl/internal/backend"
-	"aleutian-ai/ragctl/internal/backend/backendtest"
-	"aleutian-ai/ragctl/internal/domain"
-	"aleutian-ai/ragctl/internal/retention"
+	"github.com/aleutian-ai/depctl/internal/backend"
+	"github.com/aleutian-ai/depctl/internal/backend/backendtest"
+	"github.com/aleutian-ai/depctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/retention"
 )
 
 // fakeControlStore is a minimal in-memory ControlStore/DataStore pair
@@ -113,7 +113,7 @@ func TestRunDeletesInOrderAndMarksJobSucceeded(t *testing.T) {
 		},
 	}
 	vb := backendtest.New()
-	ns := backend.Namespace{Name: "ragctl", Dimensions: 4}
+	ns := backend.Namespace{Name: "depctl", Dimensions: 4}
 	if err := vb.EnsureNamespace(ctx, ns); err != nil {
 		t.Fatalf("EnsureNamespace: %v", err)
 	}
@@ -160,7 +160,7 @@ func TestRunFailureMarksJobFailedAndDoesNotBlockOtherCandidates(t *testing.T) {
 	control.failListGens = true // makes the first candidate's deletion fail
 	data := newFakeDataStore()
 	vb := backendtest.New()
-	ns := backend.Namespace{Name: "ragctl", Dimensions: 4}
+	ns := backend.Namespace{Name: "depctl", Dimensions: 4}
 	vb.EnsureNamespace(ctx, ns)
 
 	candidates := []retention.GCCandidate{
@@ -222,7 +222,7 @@ func TestRunResumesAfterPartialFailure(t *testing.T) {
 	data := newFakeDataStore()
 	data.failDelete = true // simulate crash/failure at the Badger-delete step
 	vb := backendtest.New()
-	ns := backend.Namespace{Name: "ragctl", Dimensions: 4}
+	ns := backend.Namespace{Name: "depctl", Dimensions: 4}
 	vb.EnsureNamespace(ctx, ns)
 
 	candidate := testCandidate()
@@ -258,7 +258,7 @@ func TestRunOnAlreadySucceededJobIsANoOp(t *testing.T) {
 	data := newFakeDataStore()
 	data.failDelete = true // if Run tried to redo work, this would fail it
 	vb := backendtest.New()
-	ns := backend.Namespace{Name: "ragctl", Dimensions: 4}
+	ns := backend.Namespace{Name: "depctl", Dimensions: 4}
 	vb.EnsureNamespace(ctx, ns)
 
 	dep := domain.DependencyVersion{

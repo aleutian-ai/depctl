@@ -9,14 +9,14 @@ import (
 
 	bolt "go.etcd.io/bbolt"
 
-	"aleutian-ai/ragctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/domain"
 )
 
 const activeGenerationsBucket = "active_generations"
 
 // ActivePointer is one active_generations entry: the dependency version
 // it is scoped to and the generation ID it points at. The pointed-to
-// record is deliberately not resolved here, so callers like `ragctl
+// record is deliberately not resolved here, so callers like `depctl
 // doctor` can see a pointer whose generation record has gone missing.
 type ActivePointer struct {
 	Ecosystem    domain.Ecosystem
@@ -130,7 +130,7 @@ func (s *Store) ListActivePointers(ctx context.Context, backendName string) ([]A
 			case 3:
 				// A pre-ADR-012 pointer migration 2 couldn't rekey because
 				// its generation record is missing. Listed with an empty
-				// Version so `ragctl doctor` can still report it.
+				// Version so `depctl doctor` can still report it.
 				p = ActivePointer{Ecosystem: domain.Ecosystem(parts[0]), Dependency: parts[1]}
 				backend = parts[2]
 			default:
@@ -173,7 +173,7 @@ func markSuperseded(genBucket *bolt.Bucket, id []byte, now time.Time) error {
 // (ecosystem|dependency|backend) under the per-version four-part key,
 // taking the version from the pointed-to generation record. A pointer
 // whose generation record is missing can't be rekeyed and is left as-is
-// for `ragctl doctor` to report. Runs inside ensureSchema's transaction,
+// for `depctl doctor` to report. Runs inside ensureSchema's transaction,
 // so it's all-or-nothing.
 func migrateActivePointersPerVersion(tx *bolt.Tx) error {
 	activeBucket := tx.Bucket([]byte(activeGenerationsBucket))

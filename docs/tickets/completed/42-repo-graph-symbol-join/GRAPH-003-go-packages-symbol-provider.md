@@ -6,7 +6,7 @@
 **Estimated size:** medium
 
 ## Goal
-Ship the one reference `SymbolProvider` implementation this epic needs to be end-to-end usable, resolving a Go call site to the external symbol it refers to via `golang.org/x/tools/go/packages` + `go/types` type information — deterministic, one-shot, no long-running server process. This is the "cleanest deterministic symbol identity with least integration work" choice GRAPH-001 deferred: it reuses the same type-checking machinery `gopls`/`goimports`/every serious Go tool already relies on, as a plain library call, without ragctl having to drive an LSP session or reimplement type resolution itself.
+Ship the one reference `SymbolProvider` implementation this epic needs to be end-to-end usable, resolving a Go call site to the external symbol it refers to via `golang.org/x/tools/go/packages` + `go/types` type information — deterministic, one-shot, no long-running server process. This is the "cleanest deterministic symbol identity with least integration work" choice GRAPH-001 deferred: it reuses the same type-checking machinery `gopls`/`goimports`/every serious Go tool already relies on, as a plain library call, without depctl having to drive an LSP session or reimplement type resolution itself.
 
 ## Non-goals
 - Go only, matching this project's "one reference implementation before adding more" convention (`docs/tickets/README.md`) — a Python/Node/other-ecosystem `SymbolProvider` is explicitly out of scope here and would be its own future ticket once a Go-only version proves the join out.
@@ -16,7 +16,7 @@ Ship the one reference `SymbolProvider` implementation this epic needs to be end
 
 ## Simplicity constraints
 - New package `internal/symbolgraph/gopackages`, implementing GRAPH-001's `symbolgraph.SymbolProvider` — no changes to the `symbolgraph` interface package itself.
-- One exported constructor, `New(moduleRoot string) *Provider` — no configuration surface beyond the project root ragctl already knows from its own `domain.Project`.
+- One exported constructor, `New(moduleRoot string) *Provider` — no configuration surface beyond the project root depctl already knows from its own `domain.Project`.
 
 ## Design
 Package: `internal/symbolgraph/gopackages`
@@ -42,7 +42,7 @@ func (p *Provider) Resolve(ctx context.Context, site symbolgraph.CallSite) (symb
 5. Otherwise, build `ExternalSymbolRef{Ecosystem: "go", Module: <module path from obj.Pkg().Path(), trimmed to the owning module root via go.sum/build list — reuse internal/resolver/golang's existing module-path knowledge rather than re-deriving it>, Package: obj.Pkg().Name(), QualifiedName: <receiver-qualified name for a method, e.g. "(*Tx).Bucket">, SourceFile: <position.Filename from obj.Pos(), if available>}`.
 
 ## Inputs / Outputs
-- Input: a `symbolgraph.CallSite` (file + line/column) within a Go module ragctl has already resolved.
+- Input: a `symbolgraph.CallSite` (file + line/column) within a Go module depctl has already resolved.
 - Output: `(ExternalSymbolRef, true, nil)` for a call site resolving outside the current module; `(ExternalSymbolRef{}, false, nil)` for an internal call site; a wrapped error if `packages.Load` itself fails (e.g. the file doesn't type-check).
 
 ## Failure behavior
@@ -68,4 +68,4 @@ The fixture module used to write GRAPH-003's own tests was single-package, so th
 
 Fixed by building a package-path → module-path map via `packages.Visit` over the full loaded package graph (roots + every transitive dependency, since `NeedModule` populates `.Module` on every loaded `*packages.Package`, not just the root), and looking up each resolved symbol's package in that map — falling back to the package path itself only when no module info exists (the standard library). New regression test `TestResolveModuleIsRootNotSubpackagePath` (a fixture module with a root package and a `sub` subpackage) fails against the old code and passes against the fix.
 
-Live-verified afterward against a real, published, multi-package dependency (`github.com/stretchr/testify`, calling `assert.Equal`) through a real daemon + real `ragctl serve` + a real MCP client: `explain_call_site` correctly returned `module: "github.com/stretchr/testify"` (not `.../assert`), `package: "assert"`, `qualified_name: "Equal"`, `version: "v1.9.0"`, and 10 real, version-correct, relevant chunks — see GRAPH-004's own post-implementation note for the full live-test session.
+Live-verified afterward against a real, published, multi-package dependency (`github.com/stretchr/testify`, calling `assert.Equal`) through a real daemon + real `depctl serve` + a real MCP client: `explain_call_site` correctly returned `module: "github.com/stretchr/testify"` (not `.../assert`), `package: "assert"`, `qualified_name: "Equal"`, `version: "v1.9.0"`, and 10 real, version-correct, relevant chunks — see GRAPH-004's own post-implementation note for the full live-test session.

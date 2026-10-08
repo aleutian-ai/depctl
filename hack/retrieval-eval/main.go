@@ -1,7 +1,7 @@
 // Command retrieval-eval measures how well keyword (BM25) search, vector
 // search and a hybrid of the two find the right documentation chunk, on
-// one synced ragctl install that holds both indexes (retrieval.mode
-// auto). A dev tool, not part of ragctl itself.
+// one synced depctl install that holds both indexes (retrieval.mode
+// auto). A dev tool, not part of depctl itself.
 //
 // Usage (stop the install's daemon first; this opens its stores):
 //
@@ -16,7 +16,7 @@
 // install's files (with eval-<name>.json describing it). {title} is the
 // chunk's qualified symbol, else its source path, else "none";
 // {section_title} adds a prose chunk's heading path. run
-// compares keyword search, the install's own vectors (ragctl as shipped)
+// compares keyword search, the install's own vectors (depctl as shipped)
 // and every eval index, each alone and fused with keyword search.
 //
 // Questions are split deterministically into a tune half and a test half
@@ -52,14 +52,14 @@ import (
 	"strings"
 	"time"
 
-	"aleutian-ai/ragctl/internal/backend"
-	"aleutian-ai/ragctl/internal/backend/embedded"
-	"aleutian-ai/ragctl/internal/backend/keyword"
-	"aleutian-ai/ragctl/internal/config"
-	bboltstore "aleutian-ai/ragctl/internal/control/bbolt"
-	badgerstore "aleutian-ai/ragctl/internal/data/badger"
-	"aleutian-ai/ragctl/internal/domain"
-	"aleutian-ai/ragctl/internal/embedding/ollama"
+	"github.com/aleutian-ai/depctl/internal/backend"
+	"github.com/aleutian-ai/depctl/internal/backend/embedded"
+	"github.com/aleutian-ai/depctl/internal/backend/keyword"
+	"github.com/aleutian-ai/depctl/internal/config"
+	bboltstore "github.com/aleutian-ai/depctl/internal/control/bbolt"
+	badgerstore "github.com/aleutian-ai/depctl/internal/data/badger"
+	"github.com/aleutian-ai/depctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/embedding/ollama"
 )
 
 // Question is one labeled eval case. A chunk is a right answer when it
@@ -482,7 +482,7 @@ func run(c *corpus, files []string, opts runOptions) error {
 		}
 	}
 
-	// ragctl as shipped: the install's own vectors, plain prompts.
+	// depctl as shipped: the install's own vectors, plain prompts.
 	// Embedded exactly as the install's config says: its model, query
 	// prompt and vector size.
 	shippedFormat := c.cfg.Embedding.QueryPrompt
@@ -524,7 +524,7 @@ func run(c *corpus, files []string, opts runOptions) error {
 		if err != nil {
 			return err
 		}
-		methods = append(methods, method{"ragctl search API (" + c.cfg.Retrieval.ModeOrDefault() + " mode)", search})
+		methods = append(methods, method{"depctl search API (" + c.cfg.Retrieval.ModeOrDefault() + " mode)", search})
 	}
 
 	results := map[string]map[string]*tally{} // method -> group -> tally
@@ -742,21 +742,21 @@ func rerank(c *corpus, model string, base func(Question, backend.Filter, int) ([
 
 // daemonSearch asks questions through the install's daemon, exactly as an
 // agent's search_dependency_docs call does. The corpus is loaded first
-// (it opens the stores, which needs the daemon stopped); `ragctl status`
-// then auto-starts the daemon, using ragctl from PATH and this process's
+// (it opens the stores, which needs the daemon stopped); `depctl status`
+// then auto-starts the daemon, using depctl from PATH and this process's
 // environment, which must point at the same install.
 func daemonSearch(dir, projectID string, timed func(string, func() ([]string, error)) ([]string, error)) (func(Question, backend.Filter, int) ([]string, error), error) {
-	if out, err := exec.Command("ragctl", "status").CombinedOutput(); err != nil {
-		return nil, fmt.Errorf("start the daemon with `ragctl status`: %v: %s", err, out)
+	if out, err := exec.Command("depctl", "status").CombinedOutput(); err != nil {
+		return nil, fmt.Errorf("start the daemon with `depctl status`: %v: %s", err, out)
 	}
-	sock := filepath.Join(dir, "ragctld.sock")
+	sock := filepath.Join(dir, "depctld.sock")
 	client := &http.Client{Transport: &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 		return (&net.Dialer{}).DialContext(ctx, "unix", sock)
 	}}}
 	return func(q Question, _ backend.Filter, k int) ([]string, error) {
-		return timed("ragctl search API", func() ([]string, error) {
+		return timed("depctl search API", func() ([]string, error) {
 			body, _ := json.Marshal(map[string]any{"project_id": projectID, "text": q.Question, "dependency": q.Dependency, "mode": "project", "top_k": k})
-			resp, err := client.Post("http://ragctl/v1/search", "application/json", bytes.NewReader(body))
+			resp, err := client.Post("http://depctl/v1/search", "application/json", bytes.NewReader(body))
 			if err != nil {
 				return nil, err
 			}

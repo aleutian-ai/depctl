@@ -6,7 +6,7 @@
 **Estimated size:** small
 
 ## Goal
-Register every top-level `ragctl` command as a Cobra command so the CLI surface is stable, even before most commands are implemented.
+Register every top-level `depctl` command as a Cobra command so the CLI surface is stable, even before most commands are implemented.
 
 ## Non-goals
 - No actual implementation of `scan`, `deps`, `plan`, `sync`, `status`, `doctor`, `gc`, `watch`, `serve`, `backend`, `registry` — those arrive in their own milestones.
@@ -15,7 +15,7 @@ Register every top-level `ragctl` command as a Cobra command so the CLI surface 
 - Placeholder commands are literally `return fmt.Errorf("feature not implemented in this build")` inside `RunE` — no stub logic, no partial behavior that could be mistaken for a real implementation.
 
 ## Design
-Package: `cmd/ragctl` (root command wiring) + `internal/cli` (subcommand definitions), using `github.com/spf13/cobra`.
+Package: `cmd/depctl` (root command wiring) + `internal/cli` (subcommand definitions), using `github.com/spf13/cobra`.
 
 Top-level commands registered on the root:
 ```
@@ -35,7 +35,7 @@ registry
 ```
 Each unimplemented command's `RunE` returns the exact error string `"feature not implemented in this build"` (exit code 1), rather than doing nothing silently or printing help only.
 
-`config` command (`ragctl config validate`) is also wired here per CLI-001.
+`config` command (`depctl config validate`) is also wired here per CLI-001.
 
 ## Inputs / Outputs
 - Input: CLI args/flags per command (flags can be stubbed too, just enough for `--help` to render sensibly).
@@ -46,7 +46,7 @@ Unimplemented commands must fail loudly and identically — never silently no-op
 
 ## Tests
 - For each unimplemented command, run it and assert stderr contains `feature not implemented in this build` and exit code is non-zero.
-- `ragctl --help` lists all top-level commands.
+- `depctl --help` lists all top-level commands.
 
 ## Acceptance criteria
 - [x] All 13 top-level commands are registered and appear in `--help`.

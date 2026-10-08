@@ -4,7 +4,7 @@ import (
 	"context"
 	"strings"
 
-	"aleutian-ai/ragctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/domain"
 )
 
 // Normalize delegates to markdown.Normalizer or plaintext.Normalizer

@@ -10,16 +10,16 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"aleutian-ai/ragctl/internal/backend"
-	"aleutian-ai/ragctl/internal/backend/backendtest"
-	bboltstore "aleutian-ai/ragctl/internal/control/bbolt"
-	badgerstore "aleutian-ai/ragctl/internal/data/badger"
-	"aleutian-ai/ragctl/internal/domain"
-	"aleutian-ai/ragctl/internal/embedding"
-	"aleutian-ai/ragctl/internal/planner"
-	"aleutian-ai/ragctl/internal/query"
-	"aleutian-ai/ragctl/internal/registry"
-	"aleutian-ai/ragctl/internal/source/git"
+	"github.com/aleutian-ai/depctl/internal/backend"
+	"github.com/aleutian-ai/depctl/internal/backend/backendtest"
+	bboltstore "github.com/aleutian-ai/depctl/internal/control/bbolt"
+	badgerstore "github.com/aleutian-ai/depctl/internal/data/badger"
+	"github.com/aleutian-ai/depctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/embedding"
+	"github.com/aleutian-ai/depctl/internal/planner"
+	"github.com/aleutian-ai/depctl/internal/query"
+	"github.com/aleutian-ai/depctl/internal/registry"
+	"github.com/aleutian-ai/depctl/internal/source/git"
 )
 
 // VALID-001: proves the atomic-promotion invariant under an injected
@@ -79,8 +79,8 @@ func atomicPromotionRunGit(t *testing.T, dir string, args ...string) {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(),
-		"GIT_AUTHOR_NAME=ragctl-test", "GIT_AUTHOR_EMAIL=ragctl-test@example.com",
-		"GIT_COMMITTER_NAME=ragctl-test", "GIT_COMMITTER_EMAIL=ragctl-test@example.com",
+		"GIT_AUTHOR_NAME=depctl-test", "GIT_AUTHOR_EMAIL=depctl-test@example.com",
+		"GIT_COMMITTER_NAME=depctl-test", "GIT_COMMITTER_EMAIL=depctl-test@example.com",
 	)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git %v: %v\n%s", args, err, out)
@@ -107,7 +107,7 @@ func atomicPromotionFixtureRepo(t *testing.T) string {
 	return dir
 }
 
-const atomicPromotionManifestYAML = `apiVersion: ragctl.dev/v1alpha1
+const atomicPromotionManifestYAML = `apiVersion: depctl.dev/v1alpha1
 kind: KnowledgePackage
 metadata:
   name: example.com/widget
@@ -161,7 +161,7 @@ func TestSyncVersionAtomicPromotionUnderReplicateFailure(t *testing.T) {
 	reg := atomicPromotionTestRegistry(t, repoDir)
 	gitCache := git.NewCache(t.TempDir())
 	vb := backendtest.New()
-	ns := backend.Namespace{Name: "ragctl", Dimensions: 4}
+	ns := backend.Namespace{Name: "depctl", Dimensions: 4}
 
 	dep := domain.DependencyVersion{
 		Dependency: domain.Dependency{Ecosystem: domain.EcosystemGo, Name: "example.com/widget"},
@@ -301,7 +301,7 @@ func TestSyncVersionAtomicPromotionUnderBuildFailure(t *testing.T) {
 	reg := atomicPromotionTestRegistry(t, repoDir)
 	gitCache := git.NewCache(t.TempDir())
 	vb := backendtest.New()
-	ns := backend.Namespace{Name: "ragctl", Dimensions: 4}
+	ns := backend.Namespace{Name: "depctl", Dimensions: 4}
 	dep := domain.DependencyVersion{
 		Dependency: domain.Dependency{Ecosystem: domain.EcosystemGo, Name: "example.com/widget"},
 		Version:    "v1.0.0",

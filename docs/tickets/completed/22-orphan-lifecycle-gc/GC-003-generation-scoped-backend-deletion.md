@@ -122,7 +122,7 @@ if err != nil {
 - [x] No new `backend.Filter` field or `VectorBackend` method was added — `Filter.Generation` (already existing) is reused as-is.
 - [x] Orphan deletion never calls `DeleteAllReferences`.
 - [x] Deletion is restartable/idempotent: a partial failure followed by a re-run completes cleanly, matching `gc.Run`'s existing guarantee.
-- [x] `ragctl gc --orphans` (GC-002, without `--dry-run`) actually deletes candidates end-to-end.
+- [x] `depctl gc --orphans` (GC-002, without `--dry-run`) actually deletes candidates end-to-end.
 
 ## Post-implementation note
 Implemented exactly as specced — the design section's code (`RunOrphans`, `deleteOrphanCandidate`, `orphanJobID`) was correct as written. `internal/lifecycle/gc/orphans.go` + `orphans_test.go` (4 tests, mirroring `gc_test.go`'s coverage shape): the key test, `TestRunOrphansDeletesGenerationScopedDataOnly`, constructs exactly the scenario this ticket's Goal describes — two generations sharing one dependency+version, one orphaned and one active — and confirms via direct vector-backend `Query` (filtered by `Generation`) that only the orphan's point is gone and the healthy one's is untouched, the concrete proof that generation-ID scoping (not dependency+version scoping) is what actually happened, not just what the code says it does. All pass on first run.

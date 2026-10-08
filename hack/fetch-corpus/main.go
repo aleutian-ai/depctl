@@ -1,10 +1,10 @@
 // Command fetch-corpus populates a local, real-world repo corpus (e.g.
-// ~/offline-knowledge) for exercising ragctl's resolvers and acquisition
+// ~/offline-knowledge) for exercising depctl's resolvers and acquisition
 // layer against genuine projects rather than synthetic fixtures. It
 // replaces ad hoc shell clone loops with a single shared bare mirror per
 // repository (internal/source/git) plus a persistent worktree
 // checkout, so re-runs are fast, idempotent, and don't re-download
-// history that's already cached. Not part of the ragctl binary — a dev
+// history that's already cached. Not part of the depctl binary — a dev
 // tool, run via `go run ./hack/fetch-corpus`.
 package main
 
@@ -22,9 +22,9 @@ import (
 	"sync"
 	"time"
 
-	"aleutian-ai/ragctl/internal/config"
-	"aleutian-ai/ragctl/internal/executil"
-	git "aleutian-ai/ragctl/internal/source/git"
+	"github.com/aleutian-ai/depctl/internal/config"
+	"github.com/aleutian-ai/depctl/internal/executil"
+	git "github.com/aleutian-ai/depctl/internal/source/git"
 )
 
 // repoSpec is one manifest line: a repo to fetch, grouped under an
@@ -37,7 +37,7 @@ type repoSpec struct {
 func main() {
 	manifestPath := flag.String("manifest", "hack/fetch-corpus/repos.txt", "path to the repo list (\"<ecosystem> <org>/<repo>\" per line)")
 	corpusRoot := flag.String("root", defaultCorpusRoot(), "directory to check working copies out into, one subdir per ecosystem")
-	mirrorRoot := flag.String("mirror-root", defaultMirrorRoot(), "directory for shared bare mirrors (defaults to ragctl's own git cache, so this doubles as cache warming)")
+	mirrorRoot := flag.String("mirror-root", defaultMirrorRoot(), "directory for shared bare mirrors (defaults to depctl's own git cache, so this doubles as cache warming)")
 	concurrency := flag.Int("concurrency", 6, "number of repos to fetch concurrently")
 	backupDir := flag.String("backup", "", "if set, rsync the corpus root's contents there after fetching (additive only — never deletes, e.g. a /Volumes/... external drive)")
 	flag.Parse()
@@ -201,14 +201,14 @@ func defaultCorpusRoot() string {
 	return filepath.Join(home, "offline-knowledge")
 }
 
-// defaultMirrorRoot points at ragctl's own git cache location
+// defaultMirrorRoot points at depctl's own git cache location
 // (config.DefaultDataDir()/git — the same path GIT-001 uses), so running
-// this tool also warms the cache ragctl's own acquisition step will use.
+// this tool also warms the cache depctl's own acquisition step will use.
 func defaultMirrorRoot() string {
 	dataDir, err := config.DefaultDataDir()
 	if err != nil {
 		home, _ := os.UserHomeDir()
-		return filepath.Join(home, ".local", "share", "ragctl", "git")
+		return filepath.Join(home, ".local", "share", "depctl", "git")
 	}
 	return filepath.Join(dataDir, "git")
 }

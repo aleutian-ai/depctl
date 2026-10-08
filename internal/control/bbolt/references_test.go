@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"aleutian-ai/ragctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/domain"
 )
 
 func fixedTime(seconds int64) time.Time {

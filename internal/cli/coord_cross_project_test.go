@@ -9,16 +9,16 @@ import (
 	"testing"
 	"time"
 
-	"aleutian-ai/ragctl/internal/backend"
-	"aleutian-ai/ragctl/internal/backend/backendtest"
-	bboltstore "aleutian-ai/ragctl/internal/control/bbolt"
-	"aleutian-ai/ragctl/internal/daemon"
-	badgerstore "aleutian-ai/ragctl/internal/data/badger"
-	"aleutian-ai/ragctl/internal/domain"
-	"aleutian-ai/ragctl/internal/embedding"
-	"aleutian-ai/ragctl/internal/planner"
-	"aleutian-ai/ragctl/internal/registry"
-	"aleutian-ai/ragctl/internal/source/git"
+	"github.com/aleutian-ai/depctl/internal/backend"
+	"github.com/aleutian-ai/depctl/internal/backend/backendtest"
+	bboltstore "github.com/aleutian-ai/depctl/internal/control/bbolt"
+	"github.com/aleutian-ai/depctl/internal/daemon"
+	badgerstore "github.com/aleutian-ai/depctl/internal/data/badger"
+	"github.com/aleutian-ai/depctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/embedding"
+	"github.com/aleutian-ai/depctl/internal/planner"
+	"github.com/aleutian-ai/depctl/internal/registry"
+	"github.com/aleutian-ai/depctl/internal/source/git"
 )
 
 // barrierEmbedder blocks its first Embed call until release is closed —
@@ -81,7 +81,7 @@ func gadgetFixtureRepo(t *testing.T) string {
 	return dir
 }
 
-const gadgetManifestYAML = `apiVersion: ragctl.dev/v1alpha1
+const gadgetManifestYAML = `apiVersion: depctl.dev/v1alpha1
 kind: KnowledgePackage
 metadata:
   name: example.com/gadget
@@ -143,7 +143,7 @@ func newCrossProjectTestFixture(t *testing.T) *crossProjectTestFixture {
 		badgerStore: badgerStore,
 		gitCache:    git.NewCache(t.TempDir()),
 		vb:          backendtest.New(),
-		ns:          backend.Namespace{Name: "ragctl", Dimensions: 4},
+		ns:          backend.Namespace{Name: "depctl", Dimensions: 4},
 		coordinator: daemon.NewBuildCoordinator(),
 	}
 }

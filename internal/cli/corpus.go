@@ -10,8 +10,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"aleutian-ai/ragctl/internal/config"
-	"aleutian-ai/ragctl/internal/executil"
+	"github.com/aleutian-ai/depctl/internal/config"
+	"github.com/aleutian-ai/depctl/internal/executil"
 )
 
 // corpusPackageJSON/corpusLockPkg mirror exactly what
@@ -82,7 +82,7 @@ func newCorpusCmd() *cobra.Command {
 // corpusDependencyName is the fake node package name a corpus entry is
 // registered under, and its registry manifest's metadata.name.
 func corpusDependencyName(name string) string {
-	return "ragctl-corpus-" + name
+	return "depctl-corpus-" + name
 }
 
 func corpusProjectDir() (string, error) {
@@ -147,7 +147,7 @@ func runCorpusAdd(cmd *cobra.Command, path, name, ref string, resync bool) error
 		return fmt.Errorf("create registry dir: %w", err)
 	}
 	manifestPath := filepath.Join(regDir, depName+".yaml")
-	manifest := fmt.Sprintf(`apiVersion: ragctl.dev/v1alpha1
+	manifest := fmt.Sprintf(`apiVersion: depctl.dev/v1alpha1
 kind: KnowledgePackage
 metadata:
   name: %s
@@ -226,7 +226,7 @@ func loadCorpusFiles(dir string) (corpusPackageJSON, corpusLockFile, error) {
 	pkgPath := filepath.Join(dir, "package.json")
 	lockPath := filepath.Join(dir, "package-lock.json")
 
-	pkg := corpusPackageJSON{Name: "ragctl-corpus", Version: "1.0.0", Dependencies: map[string]string{}}
+	pkg := corpusPackageJSON{Name: "depctl-corpus", Version: "1.0.0", Dependencies: map[string]string{}}
 	if data, err := os.ReadFile(pkgPath); err == nil {
 		if err := json.Unmarshal(data, &pkg); err != nil {
 			return corpusPackageJSON{}, corpusLockFile{}, fmt.Errorf("parse %s: %w", pkgPath, err)

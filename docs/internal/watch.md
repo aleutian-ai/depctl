@@ -1,6 +1,6 @@
 # internal/watch
 
-`internal/watch` notices when a registered project's dependency manifests change (`go.mod`, `package-lock.json`, `uv.lock`, ...) and reports each change once, after a debounce window. It knows nothing about resolving or syncing; the daemon (`internal/daemon/watch.go`) runs the watcher and turns its events into sync requests. `ragctl watch` is now only a deprecated shim that makes sure a daemon is running.
+`internal/watch` notices when a registered project's dependency manifests change (`go.mod`, `package-lock.json`, `uv.lock`, ...) and reports each change once, after a debounce window. It knows nothing about resolving or syncing; the daemon (`internal/daemon/watch.go`) runs the watcher and turns its events into sync requests. `depctl watch` is now only a deprecated shim that makes sure a daemon is running.
 
 ## Key types and functions
 
@@ -34,7 +34,7 @@ A Go project at `/src/app` is registered and resolved, so the daemon hands the w
 2. fsnotify reports several events in a few milliseconds: a create for a temp name, then create/write events for `/src/app/go.mod` and `/src/app/go.sum`.
 3. `handle` drops the temp-file event (not a manifest name). The first manifest event creates a burst for `proj_x` with a 2-second timer (`watch.debounce`). Each later event adds its path and resets the timer.
 4. Two seconds after the last event, `fire` sends `ChangeEvent{ProjectID: "proj_x", Paths: ["/src/app/go.mod", "/src/app/go.sum"]}`.
-5. The daemon's `watchLoop` receives it and calls `Scheduler.Request("proj_x", SyncOptions{Resolve: true}, ...)`; the sync re-resolves `/src/app`, then runs the same plan-and-sync as `ragctl sync --project proj_x`. If a sync for `proj_x` is already running, the request collapses into one follow-up run.
+5. The daemon's `watchLoop` receives it and calls `Scheduler.Request("proj_x", SyncOptions{Resolve: true}, ...)`; the sync re-resolves `/src/app`, then runs the same plan-and-sync as `depctl sync --project proj_x`. If a sync for `proj_x` is already running, the request collapses into one follow-up run.
 
 ## Notes
 

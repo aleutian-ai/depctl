@@ -7,7 +7,7 @@ import (
 
 	"github.com/zeebo/blake3"
 
-	"aleutian-ai/ragctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/domain"
 )
 
 var fingerprintEncoding = base32.StdEncoding.WithPadding(base32.NoPadding)

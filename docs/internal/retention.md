@@ -1,6 +1,6 @@
 # internal/retention
 
-`internal/retention` implements ragctl's grace-period bookkeeping (RET-002) and GC eligibility planning (RET-003): keeping a dependency version's knowledge retained for a configurable window after a project stops referencing it, then computing which versions are finally safe to delete. It also plans two narrower cleanups: orphan generations (failed or stuck builds) and superseded same-version duplicates. It is pure over store reads — no deletion happens in this package; that's `internal/lifecycle/gc`.
+`internal/retention` implements depctl's grace-period bookkeeping (RET-002) and GC eligibility planning (RET-003): keeping a dependency version's knowledge retained for a configurable window after a project stops referencing it, then computing which versions are finally safe to delete. It also plans two narrower cleanups: orphan generations (failed or stuck builds) and superseded same-version duplicates. It is pure over store reads — no deletion happens in this package; that's `internal/lifecycle/gc`.
 
 ## Key types and functions
 
@@ -19,32 +19,32 @@
 
 ```mermaid
 flowchart TD
-    Sync["ragctl sync\n(cli/sync.go, on planner.ActionDropReference)"] -->|DropReference| DR["retention.DropReference"]
+    Sync["depctl sync\n(cli/sync.go, on planner.ActionDropReference)"] -->|DropReference| DR["retention.DropReference"]
     DR -->|RemoveReference, then\nAddReference(grace_period) if none remain| Bbolt1[(bbolt: references bucket)]
 
-    GCCmd["ragctl gc (cli/gc.go)"] -->|PlanGC| Plan["retention.PlanGC"]
+    GCCmd["depctl gc (cli/gc.go)"] -->|PlanGC| Plan["retention.PlanGC"]
     Bbolt2[(bbolt: references bucket)] -->|ListAllReferences, ListReferences| Plan
     Plan -->|"[]GCCandidate"| GCRun["lifecycle/gc.Run"]
     GCRun -->|clears active pointer; deletes index +\nBadger + bbolt data, dependency+version scoped| Stores[(search indexes, Badger, bbolt)]
 
-    OrphanCmd["ragctl gc --orphans\n(cli/gc.go, GC-002)"] -->|PlanOrphanGC| OPlan["retention.PlanOrphanGC"]
+    OrphanCmd["depctl gc --orphans\n(cli/gc.go, GC-002)"] -->|PlanOrphanGC| OPlan["retention.PlanOrphanGC"]
     Bbolt3[(bbolt: generations bucket,\nactive_generations)] -->|ListAllGenerations,\nGetActiveGeneration| OPlan
     OPlan -->|"[]OrphanCandidate"| GCRunOrphans["lifecycle/gc.RunOrphans"]
     GCRunOrphans -->|deletes index + Badger + bbolt data,\nGENERATION-ID scoped only| Stores
 
-    DupCmd["ragctl gc --superseded-duplicates\n(cli/gc.go)"] -->|PlanSupersededDuplicateGC| DPlan["retention.PlanSupersededDuplicateGC"]
+    DupCmd["depctl gc --superseded-duplicates\n(cli/gc.go)"] -->|PlanSupersededDuplicateGC| DPlan["retention.PlanSupersededDuplicateGC"]
     Bbolt3 -->|ListAllGenerations| DPlan
     DPlan -->|"[]SupersededDuplicateCandidate"| GCRunDup["lifecycle/gc.RunSupersededDuplicates"]
     GCRunDup -->|GENERATION-ID scoped only| Stores
 ```
 
-`DropReference` is called from `ragctl sync`'s action dispatch whenever `planner.Plan` emits `ActionDropReference` — it's the only writer in this package, touching the `references` bbolt bucket. `PlanGC` is called from `ragctl gc` (cli/gc.go); it only reads (`ListAllReferences`, `ListReferences`) and returns `[]GCCandidate` for `internal/lifecycle/gc.Run` to act on — `retention` itself never deletes anything. `PlanOrphanGC` (GC-001) and `PlanSupersededDuplicateGC` (POINT-004) are `ragctl gc --orphans`' and `ragctl gc --superseded-duplicates`' own, independent read paths — no writer of its own in this package, since a generation's `FAILED`/stuck state is already written by `internal/data/generation.Build`/`Replicate`, not by anything in `retention`.
+`DropReference` is called from `depctl sync`'s action dispatch whenever `planner.Plan` emits `ActionDropReference` — it's the only writer in this package, touching the `references` bbolt bucket. `PlanGC` is called from `depctl gc` (cli/gc.go); it only reads (`ListAllReferences`, `ListReferences`) and returns `[]GCCandidate` for `internal/lifecycle/gc.Run` to act on — `retention` itself never deletes anything. `PlanOrphanGC` (GC-001) and `PlanSupersededDuplicateGC` (POINT-004) are `depctl gc --orphans`' and `depctl gc --superseded-duplicates`' own, independent read paths — no writer of its own in this package, since a generation's `FAILED`/stuck state is already written by `internal/data/generation.Build`/`Replicate`, not by anything in `retention`.
 
 ## Walkthrough
 
-Scenario: project `proj-checkout` was the last project referencing `go/github.com/example/widget@v1.2.0`. It re-resolves to `v1.3.0`, so `ragctl sync` drops the old reference — starting a grace period — and, 15 days later, `ragctl gc` evaluates that version for deletion.
+Scenario: project `proj-checkout` was the last project referencing `go/github.com/example/widget@v1.2.0`. It re-resolves to `v1.3.0`, so `depctl sync` drops the old reference — starting a grace period — and, 15 days later, `depctl gc` evaluates that version for deletion.
 
-1. **`ragctl sync` emits the drop.** `planner.Plan` (see `docs/internal/planner.md`) compares the new `Resolution` against stored `VersionReference`s, sees `proj-checkout` no longer resolves to `v1.2.0`, and emits `ActionDropReference{Ecosystem: "go", Package: "github.com/example/widget", Version: "v1.2.0", ProjectID: "proj-checkout"}`. The CLI's action dispatch calls `retention.DropReference(ctx, store, "go", "github.com/example/widget", "v1.2.0", "proj-checkout")` (internal/retention/retention.go).
+1. **`depctl sync` emits the drop.** `planner.Plan` (see `docs/internal/planner.md`) compares the new `Resolution` against stored `VersionReference`s, sees `proj-checkout` no longer resolves to `v1.2.0`, and emits `ActionDropReference{Ecosystem: "go", Package: "github.com/example/widget", Version: "v1.2.0", ProjectID: "proj-checkout"}`. The CLI's action dispatch calls `retention.DropReference(ctx, store, "go", "github.com/example/widget", "v1.2.0", "proj-checkout")` (internal/retention/retention.go).
 
 2. **The project's reference is removed.** `store.RemoveReference` deletes the `VersionReference{ProjectID: "proj-checkout", Reason: domain.ReferenceReasonProject, ...}` row from the `references` bucket (internal/retention/retention.go).
 
@@ -64,7 +64,7 @@ Scenario: project `proj-checkout` was the last project referencing `go/github.co
    ```
    No duration is stored yet — only `LastSeenAt` (internal/retention/retention.go).
 
-5. **15 days pass; `ragctl gc` runs `PlanGC`.** Called as `PlanGC(ctx, store, "embedded", 0, time.Date(2026, 9, 10, 9, 0, 0, 0, time.UTC))`. Say the configured `gracePeriod` is `0` (an older config without the key; fresh installs write 14 days explicitly); `EffectiveGracePeriod` then returns the RET-002 default of `336 * time.Hour` (14 days) (internal/retention/gc_planner.go, internal/retention/retention.go).
+5. **15 days pass; `depctl gc` runs `PlanGC`.** Called as `PlanGC(ctx, store, "embedded", 0, time.Date(2026, 9, 10, 9, 0, 0, 0, time.UTC))`. Say the configured `gracePeriod` is `0` (an older config without the key; fresh installs write 14 days explicitly); `EffectiveGracePeriod` then returns the RET-002 default of `336 * time.Hour` (14 days) (internal/retention/gc_planner.go, internal/retention/retention.go).
 
 6. **The candidate set is discovered.** `store.ListAllReferences(ctx)` returns every reference row across all projects, including the grace-period row from step 4. `PlanGC` dedupes into `dependencyVersion{ecosystem: "go", pkg: "github.com/example/widget", version: "v1.2.0"}` keyed as `"go|github.com/example/widget|v1.2.0"` (internal/retention/gc_planner.go).
 
@@ -74,7 +74,7 @@ Scenario: project `proj-checkout` was the last project referencing `go/github.co
 
 9. **No active-generation guard.** `v1.2.0` is probably still the active generation for its own version — active generations are per version (ADR-012), so `v1.3.0`'s promotion didn't retire it. That doesn't matter: references and the grace period alone decide a version's lifetime, and `gc.Run` will clear the active pointer before deleting anything (internal/retention/gc_planner.go).
 
-10. **The candidate is emitted.** `PlanGC` appends `GCCandidate{Ecosystem: "go", Package: "github.com/example/widget", Version: "v1.2.0", Reason: "grace_expired"}` to its result slice, which `ragctl gc` hands to `lifecycle/gc.Run` to actually delete (internal/retention/gc_planner.go).
+10. **The candidate is emitted.** `PlanGC` appends `GCCandidate{Ecosystem: "go", Package: "github.com/example/widget", Version: "v1.2.0", Reason: "grace_expired"}` to its result slice, which `depctl gc` hands to `lifecycle/gc.Run` to actually delete (internal/retention/gc_planner.go).
 
 ## Notes
 

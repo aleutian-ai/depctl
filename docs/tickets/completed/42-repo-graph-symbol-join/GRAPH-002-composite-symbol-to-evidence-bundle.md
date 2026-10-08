@@ -6,7 +6,7 @@
 **Estimated size:** medium
 
 ## Goal
-Implement the actual join described in the scratch doc's §14: a call site resolves (via GRAPH-001's `SymbolProvider`) to an `ExternalSymbolRef`, which this ticket maps to a `domain.Dependency`/version ragctl already knows about (via the project's stored `domain.Resolution`), and then queries `internal/query.Service` for that exact dependency+version's evidence — producing one compact evidence bundle for a call site, end to end.
+Implement the actual join described in the scratch doc's §14: a call site resolves (via GRAPH-001's `SymbolProvider`) to an `ExternalSymbolRef`, which this ticket maps to a `domain.Dependency`/version depctl already knows about (via the project's stored `domain.Resolution`), and then queries `internal/query.Service` for that exact dependency+version's evidence — producing one compact evidence bundle for a call site, end to end.
 
 ## Non-goals
 - **Choosing exactly one graph-provider family to prototype against is explicitly out of scope for this ticket.** This ticket depends only on GRAPH-001's `SymbolProvider` interface; whoever picks up GRAPH-002 supplies (or stubs, for tests) a concrete `SymbolProvider` — deciding which real provider (SCIP/LSP/CodebaseMemory/GitNexus/etc.) to integrate against is deferred to that implementer's judgment, not decided here.
@@ -32,8 +32,8 @@ type EvidenceBundle struct {
 }
 
 // Resolver joins a project source call site to the exact-version
-// knowledge evidence ragctl already has for the dependency it calls
-// into — the "graph resolves symbol, ragctl resolves knowledge" join
+// knowledge evidence depctl already has for the dependency it calls
+// into — the "graph resolves symbol, depctl resolves knowledge" join
 // from the design doc's repo-graph section.
 type Resolver struct {
     symbols  SymbolProvider  // GRAPH-001
@@ -74,13 +74,13 @@ func (r *Resolver) ResolveEvidence(ctx context.Context, projectID string, site C
 5. Match found → call `r.queries.SearchKnowledge(ctx, query.Query{ProjectID: projectID, Dependency: matched.Dependency.Name, Text: queryText, Mode: query.ModeProject})`, wrap the result with `ref`/`matched` into `EvidenceBundle`.
 
 ## Inputs / Outputs
-- Input: `projectID` (an already-registered ragctl project), a `CallSite`, and `queryText` (what to search for once the exact dependency+version is known — e.g. the symbol's own qualified name, or a caller-supplied natural-language question about it).
+- Input: `projectID` (an already-registered depctl project), a `CallSite`, and `queryText` (what to search for once the exact dependency+version is known — e.g. the symbol's own qualified name, or a caller-supplied natural-language question about it).
 - Output: `*EvidenceBundle` (symbol + matched dependency version + search result), or `(nil, nil)` when the call site isn't external, or a typed error for provider/resolution/search failures.
 
 ## Failure behavior
 - `SymbolProvider.Resolve` returns an error → propagated as-is, wrapped with call-site context (`fmt.Errorf("symbolgraph: resolve %s:%d:%d: %w", ...)`).
 - `ControlStore.GetResolution` returns `bbolt.ErrNotFound` (project not registered / never resolved) → propagated, wrapped distinctly from "dependency not in this resolution" so a caller can tell "no project state at all" from "project exists but doesn't depend on this."
-- `ExternalSymbolRef.Module` doesn't match anything in `resolution.Dependencies` → `ErrDependencyNotResolved`, not silently empty evidence — the caller (an agent) should be told the symbol is genuinely outside what ragctl knows about this project, not shown a misleadingly empty result.
+- `ExternalSymbolRef.Module` doesn't match anything in `resolution.Dependencies` → `ErrDependencyNotResolved`, not silently empty evidence — the caller (an agent) should be told the symbol is genuinely outside what depctl knows about this project, not shown a misleadingly empty result.
 - `QueryService.SearchKnowledge` returns `query.ErrDependencyNotFound`/`ErrNoActiveGeneration` → propagated as-is; this ticket adds no new handling for those, they're already meaningful to a caller.
 
 ## Tests

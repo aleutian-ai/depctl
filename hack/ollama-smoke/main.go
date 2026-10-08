@@ -1,5 +1,5 @@
 // Command ollama-smoke measures how a local chat model behaves while
-// something else (a ragctl sync embedding through the same Ollama) shares
+// something else (a depctl sync embedding through the same Ollama) shares
 // the machine. It repeatedly asks the chat model for a fixed-size reply,
 // recording Ollama's own tokens-per-second, and samples which models
 // Ollama has loaded and how much memory pressure the machine is under.

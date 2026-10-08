@@ -8,7 +8,7 @@
 /dataSources.local.xml
 # Editor-based HTTP Client requests
 /httpRequests/
-/ragctl.iml
+/depctl.iml
 /vcs.xml
 *.idea
 /golinter.xml

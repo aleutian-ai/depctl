@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"aleutian-ai/ragctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/domain"
 )
 
 // fakeNormalizer is a minimal Normalizer used to exercise the interface

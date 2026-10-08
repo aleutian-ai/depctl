@@ -1,6 +1,6 @@
 # zepai/graphiti:latest with upstream server bugs fixed so ingestion works,
 # including on a local OpenAI-compatible endpoint (Ollama). Found by
-# ragctl's real-container testing (GRAPHITI-001):
+# depctl's real-container testing (GRAPHITI-001):
 #  1. POST /messages queues a job that captures the *request-scoped*
 #     Graphiti client, which get_graphiti closes as soon as the 202 is
 #     sent. The job then runs against a closed driver. Fix: the job opens

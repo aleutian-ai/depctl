@@ -1,6 +1,6 @@
 # Keyword vs. vector search: retrieval eval
 
-**Question:** does ragctl's search get worse without Ollama, when it searches by keyword (BM25) instead of embeddings?
+**Question:** does depctl's search get worse without Ollama, when it searches by keyword (BM25) instead of embeddings?
 
 **Answer (2026-10-07): no measurable drop-off.**
 - On 323 questions over 12 real Go dependencies, keyword and vector search found the right doc equally well; the difference was within noise.
@@ -9,7 +9,7 @@
 
 ## Results
 
-Every question was asked of every method, scoped (like all ragctl searches) to the exact dependency version synced. "Hit@3" means the right doc was among the top 3 results. MRR is the average of 1/rank of the first right answer (0 when it isn't in the top 10), so higher is better.
+Every question was asked of every method, scoped (like all depctl searches) to the exact dependency version synced. "Hit@3" means the right doc was among the top 3 results. MRR is the average of 1/rank of the first right answer (0 when it isn't in the top 10), so higher is better.
 
 | Method | Hit@1 | Hit@3 | Hit@10 | MRR |
 |---|---|---|---|---|
@@ -48,10 +48,10 @@ Vector time is mostly embedding the question with Ollama.
 
 ## How it was measured
 
-- **Corpus.** 12 dependencies ragctl itself uses, at the versions in its `go.mod`, synced in `retrieval.mode: auto` with Ollama running, so both indexes hold the same 10,559 chunks: BurntSushi/toml, badger, fsnotify, google/uuid, pgx, the MCP Go SDK, ulid, the Prometheus client, cobra, bbolt, OpenTelemetry (root module) and yaml.v3.
+- **Corpus.** 12 dependencies depctl itself uses, at the versions in its `go.mod`, synced in `retrieval.mode: auto` with Ollama running, so both indexes hold the same 10,559 chunks: BurntSushi/toml, badger, fsnotify, google/uuid, pgx, the MCP Go SDK, ulid, the Prometheus client, cobra, bbolt, OpenTelemetry (root module) and yaml.v3.
 - **Hand-written questions (48).** Realistic questions in three kinds: exact identifiers, plain descriptions, and paraphrases. Each right answer is one or more specific docs (for example `pgxpool.Acquire`), checked against the corpus. The tool refuses any question whose answer isn't in the corpus.
 - **Generated questions (275).** A local model (`ornith-1.5:9b`) read a randomly chosen doc chunk and wrote a question that chunk answers, told not to use its identifiers or phrasing. 46 questions that still reused an identifier or a five-word phrase were thrown out. The right answer is that exact chunk.
-- **Hybrid** is reciprocal rank fusion of each method's top 50 (score = Σ 1/(60 + rank)). Since 2026-10-07 this is what ragctl itself does in `auto` mode when vectors exist. Asking all 323 questions through the real daemon's search API gives exactly the hybrid numbers above.
+- **Hybrid** is reciprocal rank fusion of each method's top 50 (score = Σ 1/(60 + rank)). Since 2026-10-07 this is what depctl itself does in `auto` mode when vectors exist. Asking all 323 questions through the real daemon's search API gives exactly the hybrid numbers above.
 
 ## Embedding models (2026-10-07)
 
@@ -84,7 +84,7 @@ Same corpus and questions. Every setup was chosen on the **tune half** and is re
 - **EmbeddingGemma 2 is a real improvement over nomic**, alone and in hybrid. Hybrid with it beats keyword search alone by +0.074 MRR, where hybrid with nomic didn't separate from keyword on the held-out half.
 - **Its prompts matter.** Without them it does no better than nomic. Which prompt (code retrieval or search result) makes no measurable difference.
 - **Truncating to 256 dimensions costs nothing measurable**, and makes the vector store about 3× smaller.
-- **The 270m, 570m and 740m variants give identical text embeddings** (checked vector by vector). They share the text encoder and differ only in image and audio parts. For ragctl, the 378 MB 270m is the one to use.
+- **The 270m, 570m and 740m variants give identical text embeddings** (checked vector by vector). They share the text encoder and differ only in image and audio parts. For depctl, the 378 MB 270m is the one to use.
 
 **Shipped as the default (2026-10-07).** Fresh installs now use `embeddinggemma-2:270m` with the code-retrieval prompts at 256 dimensions. Asked through the running daemon's search API (`run -daemon-only -daemon-project <id>`), the held-out half scores exactly what the eval predicts: **0.583 MRR, 69% hit@3, 84% hit@10** (0.607 MRR over all 323 questions). The vector store for the 12 dependencies is 16.8 MB, against 50.6 MB with nomic at 768 dimensions. Existing installs keep the model their config names.
 
@@ -113,15 +113,15 @@ Three ideas for going past the shipped default, each measured on the **tune half
 
 - **Generated questions may still lean towards keyword search.** A question written from one chunk can share ordinary words with it even after the filter. The hand-written set, where this matters less, shows the same order (keyword 0.498, vector 0.430, hybrid 0.526), though with only 48 questions.
 - **The right-answer rule is strict.** A generated question counts only its source chunk as right, so a near-duplicate doc ranking first counts as a miss. This lowers every method's score equally; it doesn't favor one.
-- **One corpus, one model.** These are Go API docs and READMEs with one embedding model, ragctl's default. Prose-heavy docs, other languages or a stronger embedding model could shift the balance towards vector search.
+- **One corpus, one model.** These are Go API docs and READMEs with one embedding model, depctl's default. Prose-heavy docs, other languages or a stronger embedding model could shift the balance towards vector search.
 - **The identifier and description groups are small** (10 and 20 questions). Their per-kind numbers are indicative, not conclusive.
 
-## What it means for ragctl
+## What it means for depctl
 
 - **Running without Ollama is a sound choice.** `retrieval.mode: keyword` (or `auto` while Ollama is down) costs no measurable quality on this kind of corpus. It's faster, and it's better at exact names.
 - **Hybrid search is now what `auto` does** when Ollama is available (built 2026-10-07). On the held-out test half it scores 0.528 MRR against keyword's 0.513 and vector's 0.466, and finds the right doc in its top 10 for 83% of questions against 78% and 75%.
 - **Task prefixes aren't worth adding for nomic.** They made no difference for `nomic-embed-text-v2-moe` here. EmbeddingGemma 2 is the opposite: it needs its prompts (see above).
-- **Switching an existing install** to the new default: set the four `embedding` lines (`model`, `query_prompt`, `document_prompt`, `dimensions`; see `docs/internal/config.md`), run `ragctl daemon stop`, then `ragctl sync`. The sync re-embeds every active version from its stored chunks, and keyword search covers them until then. Checked on the sandbox install, both ways: EmbeddingGemma 2 → nomic → EmbeddingGemma 2, with the daemon reproducing each model's held-out score afterwards.
+- **Switching an existing install** to the new default: set the four `embedding` lines (`model`, `query_prompt`, `document_prompt`, `dimensions`; see `docs/internal/config.md`), run `depctl daemon stop`, then `depctl sync`. The sync re-embeds every active version from its stored chunks, and keyword search covers them until then. Checked on the sandbox install, both ways: EmbeddingGemma 2 → nomic → EmbeddingGemma 2, with the daemon reproducing each model's held-out score afterwards.
 
 ## The benchmark
 
@@ -135,7 +135,7 @@ The tool is `hack/retrieval-eval`. The question sets are `hack/retrieval-eval/qu
 
 ```bash
 # a sandbox install in auto mode with Ollama running, holding the 12 dependencies (see "Corpus")
-ragctl daemon stop                      # the tool opens the stores directly
+depctl daemon stop                      # the tool opens the stores directly
 go run ./hack/retrieval-eval index -config <config.yaml> -name eg2-270m-code -embed embeddinggemma-2:270m \
   -query-format 'task: code retrieval | query: {q}' -doc-format 'title: {title} | text: {text}' -dims 256   # optional: another embedding setup
 go run ./hack/retrieval-eval run -config <config.yaml> \

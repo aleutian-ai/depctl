@@ -10,7 +10,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"aleutian-ai/ragctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/domain"
 )
 
 // DetectedProject is one (root, ecosystem) match found by Scan. A polyglot
@@ -111,8 +111,8 @@ func Scan(ctx context.Context, root string) ([]DetectedProject, error) {
 // verbatim, e.g. macOS's /tmp -> /private/tmp), but resolves a relative
 // path via os.Getwd(), which falls back to the kernel's getcwd() (always
 // fully symlink-resolved) whenever $PWD is unset or stale — exactly the
-// case for a daemon/MCP-spawned subprocess. `ragctl scan /tmp/foo`
-// (literal, absolute) and ragctl serve's own startup scan (".", relative,
+// case for a daemon/MCP-spawned subprocess. `depctl scan /tmp/foo`
+// (literal, absolute) and depctl serve's own startup scan (".", relative,
 // from a working directory under /tmp) used to diverge into two
 // different canonical roots — and therefore two different project IDs —
 // for the identical physical directory. EvalSymlinks closes that gap by

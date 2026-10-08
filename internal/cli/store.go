@@ -7,9 +7,9 @@ import (
 	"path/filepath"
 	"time"
 
-	"aleutian-ai/ragctl/internal/config"
-	bboltstore "aleutian-ai/ragctl/internal/control/bbolt"
-	badgerstore "aleutian-ai/ragctl/internal/data/badger"
+	"github.com/aleutian-ai/depctl/internal/config"
+	bboltstore "github.com/aleutian-ai/depctl/internal/control/bbolt"
+	badgerstore "github.com/aleutian-ai/depctl/internal/data/badger"
 )
 
 // controlDBPath and badgerDirPath centralize the on-disk layout under the
@@ -45,12 +45,12 @@ func socketPath() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	path := filepath.Join(dataDir, "ragctld.sock")
+	path := filepath.Join(dataDir, "depctld.sock")
 	if len(path) <= maxSocketPath {
 		return path, nil
 	}
 	sum := sha256.Sum256([]byte(dataDir))
-	return filepath.Join(os.TempDir(), fmt.Sprintf("ragctld-%x.sock", sum[:6])), nil
+	return filepath.Join(os.TempDir(), fmt.Sprintf("depctld-%x.sock", sum[:6])), nil
 }
 
 // daemonLogPath returns the log file an auto-started daemon writes to,
@@ -60,7 +60,7 @@ func daemonLogPath() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dataDir, "ragctld.log"), nil
+	return filepath.Join(dataDir, "depctld.log"), nil
 }
 
 func userRegistryDirPath() (string, error) {
@@ -81,7 +81,7 @@ func openControlStore() (*bboltstore.Store, error) {
 	return bboltstore.Open(path)
 }
 
-// daemonStartupLockTimeout bounds how long `ragctl daemon run` itself
+// daemonStartupLockTimeout bounds how long `depctl daemon run` itself
 // waits for control.db's file lock, far shorter than openControlStore's
 // default: a losing candidate in a concurrent auto-start race must find
 // out and exit almost immediately, not park inside the lock wait long
@@ -90,7 +90,7 @@ func openControlStore() (*bboltstore.Store, error) {
 const daemonStartupLockTimeout = 200 * time.Millisecond
 
 // openControlStoreForDaemonRun is openControlStore with a fail-fast lock
-// wait, for `ragctl daemon run`'s own attempt to become the owner.
+// wait, for `depctl daemon run`'s own attempt to become the owner.
 func openControlStoreForDaemonRun() (*bboltstore.Store, error) {
 	path, err := controlDBPath()
 	if err != nil {

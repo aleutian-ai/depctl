@@ -1,6 +1,6 @@
 # internal/project
 
-`internal/project` discovers local project roots by walking a directory tree for known ecosystem manifest files, and assigns each root a stable, content-derived ID. It's the entry point of the whole pipeline: `ragctl scan` (run inside the daemon, `cli.scanAndResolve`) calls `project.Scan` to find what to track before anything else (resolution, registry matching, generation) can happen. See `docs/tickets/completed/04-project-discovery`.
+`internal/project` discovers local project roots by walking a directory tree for known ecosystem manifest files, and assigns each root a stable, content-derived ID. It's the entry point of the whole pipeline: `depctl scan` (run inside the daemon, `cli.scanAndResolve`) calls `project.Scan` to find what to track before anything else (resolution, registry matching, generation) can happen. See `docs/tickets/completed/04-project-discovery`.
 
 ## Key types and functions
 
@@ -13,7 +13,7 @@
 
 ```mermaid
 flowchart LR
-    User["ragctl scan [path]"] --> Scan["project.Scan(ctx, root)"]
+    User["depctl scan [path]"] --> Scan["project.Scan(ctx, root)"]
     Scan -->|filepath.WalkDir, skip .git/node_modules/vendor/...| FS["filesystem"]
     FS -->|stat go.mod, package.json, Cargo.toml, pyproject.toml,\nrequirements.txt, pom.xml, build.gradle*| Scan
     Scan -->|[]DetectedProject{Root, Ecosystem}| CLI["cli.scanAndResolve\n(in the daemon)"]
@@ -25,7 +25,7 @@ flowchart LR
 
 ## Walkthrough
 
-Concrete scenario: `ragctl scan /Users/dev/myapp`, where `/Users/dev/myapp` is a Go module (`go.mod` at its root) with a `.git` directory and a `vendor/` directory sitting alongside it.
+Concrete scenario: `depctl scan /Users/dev/myapp`, where `/Users/dev/myapp` is a Go module (`go.mod` at its root) with a `.git` directory and a `vendor/` directory sitting alongside it.
 
 1. `cli.runScan` (`internal/cli/scan.go`) makes the path absolute and sends it to the daemon (starting one if needed). Inside the daemon, `cli.scanAndResolve` calls `project.Scan(ctx, "/Users/dev/myapp")` (`internal/project/scanner.go`).
 2. `Scan` first `os.Stat`s the root — it exists and is a directory, so no immediate error.
@@ -45,12 +45,12 @@ Concrete scenario: `ragctl scan /Users/dev/myapp`, where `/Users/dev/myapp` is a
     ```
     (uppercase — `resolver.Fingerprint` uses `base32.StdEncoding` directly, unlike `ProjectID`'s lowercased encoding).
 11. `scanAndResolve` writes the resolution via `store.PutResolution(ctx, "proj_qmlpl3...", res)` into the `project_dependencies` bucket (`internal/control/bbolt/resolutions.go`), keyed by the same project ID, and prints `resolved     go       /Users/dev/myapp: 2 dependencies`.
-12. A second `ragctl scan /Users/dev/myapp` recomputes the identical canonical root and `ProjectID`, so `GetProject` now hits — `isNew = false`, `p.CreatedAt` is carried over from the existing record, and the line printed is `existing     go       /Users/dev/myapp` instead of `new`.
+12. A second `depctl scan /Users/dev/myapp` recomputes the identical canonical root and `ProjectID`, so `GetProject` now hits — `isNew = false`, `p.CreatedAt` is carried over from the existing record, and the line printed is `existing     go       /Users/dev/myapp` instead of `new`.
 
 ## Notes
 
 - Detection is marker-file presence only, no content parsing — `markers` (`internal/project/scanner.go`) maps filename to ecosystem; a `pyproject.toml` with no lockfile or a `package.json` with no lockfile still gets detected and registered, even though the matching resolver later fails to resolve it (a non-fatal `resolve error`, handled in `cli.scanAndResolve`).
 - `Cargo.toml` (Rust) and `pom.xml`/`build.gradle*` (Java) are detected too, but there is no resolver for them, so `scan` lists those projects as `unsupported` and does not register them.
 - `skipDirs` (`internal/project/scanner.go`) is an exact-name match list (`.git`, `node_modules`, `vendor`, `dist`, `build`, `target`, `.venv`, `venv`, `__pycache__`) — no glob or `.gitignore` awareness.
-- v0.1 policy, documented at `internal/project/id.go`: moving or renaming a project directory produces a new `ProjectID` on the next scan. There is no `ragctl project move` command — the old project's references and retention reasons are not transferred; a moved project just re-registers as new.
+- v0.1 policy, documented at `internal/project/id.go`: moving or renaming a project directory produces a new `ProjectID` on the next scan. There is no `depctl project move` command — the old project's references and retention reasons are not transferred; a moved project just re-registers as new.
 - `Scan`'s `seen` map dedupes by `canonical + "|" + ecosystem`, so rescanning is idempotent at the detection layer; idempotency of the resulting `Project`/`Resolution` records themselves is `cli.scanAndResolve`'s responsibility (it looks up `GetProject` before deciding new vs. existing).

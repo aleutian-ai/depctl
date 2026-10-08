@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"aleutian-ai/ragctl/internal/config"
+	"github.com/aleutian-ai/depctl/internal/config"
 )
 
 func TestContainerRuntimePrefersPodman(t *testing.T) {
@@ -89,16 +89,16 @@ func TestEnsureManagedQdrantRunsExpectedArgsWhenAbsent(t *testing.T) {
 		t.Fatalf("read call log: %v", err)
 	}
 	log := string(calls)
-	if !strings.Contains(log, "ps -a --filter name=^ragctl-qdrant$") {
+	if !strings.Contains(log, "ps -a --filter name=^depctl-qdrant$") {
 		t.Errorf("call log = %q, want an existence check before run", log)
 	}
-	if !strings.Contains(log, "run -d --name ragctl-qdrant") {
+	if !strings.Contains(log, "run -d --name depctl-qdrant") {
 		t.Errorf("call log = %q, want a run invocation for an absent container", log)
 	}
 	if !strings.Contains(log, "-p 127.0.0.1:6333:6333") {
 		t.Errorf("call log = %q, want the port bound to loopback only", log)
 	}
-	if !strings.Contains(log, "-v ragctl-qdrant-data:/qdrant/storage") {
+	if !strings.Contains(log, "-v depctl-qdrant-data:/qdrant/storage") {
 		t.Errorf("call log = %q, want storage in a named volume, not a host bind-mount (live-found: a Podman machine with no configured host mounts fails every bind-mount)", log)
 	}
 	if strings.Contains(log, "\nstart ") {
@@ -112,7 +112,7 @@ func TestEnsureManagedQdrantRestartsStoppedContainerInsteadOfRun(t *testing.T) {
 	}))
 	defer backend.Close()
 
-	runtime, logPath := fakeRuntimeScript(t, "ragctl-qdrant\tExited")
+	runtime, logPath := fakeRuntimeScript(t, "depctl-qdrant\tExited")
 	cfg := config.Default(t.TempDir())
 	cfg.Vector.QdrantDefaults()
 	cfg.Vector.Endpoint = backend.URL
@@ -122,7 +122,7 @@ func TestEnsureManagedQdrantRestartsStoppedContainerInsteadOfRun(t *testing.T) {
 	}
 
 	log := readFileString(t, logPath)
-	if !strings.Contains(log, "start ragctl-qdrant") {
+	if !strings.Contains(log, "start depctl-qdrant") {
 		t.Errorf("call log = %q, want a start invocation for a stopped container", log)
 	}
 	if strings.Contains(log, "\nrun ") {
@@ -136,7 +136,7 @@ func TestEnsureManagedQdrantSkipsBothWhenAlreadyRunning(t *testing.T) {
 	}))
 	defer backend.Close()
 
-	runtime, logPath := fakeRuntimeScript(t, "ragctl-qdrant\tRunning")
+	runtime, logPath := fakeRuntimeScript(t, "depctl-qdrant\tRunning")
 	cfg := config.Default(t.TempDir())
 	cfg.Vector.QdrantDefaults()
 	cfg.Vector.Endpoint = backend.URL

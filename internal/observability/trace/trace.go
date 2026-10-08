@@ -19,12 +19,12 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 	oteltrace "go.opentelemetry.io/otel/trace"
 
-	"aleutian-ai/ragctl/internal/config"
+	"github.com/aleutian-ai/depctl/internal/config"
 )
 
-// tracerName is the one instrumentation-scope name every ragctl span is
+// tracerName is the one instrumentation-scope name every depctl span is
 // recorded under; call sites never construct their own tracer.
-const tracerName = "aleutian-ai/ragctl"
+const tracerName = "github.com/aleutian-ai/depctl"
 
 // InitProvider wires the global tracer provider from cfg. When
 // cfg.Enabled is false (the default), it does nothing — otel.Tracer calls
@@ -60,7 +60,7 @@ func InitProvider(ctx context.Context, cfg config.OTelConfig, logger *slog.Logge
 		return noop, nil
 	}
 
-	res, err := resource.New(ctx, resource.WithAttributes(semconv.ServiceName("ragctl")))
+	res, err := resource.New(ctx, resource.WithAttributes(semconv.ServiceName("depctl")))
 	if err != nil {
 		res = resource.Default()
 	}

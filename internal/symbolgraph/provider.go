@@ -1,5 +1,5 @@
 // Package symbolgraph joins a project source call site to the external
-// dependency symbol it refers to, so ragctl's exact-version knowledge can
+// dependency symbol it refers to, so depctl's exact-version knowledge can
 // be looked up by "what is this code calling" instead of requiring a
 // caller to already know the dependency name (GRAPH-001/002, epic 42).
 package symbolgraph
@@ -8,7 +8,7 @@ import "context"
 
 // SymbolProvider resolves one call site to the external symbol it refers
 // to. Implementations back this with whatever graph/LSP/symbol index
-// they choose (go/packages type info, SCIP, gopls, ...) — ragctl only
+// they choose (go/packages type info, SCIP, gopls, ...) — depctl only
 // depends on this interface, never on a specific provider.
 type SymbolProvider interface {
 	// Resolve returns the ExternalSymbolRef the call site refers to, or
@@ -22,7 +22,7 @@ type SymbolProvider interface {
 
 // CallSite identifies one place in project source code that a
 // SymbolProvider is asked to resolve — file + position is enough for any
-// LSP-like provider to answer; no ragctl-specific project state is
+// LSP-like provider to answer; no depctl-specific project state is
 // threaded through it.
 type CallSite struct {
 	File   string // path relative to the project root

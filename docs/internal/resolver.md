@@ -102,14 +102,14 @@ flowchart TD
     nBun --> Fingerprint
 
     Fingerprint --> Resolution["domain.Resolution\n{Ecosystem, LockPath, Dependencies, Fingerprint, Warnings}"]
-    Resolution --> CLI["ragctl scan (internal/cli)\npersists the resolution"]
-    scanNote["ragctl scan picks the resolver from\nproject.Scan's detected ecosystem;\nDetect is used only by Registry.DetectAll"]
+    Resolution --> CLI["depctl scan (internal/cli)\npersists the resolution"]
+    scanNote["depctl scan picks the resolver from\nproject.Scan's detected ecosystem;\nDetect is used only by Registry.DetectAll"]
     scanNote -.-> root
 ```
 
 ## Walkthrough
 
-Scenario: `ragctl scan` runs against a project root `/repos/myservice` whose `go.mod` requires `google.golang.org/grpc`.
+Scenario: `depctl scan` runs against a project root `/repos/myservice` whose `go.mod` requires `google.golang.org/grpc`.
 
 1. **Pick the resolver.** `scan` finds `/repos/myservice` through `project.Scan`, which reports it as a `go` project because it has a `go.mod`. `scan` then looks up the Go resolver in its own `resolvers` map (internal/cli/scan.go). It does not call `Detect`; `golang.Resolver.Detect` (a single `os.Stat` for `go.mod`) is only reached through `Registry.DetectAll` (internal/resolver/golang/detect.go).
 

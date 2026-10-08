@@ -11,9 +11,9 @@ import (
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"aleutian-ai/ragctl/internal/domain"
-	"aleutian-ai/ragctl/internal/mcp"
-	"aleutian-ai/ragctl/internal/query"
+	"github.com/aleutian-ai/depctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/mcp"
+	"github.com/aleutian-ai/depctl/internal/query"
 )
 
 // blockingScanTrigger is a mcp.ScanTrigger whose ScanProject blocks until

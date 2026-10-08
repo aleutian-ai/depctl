@@ -6,13 +6,13 @@
 **Estimated size:** small
 
 ## Goal
-Prove bbolt (control plane) and Badger (data plane) work correctly together across a process restart. This is the project's first persistence checkpoint and a prerequisite for `ragctl init`.
+Prove bbolt (control plane) and Badger (data plane) work correctly together across a process restart. This is the project's first persistence checkpoint and a prerequisite for `depctl init`.
 
 ## Non-goals
 - Do not build a unifying "service" interface/facade over both stores unless a second caller genuinely needs one. The plan explicitly says: "Create service-level store contracts only if needed. Prefer concrete types internally."
 
 ## Simplicity constraints
-- This ticket is primarily a test, not new production code. Only add glue code (e.g. a small `internal/app` struct holding both `*bboltstore.Store` and `*badgerstore.Store`) if CLI-002 (`ragctl init`) needs it — otherwise keep it to a test file.
+- This ticket is primarily a test, not new production code. Only add glue code (e.g. a small `internal/app` struct holding both `*bboltstore.Store` and `*badgerstore.Store`) if CLI-002 (`depctl init`) needs it — otherwise keep it to a test file.
 
 ## Design
 Add an integration test (e.g. `internal/app/storage_integration_test.go` or `internal/control/bbolt/integration_test.go` with a Badger import) that:

@@ -4,15 +4,15 @@ import (
 	"context"
 	"testing"
 
-	"aleutian-ai/ragctl/internal/backend"
-	"aleutian-ai/ragctl/internal/backend/backendtest"
+	"github.com/aleutian-ai/depctl/internal/backend"
+	"github.com/aleutian-ai/depctl/internal/backend/backendtest"
 )
 
 func TestFakeBackendSatisfiesInterfaceAndFiltersByVersion(t *testing.T) {
 	ctx := context.Background()
 	b := backendtest.New()
 
-	ns := backend.Namespace{Name: "ragctl", Dimensions: 2, Distance: "cosine"}
+	ns := backend.Namespace{Name: "depctl", Dimensions: 2, Distance: "cosine"}
 	if err := b.EnsureNamespace(ctx, ns); err != nil {
 		t.Fatalf("EnsureNamespace: %v", err)
 	}

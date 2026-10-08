@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"aleutian-ai/ragctl/internal/config"
+	"github.com/aleutian-ai/depctl/internal/config"
 )
 
 // TestDaemonStatusFlagsStaleConfig is the real end-to-end proof for the
@@ -15,7 +15,7 @@ import (
 func TestDaemonStatusFlagsStaleConfig(t *testing.T) {
 	isolateEnv(t)
 	runInitForTest(t)
-	useRealRagctlBinary(t)
+	useRealDepctlBinary(t)
 
 	// Start the daemon with today's config.
 	if _, err := ensureDaemon(t.Context()); err != nil {

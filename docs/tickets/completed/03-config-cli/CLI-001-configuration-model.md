@@ -10,7 +10,7 @@ Define and load the global YAML configuration file with explicit defaults and st
 
 ## Non-goals
 - No secret management beyond "read from env var reference" (see design's `api_key_env` pattern) — no OS keychain integration in v0.1.
-- No per-project `.ragctl.yaml` yet (out of scope for this ticket; can be a follow-up ticket if needed).
+- No per-project `.depctl.yaml` yet (out of scope for this ticket; can be a follow-up ticket if needed).
 
 ## Simplicity constraints
 - One flat `Config` struct mirroring the YAML shape 1:1. Do not build a generic config-layering/override framework — env vars are only used for secret *references*, not for overriding arbitrary config keys, in v0.1.
@@ -19,7 +19,7 @@ Define and load the global YAML configuration file with explicit defaults and st
 ## Design
 Package: `internal/config`
 
-File location: `~/.config/ragctl/config.yaml` (respect `$XDG_CONFIG_HOME` if set, per standard Go conventions — use `os.UserConfigDir()`).
+File location: `~/.config/depctl/config.yaml` (respect `$XDG_CONFIG_HOME` if set, per standard Go conventions — use `os.UserConfigDir()`).
 
 ```go
 type Config struct {
@@ -77,14 +77,14 @@ Defaults: `retention.grace_period = 336h`, `watch.debounce = 2s`, `server.http.l
 
 Secrets: config never stores raw API keys. `api_key_env` names an environment variable to read at runtime; nothing resolved from it is ever written back to the config file.
 
-CLI command: `ragctl config validate` — loads config, runs `Validate()`, prints actionable errors (which field, what's wrong) or "config OK".
+CLI command: `depctl config validate` — loads config, runs `Validate()`, prints actionable errors (which field, what's wrong) or "config OK".
 
 ## Inputs / Outputs
-- Input: `~/.config/ragctl/config.yaml` (or explicit `--config` path).
+- Input: `~/.config/depctl/config.yaml` (or explicit `--config` path).
 - Output: validated `Config` struct in memory; `config validate` also produces human-readable stdout.
 
 ## Failure behavior
-- Missing file → return `Default()` merged with... actually: missing file is only acceptable for `ragctl init` to create; `Load` on a missing file returns a typed `ErrConfigNotFound` so callers (e.g. `init`) can distinguish "not yet initialized" from "malformed".
+- Missing file → return `Default()` merged with... actually: missing file is only acceptable for `depctl init` to create; `Load` on a missing file returns a typed `ErrConfigNotFound` so callers (e.g. `init`) can distinguish "not yet initialized" from "malformed".
 - Malformed YAML or failed validation → error message names the exact field and constraint violated (e.g. `retention.grace_period: must be a positive duration`).
 
 ## Tests
@@ -94,7 +94,7 @@ CLI command: `ragctl config validate` — loads config, runs `Validate()`, print
 - Secrets never appear in `config.Marshal()`/re-serialized output even if resolved at runtime.
 
 ## Acceptance criteria
-- [x] `ragctl config validate` returns useful, field-specific errors on bad config.
+- [x] `depctl config validate` returns useful, field-specific errors on bad config.
 - [x] Explicit defaults are documented and applied for all optional fields.
 - [x] No API secrets are ever serialized back to the config file.
 - [x] Environment variables are used only for secret resolution, not general config override.

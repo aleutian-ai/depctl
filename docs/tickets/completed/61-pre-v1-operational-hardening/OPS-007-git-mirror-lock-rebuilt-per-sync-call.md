@@ -6,7 +6,7 @@
 **Estimated size:** small
 
 ## Goal
-Found live during epic 49's STRESS-007 (concurrent cross-project sync against a real daemon): two real, genuinely concurrent `ragctl sync` requests for two different projects, each depending on a different version of the same underlying git repository (`cloud.google.com/go/compute/metadata` at two different tags, both living in the `github.com/googleapis/google-cloud-go` monorepo), raced on that repository's shared git mirror directory. One sync failed with a real, reproducible error:
+Found live during epic 49's STRESS-007 (concurrent cross-project sync against a real daemon): two real, genuinely concurrent `depctl sync` requests for two different projects, each depending on a different version of the same underlying git repository (`cloud.google.com/go/compute/metadata` at two different tags, both living in the `github.com/googleapis/google-cloud-go` monorepo), raced on that repository's shared git mirror directory. One sync failed with a real, reproducible error:
 
 ```
 git clone --mirror https://github.com/googleapis/google-cloud-go: Cloning into bare repository '.../git/github.com/googleapis/google-cloud-go.git'...
@@ -30,7 +30,7 @@ This became reachable in practice once epic 53 (`BuildCoordinator`) removed cros
 3. All three existing `RunSync` test call sites updated to pass `nil` (none of them exercise real git acquisition).
 
 ## Inputs / Outputs
-- Input: two real, concurrent `ragctl sync` requests needing the same underlying git repository at different tags.
+- Input: two real, concurrent `depctl sync` requests needing the same underlying git repository at different tags.
 - Output: both complete without a mirror-creation race, using the daemon's one shared `git.Cache` and its one shared `mirrorLocks` map.
 
 ## Failure behavior

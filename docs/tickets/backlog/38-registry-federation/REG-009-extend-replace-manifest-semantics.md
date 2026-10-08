@@ -6,7 +6,7 @@
 **Estimated size:** medium
 
 ## Goal
-Let a user- or project-tier manifest *add or override individual sources* on top of a lower-priority manifest of the same `metadata.name`, instead of the only option being a full silent replacement — matching the design doc's explicit call for "extend it with internal sources... override individual sources... replace it entirely" (`docs/scratch/ragctl_architecture_eval_next_steps-2.md` §6A "Registry layering").
+Let a user- or project-tier manifest *add or override individual sources* on top of a lower-priority manifest of the same `metadata.name`, instead of the only option being a full silent replacement — matching the design doc's explicit call for "extend it with internal sources... override individual sources... replace it entirely" (`docs/scratch/depctl_architecture_eval_next_steps-2.md` §6A "Registry layering").
 
 ## Non-goals
 - No merge of any field other than `Sources` — `Match`, `Version`, and `Metadata` itself on an `extends` manifest are taken entirely from the *incoming* (higher-priority) manifest, not merged field-by-field with the base. A manifest that wants to extend another still fully declares its own `match`/`version` block; only the source list gets merged. Partial-field merging of `Match`/`Version` is more machinery than this ticket's actual need (adding/overriding sources) justifies.

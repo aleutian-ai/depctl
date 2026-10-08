@@ -1,4 +1,4 @@
-# EVAL-004: `ragctl eval` command group
+# EVAL-004: `depctl eval` command group
 
 **Epic:** Evaluation framework
 **Status:** planned
@@ -20,13 +20,13 @@ Expose the evaluation framework via CLI subcommands so users/CI can run and insp
 Package: `internal/cli` (or wherever other Cobra commands live), subcommand group `eval`.
 
 ```bash
-ragctl eval run [--cases <dir>] [--json]
-ragctl eval list
-ragctl eval show <run-id>
-ragctl eval export <run-id> --format json|csv
+depctl eval run [--cases <dir>] [--json]
+depctl eval list
+depctl eval show <run-id>
+depctl eval export <run-id> --format json|csv
 ```
 
-- `eval run` loads cases (EVAL-001), executes EVAL-002 (always) and EVAL-003 (if labeled cases present), writes a result file to `~/.local/share/ragctl/eval/<run-id>.json`, and prints a human-readable summary (or JSON with `--json`).
+- `eval run` loads cases (EVAL-001), executes EVAL-002 (always) and EVAL-003 (if labeled cases present), writes a result file to `~/.local/share/depctl/eval/<run-id>.json`, and prints a human-readable summary (or JSON with `--json`).
 - `eval list` lists result files in that directory.
 - `eval show`/`eval export` read a specific result file.
 

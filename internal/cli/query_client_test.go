@@ -5,20 +5,20 @@ import (
 	"errors"
 	"testing"
 
-	"aleutian-ai/ragctl/internal/query"
+	"github.com/aleutian-ai/depctl/internal/query"
 )
 
 // TestDaemonQueryServiceRoundTripsThroughRealDaemon is the actual proof
-// WATCH-010's migration works: daemonQueryService (what `ragctl serve`
+// WATCH-010's migration works: daemonQueryService (what `depctl serve`
 // now uses instead of opening a store itself) is exercised against a
-// real, separately-spawned `ragctl daemon run` process — not an
+// real, separately-spawned `depctl daemon run` process — not an
 // in-process fake — the same way an MCP client's serve process would
 // reach it in practice.
 func TestDaemonQueryServiceRoundTripsThroughRealDaemon(t *testing.T) {
 	isolateEnv(t)
 	requireGo(t)
 	runInitForTest(t)
-	useRealRagctlBinary(t)
+	useRealDepctlBinary(t)
 
 	root := scanDepFixture(t) // registers example.com/app depending on example.com/foo (local replace)
 	ctx := context.Background()
@@ -89,7 +89,7 @@ func TestDaemonSyncTriggerRoundTripsThroughRealDaemon(t *testing.T) {
 	noAmbientSync(t)
 	requireGo(t)
 	runInitForTest(t)
-	useRealRagctlBinary(t)
+	useRealDepctlBinary(t)
 
 	scanDepFixture(t)
 	ctx := context.Background()
@@ -143,7 +143,7 @@ func TestDaemonSyncTriggerProjectNotFoundIsClassified(t *testing.T) {
 	noAmbientSync(t)
 	requireGo(t)
 	runInitForTest(t)
-	useRealRagctlBinary(t)
+	useRealDepctlBinary(t)
 
 	ctx := context.Background()
 	c, err := ensureDaemon(ctx)
@@ -170,7 +170,7 @@ func TestDaemonSyncTriggerDependencyFilterReachesRealSyncOptions(t *testing.T) {
 	isolateEnv(t)
 	requireGo(t)
 	runInitForTest(t)
-	useRealRagctlBinary(t)
+	useRealDepctlBinary(t)
 
 	scanDepFixture(t)
 	ctx := context.Background()
@@ -239,7 +239,7 @@ func TestDaemonPriorityBumperRoundTripsThroughRealDaemon(t *testing.T) {
 	noAmbientSync(t)
 	requireGo(t)
 	runInitForTest(t)
-	useRealRagctlBinary(t)
+	useRealDepctlBinary(t)
 
 	scanDepFixture(t)
 	ctx := context.Background()

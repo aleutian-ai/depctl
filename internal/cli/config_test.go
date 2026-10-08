@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"aleutian-ai/ragctl/internal/config"
+	"github.com/aleutian-ai/depctl/internal/config"
 )
 
 func TestConfigValidateMissingFile(t *testing.T) {
@@ -17,8 +17,8 @@ func TestConfigValidateMissingFile(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected an error for a missing config file")
 	}
-	if !strings.Contains(err.Error(), "run `ragctl init`") {
-		t.Errorf("expected error to suggest `ragctl init`, got: %v", err)
+	if !strings.Contains(err.Error(), "run `depctl init`") {
+		t.Errorf("expected error to suggest `depctl init`, got: %v", err)
 	}
 }
 

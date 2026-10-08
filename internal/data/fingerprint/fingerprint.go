@@ -1,4 +1,4 @@
-// Package fingerprint provides ragctl's single deterministic
+// Package fingerprint provides depctl's single deterministic
 // content-identity primitive: a BLAKE3-based Fingerprint over a
 // KnowledgeObject's identifying inputs, and the ObjectID string derived
 // from it. Every other subsystem that needs to detect "has this content

@@ -1,6 +1,6 @@
 # internal/planner
 
-`internal/planner` computes the diff between a project's freshly resolved dependencies and its previously recorded state (version references, active generations), producing a typed list of actions for `ragctl plan`/`ragctl sync` to report or execute. It is the decision layer of sync: it never touches bbolt/Badger/network itself — callers gather the inputs it needs and it does pure diffing.
+`internal/planner` computes the diff between a project's freshly resolved dependencies and its previously recorded state (version references, active generations), producing a typed list of actions for `depctl plan`/`depctl sync` to report or execute. It is the decision layer of sync: it never touches bbolt/Badger/network itself — callers gather the inputs it needs and it does pure diffing.
 
 ## Key types and functions
 
@@ -21,15 +21,15 @@ flowchart TD
     Registry[registry.Registry.Load] -->|*registry.Registry| CLI
     CLI -->|project, resolution, current, reg, activeGenerations| Plan["planner.Plan (pure)"]
     Plan -->|"[]planner.Action"| CLI
-    CLI -->|render table/JSON| PlanCmd["ragctl plan"]
-    CLI -->|dispatch on Action.Kind| SyncCmd["ragctl sync (sync.go)\naddReference / syncVersion"]
+    CLI -->|render table/JSON| PlanCmd["depctl plan"]
+    CLI -->|dispatch on Action.Kind| SyncCmd["depctl sync (sync.go)\naddReference / syncVersion"]
     SyncCmd -->|writes| Store
     SyncCmd -->|SYNC_VERSION drives| Generation[internal/data/generation.Build]
 ```
 
 Inputs: `internal/cli/plan.go`'s `computePlans` (running inside the daemon) reads a project's `Resolution` and `VersionReference`s from `bbolt.Store`, builds the `activeGenerations` and `noSource` maps via `planner.GenerationKey` + `Store.GetActiveGeneration`/`HasNoSource` (one lookup per distinct dependency version, against the configured `vector.backend`), and loads a `*registry.Registry` — all I/O happens before `Plan` is called.
 
-Outputs: `Plan` returns `[]Action`. `ragctl plan` (plan.go) just renders these. `ragctl sync` (sync.go) switches on `Action.Kind`: `ADD_REFERENCE`/`DROP_REFERENCE` write to the bbolt `references` bucket via `addReference`; `SYNC_VERSION` drives `syncVersion`, which ultimately calls into `internal/data/generation.Build`. `GC_CANDIDATE` actions are provisional markers only — nothing acts on them directly; `internal/retention.PlanGC`, run by `ragctl gc`, decides from every project's references (plus the grace period) which versions are really unreferenced.
+Outputs: `Plan` returns `[]Action`. `depctl plan` (plan.go) just renders these. `depctl sync` (sync.go) switches on `Action.Kind`: `ADD_REFERENCE`/`DROP_REFERENCE` write to the bbolt `references` bucket via `addReference`; `SYNC_VERSION` drives `syncVersion`, which ultimately calls into `internal/data/generation.Build`. `GC_CANDIDATE` actions are provisional markers only — nothing acts on them directly; `internal/retention.PlanGC`, run by `depctl gc`, decides from every project's references (plus the grace period) which versions are really unreferenced.
 
 ## Walkthrough
 
@@ -57,13 +57,13 @@ Project `proj-checkout` (Go, `go.mod`) previously depended on `github.com/aleuti
 
 5. **Dropped-dependency pass finds nothing.** `httpkit` was `seen`, so the second loop over `currentByKey` (internal/planner/planner.go) emits no additional actions for it.
 
-6. **Result:** `Plan` returns `[]Action` with exactly those four entries, in that order: `DROP_REFERENCE(v1.2.0)`, `GC_CANDIDATE(v1.2.0)`, `ADD_REFERENCE(v1.3.0)`, `SYNC_VERSION(v1.3.0)`. `ragctl plan` renders them as-is; `ragctl sync` (sync.go) would write the `DROP_REFERENCE`/`ADD_REFERENCE` rows to the `references` bucket and drive `internal/data/generation.Build` for the `SYNC_VERSION` action, while leaving the `GC_CANDIDATE` marker for `internal/retention.PlanGC` to evaluate later.
+6. **Result:** `Plan` returns `[]Action` with exactly those four entries, in that order: `DROP_REFERENCE(v1.2.0)`, `GC_CANDIDATE(v1.2.0)`, `ADD_REFERENCE(v1.3.0)`, `SYNC_VERSION(v1.3.0)`. `depctl plan` renders them as-is; `depctl sync` (sync.go) would write the `DROP_REFERENCE`/`ADD_REFERENCE` rows to the `references` bucket and drive `internal/data/generation.Build` for the `SYNC_VERSION` action, while leaving the `GC_CANDIDATE` marker for `internal/retention.PlanGC` to evaluate later.
 
 ## Notes
 
 - `Plan` is deliberately side-effect-free: no bbolt/network access inside it, per PLAN-001's design (internal/planner/planner.go). This is why the function signature carries an already-resolved `*registry.Registry` and precomputed `activeGenerations`/`noSource` maps instead of doing those lookups itself.
 - Every version a project drops (version bump or dependency removal) is marked `GC_CANDIDATE` *unconditionally*; whether another project still needs it is checked later by `internal/retention`, not here.
-- `NOOP` means "built, and nothing changed" — it does not check that the active generation's stored content is still present. Forcing a rebuild of such a version is `ragctl sync --rebuild --dependency X`, which clears the reference and active pointer before planning (see `docs/internal/cli.md`).
+- `NOOP` means "built, and nothing changed" — it does not check that the active generation's stored content is still present. Forcing a rebuild of such a version is `depctl sync --rebuild --dependency X`, which clears the reference and active pointer before planning (see `docs/internal/cli.md`).
 - A version bump emits `DROP_REFERENCE` for the old version *and* `ADD_REFERENCE` for the new one in the same pass (internal/planner/planner.go) — without the re-add, nothing would mark the new version as referenced and RET-001's grace-period logic would eventually reap it as orphaned even though it's exactly what the project now depends on.
 - Dropped-but-unseen dependencies are collected into a slice and sorted before emitting actions (internal/planner/planner.go) specifically for deterministic output, since Go map iteration order is not stable.
 - A dependency with no matching registry source still produces `ADD_REFERENCE`/`SYNC_VERSION` actions, just flagged via `Action.Reason = "no knowledge source mapped"` (internal/planner/planner.go) rather than being silently skipped.

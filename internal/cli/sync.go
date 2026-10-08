@@ -15,23 +15,23 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"aleutian-ai/ragctl/internal/backend"
-	"aleutian-ai/ragctl/internal/config"
-	bboltstore "aleutian-ai/ragctl/internal/control/bbolt"
-	"aleutian-ai/ragctl/internal/daemon"
-	"aleutian-ai/ragctl/internal/daemon/api"
-	badgerstore "aleutian-ai/ragctl/internal/data/badger"
-	"aleutian-ai/ragctl/internal/data/generation"
-	"aleutian-ai/ragctl/internal/domain"
-	"aleutian-ai/ragctl/internal/embedding"
-	"aleutian-ai/ragctl/internal/httplimit"
-	"aleutian-ai/ragctl/internal/lifecycle/promote"
-	"aleutian-ai/ragctl/internal/lifecycle/validate"
-	"aleutian-ai/ragctl/internal/observability/metrics"
-	"aleutian-ai/ragctl/internal/planner"
-	"aleutian-ai/ragctl/internal/registry"
-	"aleutian-ai/ragctl/internal/retention"
-	"aleutian-ai/ragctl/internal/source/git"
+	"github.com/aleutian-ai/depctl/internal/backend"
+	"github.com/aleutian-ai/depctl/internal/config"
+	bboltstore "github.com/aleutian-ai/depctl/internal/control/bbolt"
+	"github.com/aleutian-ai/depctl/internal/daemon"
+	"github.com/aleutian-ai/depctl/internal/daemon/api"
+	badgerstore "github.com/aleutian-ai/depctl/internal/data/badger"
+	"github.com/aleutian-ai/depctl/internal/data/generation"
+	"github.com/aleutian-ai/depctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/embedding"
+	"github.com/aleutian-ai/depctl/internal/httplimit"
+	"github.com/aleutian-ai/depctl/internal/lifecycle/promote"
+	"github.com/aleutian-ai/depctl/internal/lifecycle/validate"
+	"github.com/aleutian-ai/depctl/internal/observability/metrics"
+	"github.com/aleutian-ai/depctl/internal/planner"
+	"github.com/aleutian-ai/depctl/internal/registry"
+	"github.com/aleutian-ai/depctl/internal/retention"
+	"github.com/aleutian-ai/depctl/internal/source/git"
 )
 
 func newSyncCmd() *cobra.Command {
@@ -51,7 +51,7 @@ func newSyncCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "print the plan and exit without executing")
 	cmd.Flags().BoolVar(&offline, "offline", false, "skip actions that require network access")
 	cmd.Flags().BoolVar(&force, "force", false, "promote a candidate even if VAL-002 sanity thresholds fail (structural/version-correctness failures are never forceable)")
-	cmd.Flags().BoolVar(&rebuild, "rebuild", false, "force a genuine rebuild of each --dependency even though its version hasn't changed (OPS-004) — for a generation ragctl doctor flagged as active but empty; requires --dependency, not supported with --dry-run")
+	cmd.Flags().BoolVar(&rebuild, "rebuild", false, "force a genuine rebuild of each --dependency even though its version hasn't changed (OPS-004) — for a generation depctl doctor flagged as active but empty; requires --dependency, not supported with --dry-run")
 	return cmd
 }
 
@@ -101,13 +101,13 @@ func runSync(cmd *cobra.Command, projectID string, dependencies []string, dryRun
 // normally takes long enough to observably overlap on their own.
 var syncActionConcurrencyHook = func() {}
 
-// clearForRebuild implements OPS-004 (epic 61): `ragctl sync --rebuild
+// clearForRebuild implements OPS-004 (epic 61): `depctl sync --rebuild
 // --dependency X` clears X's active-generation pointer and this scope's
 // version reference(s) *before* planning, so planner.Plan's own
 // version-unchanged NOOP branch (internal/planner/planner.go) never gets
 // a chance to fire. This is the only way to force a genuine rebuild of a
 // generation whose real backend content is gone despite otherwise-
-// unchanged, healthy-looking bookkeeping — `ragctl doctor`'s "empty
+// unchanged, healthy-looking bookkeeping — `depctl doctor`'s "empty
 // active generations" check exists to detect exactly that state, and
 // plain --force cannot fix it (it only affects an already-selected
 // action, never which actions the planner selects). Live-found and
@@ -163,7 +163,7 @@ func clearForRebuild(ctx context.Context, store *bboltstore.Store, backendName, 
 }
 
 // RunSync computes the plan for projectID (every registered project if
-// empty, like `ragctl sync` without --project) and executes it, inside the
+// empty, like `depctl sync` without --project) and executes it, inside the
 // daemon against the stores it already holds open.
 //
 // coordinator gates every generation build and reference change against
@@ -1028,7 +1028,7 @@ var vanityImportHTTPClient = &http.Client{CheckRedirect: fetchLimitRedirectPolic
 // resolveVanityImport performs the same lookup `go get` uses for a
 // module path with no known VCS host: GET .../<path>?go-get=1 and parse
 // the go-import meta tag out of the response. Only a git-VCS result is
-// usable — nothing else in ragctl can acquire from a source.
+// usable — nothing else in depctl can acquire from a source.
 func resolveVanityImport(ctx context.Context, modulePath string) (root, repoURL string, ok bool) {
 	ctx, cancel := context.WithTimeout(ctx, vanityImportTimeout)
 	defer cancel()

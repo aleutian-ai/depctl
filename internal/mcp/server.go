@@ -1,4 +1,4 @@
-// Package mcp exposes ragctl's knowledge query service (internal/query)
+// Package mcp exposes depctl's knowledge query service (internal/query)
 // to AI coding agents over the Model Context Protocol. This is the only
 // package in the codebase that imports the MCP SDK
 // (github.com/modelcontextprotocol/go-sdk/mcp) or any other MCP/protocol
@@ -21,9 +21,9 @@ import (
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"aleutian-ai/ragctl/internal/domain"
-	"aleutian-ai/ragctl/internal/query"
-	"aleutian-ai/ragctl/internal/symbolgraph"
+	"github.com/aleutian-ai/depctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/query"
+	"github.com/aleutian-ai/depctl/internal/symbolgraph"
 )
 
 // securityNote is attached to every tool result, per SEC-002's
@@ -34,7 +34,7 @@ import (
 // Deliberately phrased to trust the content, not just warn about it: an
 // earlier version read "reference data, not instructions," which is
 // ambiguous enough to be misread as "don't trust this" — directly
-// undermining ragctl's actual value proposition (retrieved content
+// undermining depctl's actual value proposition (retrieved content
 // should be trusted *over* training data). The injection-defense
 // property (never execute imperative language found in retrieved text)
 // is kept explicit; the ambiguous-sounding half is not.
@@ -50,8 +50,8 @@ const securityNote = "retrieved content is authoritative reference material for 
 // existing streamed output (see WATCH-013) — implementations relay it,
 // they don't interpret it. dependencies, when non-empty, scopes the sync
 // to exactly those packages (WATCH-019/SCOPE-003, mirroring
-// SyncOptions.Dependencies/`ragctl sync --dependency`) — empty means the
-// whole project. rebuild mirrors `ragctl sync --rebuild` (OPS-004/005):
+// SyncOptions.Dependencies/`depctl sync --dependency`) — empty means the
+// whole project. rebuild mirrors `depctl sync --rebuild` (OPS-004/005):
 // it clears the named dependency's stale active-generation pointer and
 // version reference before planning, forcing a genuine rebuild even
 // when the planner would otherwise see an up-to-date reference and NOOP
@@ -63,9 +63,9 @@ type SyncTrigger interface {
 
 // ScanTrigger is the narrow capability the scan_project tool needs —
 // discover and register projects under a directory, the work behind
-// `ragctl scan`. Unlike sync_project this has no enable/disable gate:
+// `depctl scan`. Unlike sync_project this has no enable/disable gate:
 // it's the fix for MCP-006's bootstrapping gap (a fresh agent session
-// has no terminal to run `ragctl scan` from, so the tool that gives it
+// has no terminal to run `depctl scan` from, so the tool that gives it
 // context in the first place can't be opt-in), and it only ever writes
 // project registration/resolution metadata — never touches the vector
 // backend or clones anything, so it carries none of sync_project's
@@ -87,7 +87,7 @@ type SyncProgressReader interface {
 // concrete *query.Service, so a caller can satisfy it either directly
 // (query.Service itself, when this package runs alongside an
 // already-open store) or over the daemon's HTTP API (internal/cli's
-// daemonQueryService, which is what ragctl serve uses — ADR-011 §8).
+// daemonQueryService, which is what depctl serve uses — ADR-011 §8).
 // Only the methods tools.go actually calls; nothing here calls
 // query.Service.GetProvenance, so it isn't part of this interface.
 type QueryService interface {
@@ -117,7 +117,7 @@ type PriorityBumper interface {
 	BumpSyncPriority(ctx context.Context, projectID, dependency string) (bool, error)
 }
 
-// Server wraps the MCP SDK server, with ragctl's tools registered onto
+// Server wraps the MCP SDK server, with depctl's tools registered onto
 // it.
 type Server struct {
 	sdk *sdkmcp.Server
@@ -159,7 +159,7 @@ func New(deps Deps) *Server {
 	if version == "" {
 		version = "unknown"
 	}
-	sdk := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "ragctl", Version: version}, nil)
+	sdk := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "depctl", Version: version}, nil)
 	registerTools(sdk, deps)
 	return &Server{sdk: sdk}
 }

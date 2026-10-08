@@ -1,4 +1,4 @@
-module aleutian-ai/ragctl
+module github.com/aleutian-ai/depctl
 
 go 1.25.6
 

@@ -35,7 +35,7 @@ func Promote(ctx context.Context, store *bbolt.Store, candidate domain.Generatio
 
 ## Failure behavior
 - If any validation result failed, `Promote` returns an error immediately without opening a transaction.
-- If the bbolt transaction fails (e.g. crash mid-write), bbolt's own transaction guarantees ensure the old active pointer remains intact (no torn writes) — verified by test, not by ragctl-level logic.
+- If the bbolt transaction fails (e.g. crash mid-write), bbolt's own transaction guarantees ensure the old active pointer remains intact (no torn writes) — verified by test, not by depctl-level logic.
 
 ## Tests
 - Full promotion flow: candidate `READY` + prior `ACTIVE` → after `Promote`, candidate is `ACTIVE`, prior is `SUPERSEDED`, active pointer updated — all readable after closing and reopening the bbolt file (restart persistence).

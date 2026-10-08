@@ -6,12 +6,12 @@
 **Estimated size:** small
 
 ## Goal
-Make `internal/registry.Loader.ProjectRegistryDir` — already a real field, already read by `Load` — actually reachable from the CLI, so a `<project-root>/.ragctl/registry/*.yaml` manifest is loaded for real instead of being silently skipped on every command.
+Make `internal/registry.Loader.ProjectRegistryDir` — already a real field, already read by `Load` — actually reachable from the CLI, so a `<project-root>/.depctl/registry/*.yaml` manifest is loaded for real instead of being silently skipped on every command.
 
 ## Non-goals
 - No new manifest semantics (extend/replace, merge-by-source-ID) — that's REG-009. This ticket only changes *which directories* get loaded, not how a collision between them is resolved (today's whole-manifest-overwrite-on-name-collision stays exactly as is).
 - No change to the user-tier (`userRegistryDirPath`) loading — untouched.
-- No project-config file format work (`.ragctl.yaml` or similar) — the project-registry directory path is derived directly from the already-known `domain.Project.Root`, nothing new to parse.
+- No project-config file format work (`.depctl.yaml` or similar) — the project-registry directory path is derived directly from the already-known `domain.Project.Root`, nothing new to parse.
 
 ## Simplicity constraints
 - This is a wiring fix, not a new subsystem: every current call site that constructs a `registry.NewLoader(userDir, "")` gets its second argument changed to a real path derived from a project root already in hand at that call site.
@@ -23,7 +23,7 @@ Confirmed in `internal/registry/loader.go`: `Loader.ProjectRegistryDir string //
 The gap is entirely in `internal/cli`:
 
 - `loadRegistryForCLI` (`internal/cli/plan.go`) currently takes only `ctx` and calls `registry.NewLoader(userDir, "").Load(ctx)` — no project root parameter at all.
-- `computePlans` (`internal/cli/plan.go`) calls `loadRegistryForCLI(ctx)` **once**, before it loops over every registered `domain.Project` — but the project registry directory is scoped to one project's root, not to the CLI invocation as a whole. A fleet-wide `ragctl plan`/`ragctl sync` with multiple registered projects, each with its own `.ragctl/registry/`, needs one `*registry.Registry` per project, not one shared across all of them.
+- `computePlans` (`internal/cli/plan.go`) calls `loadRegistryForCLI(ctx)` **once**, before it loops over every registered `domain.Project` — but the project registry directory is scoped to one project's root, not to the CLI invocation as a whole. A fleet-wide `depctl plan`/`depctl sync` with multiple registered projects, each with its own `.depctl/registry/`, needs one `*registry.Registry` per project, not one shared across all of them.
 - `runRegistryList`/`runRegistryDiscover` (`internal/cli/registry.go`) both call `registry.NewLoader(userDir, "").Load(...)` directly with a hard-coded `""` project dir, and have no project-root context at all today (they're not scoped to a registered project).
 
 Changes:
@@ -37,7 +37,7 @@ func loadRegistryForCLI(ctx context.Context, projectRoot string) (*registry.Regi
 	}
 	projectDir := ""
 	if projectRoot != "" {
-		projectDir = filepath.Join(projectRoot, ".ragctl", "registry")
+		projectDir = filepath.Join(projectRoot, ".depctl", "registry")
 	}
 	return registry.NewLoader(userDir, projectDir).Load(ctx)
 }
@@ -49,20 +49,20 @@ func loadRegistryForCLI(ctx context.Context, projectRoot string) (*registry.Regi
 
 ## Inputs / Outputs
 - Input: a `domain.Project.Root` already resolved by `computePlans`'s existing project loop.
-- Output: each project's plan/sync computed against a `*registry.Registry` that includes that project's own `.ragctl/registry/*.yaml` manifests (when the directory exists), on top of built-in and user tiers — instead of every project sharing one registry built with an empty project dir.
+- Output: each project's plan/sync computed against a `*registry.Registry` that includes that project's own `.depctl/registry/*.yaml` manifests (when the directory exists), on top of built-in and user tiers — instead of every project sharing one registry built with an empty project dir.
 
 ## Failure behavior
-- A missing `<project-root>/.ragctl/registry/` directory is not an error — `loadDir` already treats a missing dir as "load nothing" (`filepath.Glob` on a nonexistent dir returns no matches, no error). No new failure mode is introduced.
+- A missing `<project-root>/.depctl/registry/` directory is not an error — `loadDir` already treats a missing dir as "load nothing" (`filepath.Glob` on a nonexistent dir returns no matches, no error). No new failure mode is introduced.
 - A malformed manifest in the project directory is skipped with a warning, exactly as a malformed user-tier manifest is today (`Registry.Warnings`).
 
 ## Tests
-- Two registered projects, each with a distinct `.ragctl/registry/*.yaml` manifest for the same `metadata.name`: `ragctl plan` for project A resolves using A's manifest, project B's plan resolves using B's — not cross-contaminated by loading order.
-- A project with no `.ragctl/registry/` directory behaves identically to before this ticket (built-in + user tiers only).
-- `ragctl sync --project <A>` builds/replicates using A's project-tier manifest when one exists there and a built-in manifest of the same name would otherwise have matched.
-- `ragctl registry list`/`ragctl registry discover` behavior is unchanged (still user+built-in only) — regression check that this ticket didn't accidentally scope them to a project.
+- Two registered projects, each with a distinct `.depctl/registry/*.yaml` manifest for the same `metadata.name`: `depctl plan` for project A resolves using A's manifest, project B's plan resolves using B's — not cross-contaminated by loading order.
+- A project with no `.depctl/registry/` directory behaves identically to before this ticket (built-in + user tiers only).
+- `depctl sync --project <A>` builds/replicates using A's project-tier manifest when one exists there and a built-in manifest of the same name would otherwise have matched.
+- `depctl registry list`/`depctl registry discover` behavior is unchanged (still user+built-in only) — regression check that this ticket didn't accidentally scope them to a project.
 
 ## Acceptance criteria
-- [ ] `loadRegistryForCLI` accepts a project root and derives `<root>/.ragctl/registry` as the project registry dir.
+- [ ] `loadRegistryForCLI` accepts a project root and derives `<root>/.depctl/registry` as the project registry dir.
 - [ ] `computePlans` builds a registry per project root, not one shared registry for the whole invocation.
 - [ ] `RunSync` uses the same per-project registry as `computePlans` did for that project's plan, not a single global one.
-- [ ] `ragctl registry list`/`ragctl registry discover` are unaffected (still `""` project dir, documented as intentional).
+- [ ] `depctl registry list`/`depctl registry discover` are unaffected (still `""` project dir, documented as intentional).

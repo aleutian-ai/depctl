@@ -1,6 +1,6 @@
 package normalize
 
-import "aleutian-ai/ragctl/internal/domain"
+import "github.com/aleutian-ai/depctl/internal/domain"
 
 // SparsePatterns returns git sparse-checkout patterns (non-cone syntax —
 // plain gitignore-style globs, matching at any depth with no leading

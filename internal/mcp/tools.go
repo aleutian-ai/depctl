@@ -10,17 +10,17 @@ import (
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"go.opentelemetry.io/otel/attribute"
 
-	"aleutian-ai/ragctl/internal/domain"
-	"aleutian-ai/ragctl/internal/observability"
-	"aleutian-ai/ragctl/internal/observability/trace"
-	"aleutian-ai/ragctl/internal/query"
-	"aleutian-ai/ragctl/internal/symbolgraph"
+	"github.com/aleutian-ai/depctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/observability"
+	"github.com/aleutian-ai/depctl/internal/observability/trace"
+	"github.com/aleutian-ai/depctl/internal/query"
+	"github.com/aleutian-ai/depctl/internal/symbolgraph"
 )
 
 // withToolLogging wraps any MCP tool handler with a single structured
 // completion log (OBS-001) and an OBS-002 trace span, both tagged with
 // the OpenTelemetry GenAI convention's own tool-call attribute
-// (gen_ai.tool.name) rather than a ragctl-invented key — this is exactly
+// (gen_ai.tool.name) rather than a depctl-invented key — this is exactly
 // the "tool span" that convention describes, so the span attribute and
 // the log field never need to diverge. Applied uniformly in registerTools
 // so no tool can be added later without it.
@@ -82,7 +82,7 @@ func registerTools(sdk *sdkmcp.Server, deps Deps) {
 
 	sdkmcp.AddTool(sdk, &sdkmcp.Tool{
 		Name:        "prioritize_file",
-		Description: "Tell ragctl which Go file you are about to work on, so the dependencies it imports are built next — ahead of the rest of the background sync — instead of waiting their turn. Pass the file (absolute, or relative to the project root). It reads the file's imports, matches them to the project's resolved dependencies, and requests exactly those, in one go. Returns within a bounded time: still_building: true means the rest of the file's dependencies are moving to the front and this did not fail — search for them or check sync_progress. A non-Go file, or one importing nothing from the project's dependencies, is a quiet no-op. Needs server.mcp.enable_sync_tool, like sync_project.",
+		Description: "Tell depctl which Go file you are about to work on, so the dependencies it imports are built next — ahead of the rest of the background sync — instead of waiting their turn. Pass the file (absolute, or relative to the project root). It reads the file's imports, matches them to the project's resolved dependencies, and requests exactly those, in one go. Returns within a bounded time: still_building: true means the rest of the file's dependencies are moving to the front and this did not fail — search for them or check sync_progress. A non-Go file, or one importing nothing from the project's dependencies, is a quiet no-op. Needs server.mcp.enable_sync_tool, like sync_project.",
 	}, withToolLogging("prioritize_file", prioritizeFileHandler(jit)))
 
 	sdkmcp.AddTool(sdk, &sdkmcp.Tool{
@@ -133,7 +133,7 @@ func progressReporter(ctx context.Context, req *sdkmcp.CallToolRequest, total in
 
 // SearchDependencyDocsIn is search_dependency_docs's input.
 type SearchDependencyDocsIn struct {
-	ProjectID  string `json:"project_id" jsonschema:"the registered project ID (see list_project_dependencies or ragctl project list)"`
+	ProjectID  string `json:"project_id" jsonschema:"the registered project ID (see list_project_dependencies or depctl project list)"`
 	Query      string `json:"query" jsonschema:"the natural-language search query"`
 	Dependency string `json:"dependency,omitempty" jsonschema:"the exact package name to search within, e.g. google.golang.org/grpc"`
 	Mode       string `json:"mode,omitempty" jsonschema:"one of project (default), latest, compare, all-retained"`
@@ -432,7 +432,7 @@ func knowledgeStatusHandler(svc QueryService) sdkmcp.ToolHandlerFor[KnowledgeSta
 type SyncProjectIn struct {
 	ProjectID  string `json:"project_id"`
 	Dependency string `json:"dependency,omitempty" jsonschema:"optional — limit the sync to one package instead of the whole project"`
-	// Rebuild mirrors `ragctl sync --rebuild`: it clears the named
+	// Rebuild mirrors `depctl sync --rebuild`: it clears the named
 	// dependency's reference and active pointer before planning, forcing
 	// a genuine rebuild even of a version that looks built (for example
 	// one whose stored content is gone).
@@ -456,7 +456,7 @@ type SyncProjectOut struct {
 // past this, no matter how long the underlying sync legitimately takes.
 //
 // Live-found calibration: opencode's own tool-call timeout (unrelated
-// to anything ragctl controls — the MCP spec doesn't standardize one)
+// to anything depctl controls — the MCP spec doesn't standardize one)
 // was observed at roughly 5 minutes in the session that found this gap.
 // 90s sits well under that with real margin, while still being long
 // enough that a typical sync of a handful of small-to-medium
@@ -736,7 +736,7 @@ type SyncProgressOut struct {
 	// ObservedTimingOut/SyncEstimateOut. Use this, alongside Pending, to
 	// decide whether to keep waiting, request a specific dependency via
 	// sync_project(dependency: "..."), or accept partial coverage —
-	// ragctl reports the data, it never makes that call itself.
+	// depctl reports the data, it never makes that call itself.
 	Observed *ObservedTimingOut `json:"observed,omitempty"`
 	Estimate *SyncEstimateOut   `json:"estimate,omitempty"`
 	Pending  []string           `json:"pending,omitempty"`

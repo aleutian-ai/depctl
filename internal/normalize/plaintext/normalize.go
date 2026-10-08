@@ -8,8 +8,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"aleutian-ai/ragctl/internal/domain"
-	"aleutian-ai/ragctl/internal/normalize"
+	"github.com/aleutian-ai/depctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/normalize"
 )
 
 // Normalize reads src's materialized file and produces a single

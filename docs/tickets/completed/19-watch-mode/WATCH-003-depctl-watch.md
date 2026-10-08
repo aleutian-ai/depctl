@@ -1,4 +1,4 @@
-# WATCH-003: `ragctl watch`
+# WATCH-003: `depctl watch`
 
 **Epic:** Watch Mode
 **Status:** done
@@ -6,21 +6,21 @@
 **Estimated size:** small
 
 ## Goal
-Implement `ragctl watch` as a foreground daemon: consume WATCH-002's change events and drive resolve → plan → queue sync for the affected project.
+Implement `depctl watch` as a foreground daemon: consume WATCH-002's change events and drive resolve → plan → queue sync for the affected project.
 
 ## Non-goals
 - OS service installation (systemd/launchd unit files) — explicitly deferred to a later, separate ticket per the plan.
 - Background/detached daemon mode — v0.1 is foreground-only.
 
 ## Simplicity constraints
-- `ragctl watch` is a thin loop: `for event := range watcher.Events() { resolve; plan; enqueue sync job }`. No separate scheduler process.
+- `depctl watch` is a thin loop: `for event := range watcher.Events() { resolve; plan; enqueue sync job }`. No separate scheduler process.
 - Reuse PLAN-003's existing sync execution path (as an enqueued job) rather than building a parallel "watch sync" code path.
 
 ## Design
-`cmd/ragctl` `watch` command.
+`cmd/depctl` `watch` command.
 
 ```bash
-ragctl watch
+depctl watch
 ```
 
 Flow per `ChangeEvent`:
@@ -30,7 +30,7 @@ Flow per `ChangeEvent`:
 3. enqueue a SyncJob (bbolt jobs bucket) — do not run sync inline on the watch goroutine
 ```
 
-A separate worker (already established by PLAN-003 / job system) picks up and executes queued sync jobs. `ragctl watch` itself just resolves, plans, and enqueues; it blocks on `ctx.Done()` (SIGINT/SIGTERM) for graceful shutdown.
+A separate worker (already established by PLAN-003 / job system) picks up and executes queued sync jobs. `depctl watch` itself just resolves, plans, and enqueues; it blocks on `ctx.Done()` (SIGINT/SIGTERM) for graceful shutdown.
 
 ## Inputs / Outputs
 - Input: `ChangeEvent` stream from WATCH-002.
@@ -47,17 +47,17 @@ A separate worker (already established by PLAN-003 / job system) picks up and ex
 
 ## Acceptance criteria
 - [x] Supports foreground daemon mode only (no OS service install in this ticket).
-- [x] Filesystem event → resolve → plan → sync, executed off the filesystem-event goroutine. (Reconciled: no job worker exists, so sync runs on watch's own change loop through the same `RunSync` as `ragctl sync`; see note.)
+- [x] Filesystem event → resolve → plan → sync, executed off the filesystem-event goroutine. (Reconciled: no job worker exists, so sync runs on watch's own change loop through the same `RunSync` as `depctl sync`; see note.)
 
 ## Post-implementation note
 
 Lives in `internal/cli/watch.go`.
 
-**No job worker exists, so nothing is enqueued.** This ticket assumed PLAN-003 had set up a job system with a worker that executes queued sync jobs. It didn't: the `jobs` bucket holds only GC bookkeeping, `ragctl sync` runs inline through `RunSync`, and nothing polls for queued work. Building a queue and worker just for `watch` would add exactly the "separate scheduler" this ticket's simplicity constraint rules out. Instead, each change is handled on `watch`'s own change loop: re-resolve the project, store the new resolution, then call `RunSync` for that project, the same code `ragctl sync --project <id>` runs. That keeps the ticket's two real requirements. Nothing blocking runs on the filesystem-event goroutine (WATCH-002 only enqueues), and there's one sync code path, not a parallel "watch sync". Changes are processed one at a time, so two syncs never run concurrently.
+**No job worker exists, so nothing is enqueued.** This ticket assumed PLAN-003 had set up a job system with a worker that executes queued sync jobs. It didn't: the `jobs` bucket holds only GC bookkeeping, `depctl sync` runs inline through `RunSync`, and nothing polls for queued work. Building a queue and worker just for `watch` would add exactly the "separate scheduler" this ticket's simplicity constraint rules out. Instead, each change is handled on `watch`'s own change loop: re-resolve the project, store the new resolution, then call `RunSync` for that project, the same code `depctl sync --project <id>` runs. That keeps the ticket's two real requirements. Nothing blocking runs on the filesystem-event goroutine (WATCH-002 only enqueues), and there's one sync code path, not a parallel "watch sync". Changes are processed one at a time, so two syncs never run concurrently.
 
 Other decisions:
-- **Stores are opened per change, not for the process lifetime.** An idle `watch` holds no lock, so `status`, `sync`, and the rest keep working while it runs. `ragctl serve` does hold the lock for its lifetime (see epic 18's lock-timeout fix), so a change that arrives while `serve` runs is retried every 30 seconds until the lock is free, rather than dropped. If the lock is held at startup, `watch` exits with the lock error.
-- **The project list is re-read** after every change and once a minute, so projects registered by `ragctl scan` or removed while `watch` runs are picked up without a restart.
+- **Stores are opened per change, not for the process lifetime.** An idle `watch` holds no lock, so `status`, `sync`, and the rest keep working while it runs. `depctl serve` does hold the lock for its lifetime (see epic 18's lock-timeout fix), so a change that arrives while `serve` runs is retried every 30 seconds until the lock is free, rather than dropped. If the lock is held at startup, `watch` exits with the lock error.
+- **The project list is re-read** after every change and once a minute, so projects registered by `depctl scan` or removed while `watch` runs are picked up without a restart.
 - **Config:** `watch.enabled: false` makes the command refuse to start, as `server.mcp.enabled` does for `serve`; `watch.debounce` sets the debounce window. Both keys already existed but nothing read them.
 - **Shutdown:** SIGINT/SIGTERM stops new changes being taken. A change already in progress gets a context that isn't cancelled with the signal, so it finishes instead of leaving a half-built generation. A second Ctrl-C restores default signal handling and exits immediately.
 - A failed change (resolver error, sync error) is logged and the loop continues.

@@ -10,7 +10,7 @@ Record enough HTTP response metadata and a content hash in `dataset.json` to det
 
 ## Non-goals
 - No automatic re-fetch-on-change policy — this ticket only records what's needed to detect change; deciding what to do about it is DATA-004 (or the user, manually).
-- No hashing of extracted contents, only the raw downloaded archive/file — same BLAKE3 approach already used by `internal/data/fingerprint` (HASH-001), reused here as a plain `blake3.Sum256` call, not through that package (this is a dev tool, not ragctl proper).
+- No hashing of extracted contents, only the raw downloaded archive/file — same BLAKE3 approach already used by `internal/data/fingerprint` (HASH-001), reused here as a plain `blake3.Sum256` call, not through that package (this is a dev tool, not depctl proper).
 
 ## Simplicity constraints
 - Capture exactly what the HTTP response already hands over for free (`ETag`, `Last-Modified`, `Content-Length`) — no extra requests (no HEAD-then-GET), no retries/backoff beyond what `fetchOne` already does.

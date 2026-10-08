@@ -23,7 +23,7 @@ Extract real, per-symbol API documentation (exported functions/classes/methods, 
 ## Design
 
 ### Why static-only is a hard requirement, not a preference
-Sphinx/autodoc and stdlib `pydoc` both work by *importing* the target module and introspecting the live object — which means running arbitrary third-party code, including its transitive dependencies' code, as part of a sync. That's unacceptable for a dependency ragctl doesn't control the provenance of (a private, unfamiliar, or simply not-yet-installed-in-this-environment package) — the same principle REG-013 already applied to acquisition (no `pip install`, only static registry/git lookups). **griffe** (the `mkdocstrings` ecosystem's extractor) already solves this the right way: pure `ast`-module static analysis, never imports the target.
+Sphinx/autodoc and stdlib `pydoc` both work by *importing* the target module and introspecting the live object — which means running arbitrary third-party code, including its transitive dependencies' code, as part of a sync. That's unacceptable for a dependency depctl doesn't control the provenance of (a private, unfamiliar, or simply not-yet-installed-in-this-environment package) — the same principle REG-013 already applied to acquisition (no `pip install`, only static registry/git lookups). **griffe** (the `mkdocstrings` ecosystem's extractor) already solves this the right way: pure `ast`-module static analysis, never imports the target.
 
 ### Tooling decision (explicit, not defaulted into)
 Two real options, both requiring a `python3` subprocess (Python's own `ast` module has no Go equivalent, and reimplementing full Python grammar in Go is out of proportion to this ticket):

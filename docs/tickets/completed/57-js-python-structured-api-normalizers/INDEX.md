@@ -14,7 +14,7 @@ This epic closes that, following the same pattern `docs/tickets/backlog/40-struc
 
 ## The real tradeoff this epic accepts, explicitly
 
-Unlike `godoc`, **none of these run as pure, dependency-free Go.** Every real option means either a `python3`/`node` subprocess (a genuinely new operational requirement — ragctl's only current acquisition-time runtime dependency is the `git` binary) or CGo tree-sitter bindings (a build-complexity tradeoff already deferred once elsewhere, `docs/tickets/backlog/25-additional-vector-backends/VEC-015-sqlite-embedded-backend.md`). This epic's tickets each make that call explicitly rather than default into it — see each ticket's own Design section.
+Unlike `godoc`, **none of these run as pure, dependency-free Go.** Every real option means either a `python3`/`node` subprocess (a genuinely new operational requirement — depctl's only current acquisition-time runtime dependency is the `git` binary) or CGo tree-sitter bindings (a build-complexity tradeoff already deferred once elsewhere, `docs/tickets/backlog/25-additional-vector-backends/VEC-015-sqlite-embedded-backend.md`). This epic's tickets each make that call explicitly rather than default into it — see each ticket's own Design section.
 
 ## Tickets
 - [NORM-008](NORM-008-typescript-declaration-normalizer.md) — **done**, both the `.d.ts` path and the JSDoc-only fallback (closed in a later pass — see its own post-implementation note for how the original "two-phase acquisition" blocker was avoided by reusing epic 56's own no-checkout `git.Cache.ReadFile` plumbing).
@@ -22,7 +22,7 @@ Unlike `godoc`, **none of these run as pure, dependency-free Go.** Every real op
 
 ## Non-goals (this epic)
 - No full TypeScript compiler integration (TypeDoc/`api-extractor`) — those need a valid, buildable `tsconfig` and are designed for a package's own build process, not parsing an arbitrary third-party npm package after the fact.
-- No Sphinx/autodoc/pydoc-style extraction — those import and execute the target module, which is unacceptable for a private or unfamiliar dependency ragctl doesn't control.
+- No Sphinx/autodoc/pydoc-style extraction — those import and execute the target module, which is unacceptable for a private or unfamiliar dependency depctl doesn't control.
 - No semantic type-checking or cross-file type resolution for either ecosystem — signature text is extracted and stored as-is, the same "syntactic, not semantic" scope `godoc` itself has.
 - No universal AST/tree-sitter platform spanning every language — matches `docs/tickets/backlog/40-structured-artifact-normalizers`' own explicit non-goal for the same reason.
 - No change to *how* `Subdir`/monorepo boundaries are determined (epic 56's own scoping logic) — this epic only ever adds *which files* get fetched within an already-correctly-scoped worktree. **One narrow, disclosed exception**: NORM-008's JSDoc fallback needed `acquireGitSources` (`internal/data/generation/build.go`) to fold one additional, specifically-named entry-point pattern into the sparse-checkout set per Node source (`nodeJSEntryPatterns`) — a single concrete filename resolved from `package.json`, never a glob, and no change to monorepo boundary/`Subdir` logic itself. See NORM-008's own post-implementation note.

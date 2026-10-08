@@ -5,7 +5,7 @@
 
 ## Context
 
-Epics 1–16 built ragctl's whole knowledge lifecycle — resolve, acquire, normalize, chunk, embed, replicate, validate, promote, retain/GC — driven end to end by `ragctl scan`/`sync`/`gc`. None of it is reachable by an external process yet. The Model Context Protocol (MCP) is ragctl's stated agent-facing interface (`ragctl serve`, already a registered CLI stub); this epic is where that stub becomes real.
+Epics 1–16 built depctl's whole knowledge lifecycle — resolve, acquire, normalize, chunk, embed, replicate, validate, promote, retain/GC — driven end to end by `depctl scan`/`sync`/`gc`. None of it is reachable by an external process yet. The Model Context Protocol (MCP) is depctl's stated agent-facing interface (`depctl serve`, already a registered CLI stub); this epic is where that stub becomes real.
 
 Building a custom MCP protocol implementation (message framing, JSON-RPC dispatch, capability negotiation, stdio/HTTP transport handling) is exactly the kind of protocol-plumbing this project has no reason to own — CLAUDE.md's "pull in only what the current command needs" cuts the other way here: a maintained SDK is *less* code to own, not more.
 
@@ -36,5 +36,5 @@ Tool registration uses the SDK's generic, typed `mcp.AddTool[In, Out]` API (inpu
 
 - `internal/mcp/server.go` (package skeleton, this ticket)
 - `internal/query` (MCP-002)
-- `internal/mcp` tool wiring (MCP-003) and `ragctl serve` (`internal/cli`)
+- `internal/mcp` tool wiring (MCP-003) and `depctl serve` (`internal/cli`)
 - `internal/mcp/offline_test.go` (MCP-004)

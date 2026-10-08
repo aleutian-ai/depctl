@@ -1,4 +1,4 @@
-// Package node is ragctl's Node.js/JavaScript/TypeScript ecosystem
+// Package node is depctl's Node.js/JavaScript/TypeScript ecosystem
 // resolver: detects Node projects via package.json and resolves exact
 // dependency versions from whichever lockfile is present. TypeScript rides
 // the Node package graph, not a separate ecosystem. See

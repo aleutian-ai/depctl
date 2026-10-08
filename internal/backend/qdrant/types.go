@@ -1,10 +1,10 @@
 package qdrant
 
-import "aleutian-ai/ragctl/internal/backend"
+import "github.com/aleutian-ai/depctl/internal/backend"
 
-// payloadIDField stores the original ragctl point ID (e.g. a chunk ID)
+// payloadIDField stores the original depctl point ID (e.g. a chunk ID)
 // in the Qdrant payload — Qdrant's own point ID is a derived UUID
-// (pointID), not directly usable as ragctl's identity, so query results
+// (pointID), not directly usable as depctl's identity, so query results
 // need this to report the caller's original ID back.
 const payloadIDField = "_id"
 
@@ -93,7 +93,7 @@ func filterFrom(f *backend.Filter) *qdrantFilter {
 }
 
 // payloadFrom builds the Qdrant payload for a point: its mandatory
-// metadata fields plus the original ragctl point ID.
+// metadata fields plus the original depctl point ID.
 func payloadFrom(m backend.PointMetadata, originalID string) map[string]any {
 	return map[string]any{
 		payloadIDField: originalID,
@@ -106,7 +106,7 @@ func payloadFrom(m backend.PointMetadata, originalID string) map[string]any {
 	}
 }
 
-// originalID recovers the ragctl point ID payloadFrom stashed.
+// originalID recovers the depctl point ID payloadFrom stashed.
 func originalID(payload map[string]any) string {
 	return strField(payload, payloadIDField)
 }

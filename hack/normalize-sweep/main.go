@@ -3,7 +3,7 @@
 // and reports errors, panics, and parse_warning flags. It's the same
 // "run it against real content, not just fixtures" methodology used to
 // stress-test the Go resolver (GO-002) and the Markdown normalizer
-// (NORM-002's cobra README bug) — a dev tool, not part of ragctl itself.
+// (NORM-002's cobra README bug) — a dev tool, not part of depctl itself.
 package main
 
 import (
@@ -17,12 +17,12 @@ import (
 	"sort"
 	"strings"
 
-	"aleutian-ai/ragctl/internal/domain"
-	"aleutian-ai/ragctl/internal/normalize"
-	"aleutian-ai/ragctl/internal/normalize/godoc"
-	"aleutian-ai/ragctl/internal/normalize/markdown"
-	"aleutian-ai/ragctl/internal/normalize/plaintext"
-	"aleutian-ai/ragctl/internal/normalize/releasenotes"
+	"github.com/aleutian-ai/depctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/normalize"
+	"github.com/aleutian-ai/depctl/internal/normalize/godoc"
+	"github.com/aleutian-ai/depctl/internal/normalize/markdown"
+	"github.com/aleutian-ai/depctl/internal/normalize/plaintext"
+	"github.com/aleutian-ai/depctl/internal/normalize/releasenotes"
 )
 
 // skipDirNames are directories whose contents aren't representative

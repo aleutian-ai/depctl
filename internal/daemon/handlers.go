@@ -8,10 +8,10 @@ import (
 	"net/http"
 	"sort"
 
-	"aleutian-ai/ragctl/internal/daemon/api"
+	"github.com/aleutian-ai/depctl/internal/daemon/api"
 )
 
-// handleResolve runs `ragctl scan`'s discover-and-resolve for one root,
+// handleResolve runs `depctl scan`'s discover-and-resolve for one root,
 // then refreshes the watched set so a newly registered project is
 // watched without waiting for the periodic refresh.
 //
@@ -338,7 +338,7 @@ func (s *Server) gcBusy() bool {
 	return s.scheduler.gc.running
 }
 
-// syncActivity names every in-flight sync for `ragctl status`. A project
+// syncActivity names every in-flight sync for `depctl status`. A project
 // the engine can't name (removed mid-sync) is shown by ID alone.
 func (s *Server) syncActivity(ctx context.Context) []api.ProjectSync {
 	running := s.scheduler.SyncingProjects()

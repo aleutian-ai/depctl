@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"aleutian-ai/ragctl/internal/config"
-	"aleutian-ai/ragctl/internal/query"
+	"github.com/aleutian-ai/depctl/internal/config"
+	"github.com/aleutian-ai/depctl/internal/query"
 )
 
 // VALID-003: turns the one anecdotal JIT-sync timing number from this
@@ -17,12 +17,12 @@ import (
 // normal go test ./... run — it needs real network access, a real
 // Ollama embedder, and a real Qdrant instance (this repo's own
 // philosophy, established by VERIFY-001's non-goals, is that CI never
-// depends on live external services) — set RAGCTL_LIVE_BENCHMARK=1 to
+// depends on live external services) — set DEPCTL_LIVE_BENCHMARK=1 to
 // run it manually. Skips (not fails) when that's unset, matching this
 // repo's existing pattern for other live-network-dependent checks.
 func TestJITSyncColdLatencyBenchmark(t *testing.T) {
-	if os.Getenv("RAGCTL_LIVE_BENCHMARK") == "" {
-		t.Skip("set RAGCTL_LIVE_BENCHMARK=1 to run this live benchmark (needs network, a running Ollama, and a running Qdrant on 127.0.0.1:6333)")
+	if os.Getenv("DEPCTL_LIVE_BENCHMARK") == "" {
+		t.Skip("set DEPCTL_LIVE_BENCHMARK=1 to run this live benchmark (needs network, a running Ollama, and a running Qdrant on 127.0.0.1:6333)")
 	}
 	isolateEnv(t)
 	requireGo(t)
@@ -32,7 +32,7 @@ func TestJITSyncColdLatencyBenchmark(t *testing.T) {
 	// version, not the fixtures' usual local-replace pattern.
 	t.Setenv("GOPROXY", "https://proxy.golang.org,direct")
 	runInitForTest(t)
-	useRealRagctlBinary(t)
+	useRealDepctlBinary(t)
 
 	// Point at the already-running local Qdrant/Ollama instead of
 	// auto-bootstrapping a managed one — mirrors this session's own live
@@ -65,7 +65,7 @@ func TestJITSyncColdLatencyBenchmark(t *testing.T) {
 			root := t.TempDir()
 			writeGoMod(t, root, "module example.com/benchmarkapp\n\ngo 1.21\n")
 			// A real `go mod tidy` resolves a genuine current version —
-			// `ragctl scan`'s own resolver only ever reads an already-
+			// `depctl scan`'s own resolver only ever reads an already-
 			// resolved go.mod/go.sum, it doesn't invent versions itself.
 			tidyCmd := exec.Command("go", "get", m.modulePath+"@latest")
 			tidyCmd.Dir = root

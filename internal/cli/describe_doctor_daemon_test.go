@@ -6,14 +6,14 @@ import (
 	"testing"
 )
 
-// TestDescribeRunsThroughRealDaemon proves `ragctl describe` no longer
+// TestDescribeRunsThroughRealDaemon proves `depctl describe` no longer
 // opens the store itself: it goes through ensureDaemon like every other
 // migrated command, against a real, separately-spawned daemon process.
 func TestDescribeRunsThroughRealDaemon(t *testing.T) {
 	isolateEnv(t)
 	requireGo(t)
 	runInitForTest(t)
-	useRealRagctlBinary(t)
+	useRealDepctlBinary(t)
 
 	scanDepFixture(t) // also auto-starts the daemon this test relies on
 
@@ -35,14 +35,14 @@ func TestDescribeRunsThroughRealDaemon(t *testing.T) {
 
 // TestDoctorUsesDaemonWhenReachable proves doctor's daemon-mediated path
 // actually works end-to-end: while a real daemon holds the stores open
-// (confirmed by a direct open attempt failing with ErrLocked), `ragctl
+// (confirmed by a direct open attempt failing with ErrLocked), `depctl
 // doctor` still succeeds — because it never tries to open them itself
 // when a daemon answers.
 func TestDoctorUsesDaemonWhenReachable(t *testing.T) {
 	isolateEnv(t)
 	requireGo(t)
 	runInitForTest(t)
-	useRealRagctlBinary(t)
+	useRealDepctlBinary(t)
 
 	scanDepFixture(t) // also auto-starts the daemon this test relies on
 

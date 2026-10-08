@@ -12,11 +12,11 @@ if cfg.Embedding.Provider != "ollama" {
 }
 ```
 
-A documented v0.1 scope limit (EMB-002), not an accidental one — but real: today ragctl cannot use OpenAI, Azure OpenAI, or any self-hosted OpenAI-API-compatible embedding server (LM Studio, text-embeddings-inference, vLLM's embedding endpoint — Ollama itself even added an OpenAI-compatible `/v1/embeddings` route alongside its native one). One correction worth recording: Claude/Anthropic has no embeddings API at all — not a candidate here regardless, they point people at third-party providers (Voyage AI) for it.
+A documented v0.1 scope limit (EMB-002), not an accidental one — but real: today depctl cannot use OpenAI, Azure OpenAI, or any self-hosted OpenAI-API-compatible embedding server (LM Studio, text-embeddings-inference, vLLM's embedding endpoint — Ollama itself even added an OpenAI-compatible `/v1/embeddings` route alongside its native one). One correction worth recording: Claude/Anthropic has no embeddings API at all — not a candidate here regardless, they point people at third-party providers (Voyage AI) for it.
 
 ## Why it's deferred, not fixed now
 
-The default is already `nomic-embed-text` via Ollama (`internal/config/config.go`) — a small (~274MB), well-regarded local model. Requiring it isn't a new cost category for ragctl: the tool already requires a local Qdrant instance and a local daemon to work at all, and `docs/offline-quickstart.md`'s whole point is zero-network-access operation. "Also run a small local embedding model" is the same kind of ask as those, not a qualitatively different one — and it's what makes the offline story actually true rather than aspirational. Nobody is blocked from real value today without an OpenAI-compatible option.
+The default is already `nomic-embed-text` via Ollama (`internal/config/config.go`) — a small (~274MB), well-regarded local model. Requiring it isn't a new cost category for depctl: the tool already requires a local Qdrant instance and a local daemon to work at all, and `docs/offline-quickstart.md`'s whole point is zero-network-access operation. "Also run a small local embedding model" is the same kind of ask as those, not a qualitatively different one — and it's what makes the offline story actually true rather than aspirational. Nobody is blocked from real value today without an OpenAI-compatible option.
 
 ## What the fix would look like, whenever it's picked up
 

@@ -1,7 +1,7 @@
 // Package httplimit provides SEC-003's small, shared fetch-limit
 // primitives — a size-bounded reader that fails with a typed error
 // instead of silently truncating, and an HTTP client with a bounded
-// redirect count — used at every point ragctl reads a response body from
+// redirect count — used at every point depctl reads a response body from
 // an untrusted external source (registry metadata, vanity-import
 // resolution). Deliberately not a general resource-governance
 // framework: two small helpers, not a new subsystem.

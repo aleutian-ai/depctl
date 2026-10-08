@@ -65,7 +65,7 @@ flowchart TD
     end
 
     DiscoverCall --> CandidateSources["[]registry.Source proposal"]
-    CandidateSources --> CLI2["ragctl registry discover\n(prints a draft manifest; a human saves it)"]
+    CandidateSources --> CLI2["depctl registry discover\n(prints a draft manifest; a human saves it)"]
     CLI2 --> UserDir
 
     Registry --> Liveness["CheckLiveness(ctx, source)\n(explicit only: describe --check-liveness)"]
@@ -75,12 +75,12 @@ flowchart TD
 
 ## Walkthrough
 
-Scenario: `ragctl plan` needs a knowledge source for the Go dependency `google.golang.org/grpc` and the built-in registry already ships a manifest for it, so no user/project override is involved.
+Scenario: `depctl plan` needs a knowledge source for the Go dependency `google.golang.org/grpc` and the built-in registry already ships a manifest for it, so no user/project override is involved.
 
 1. **Startup: `Loader.Load` reads the built-in manifest.** `NewLoader("", "")` (or with real user/project dirs) builds a `Loader`; `Load` starts by reading `builtinFS.ReadDir("builtin")` — the `//go:embed builtin/*.yaml` filesystem compiled into the binary (internal/registry/loader.go). One of the six entries is `grpc-go.yaml`:
 
    ```yaml
-   apiVersion: ragctl.dev/v1alpha1
+   apiVersion: depctl.dev/v1alpha1
    kind: KnowledgePackage
    metadata:
      name: grpc-go
@@ -130,9 +130,9 @@ Scenario: `ragctl plan` needs a knowledge source for the Go dependency `google.g
 
 ## Notes
 
-- `Registry.Match` is called by `internal/planner` (planner.go) and by the CLI's `sync.go`, `describe.go` and `retrieval.go`; `ragctl registry list` (`internal/cli/registry.go`) uses `ManifestNames`/`Manifest`.
+- `Registry.Match` is called by `internal/planner` (planner.go) and by the CLI's `sync.go`, `describe.go` and `retrieval.go`; `depctl registry list` (`internal/cli/registry.go`) uses `ManifestNames`/`Manifest`.
 - `internal/resolver` has an analogous `Registry` type for a different purpose (resolver priority, not manifest matching) — don't conflate the two; `internal/registry.Registry` is manifest-matching only.
-- `discover.Discover` results are never applied to a loaded `Registry` automatically — `ragctl registry discover <ecosystem> <package>` only prints a draft manifest, which a human can review and save in `<data-dir>/registry/`.
+- `discover.Discover` results are never applied to a loaded `Registry` automatically — `depctl registry discover <ecosystem> <package>` only prints a draft manifest, which a human can review and save in `<data-dir>/registry/`.
 - Sync does not need a manifest for every dependency: without one, it falls back to a single `git` source derived from the package itself (Authority 0), as described in step 6.
 - `CheckLiveness` only supports `git` and `website` source types; `godoc` and `github-releases` sources return an "not implemented" error result rather than panicking.
 - The project-override registry directory is fully supported by `Loader`, but every CLI caller passes `""` for it (`NewLoader(userDir, "")`), so it is unused from the CLI today.

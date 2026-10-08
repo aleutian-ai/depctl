@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"aleutian-ai/ragctl/internal/domain"
-	"aleutian-ai/ragctl/internal/query"
+	"github.com/aleutian-ai/depctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/query"
 )
 
 type stubControlStore struct {

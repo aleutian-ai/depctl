@@ -1,6 +1,6 @@
 // Package pgvector implements backend.VectorBackend on PostgreSQL with the
 // pgvector extension (VEC-014). Each namespace is its own table, so
-// ragctl's data never shares a table with anything else in the same
+// depctl's data never shares a table with anything else in the same
 // database (e.g. a Mem0 server's own memories table).
 package pgvector
 
@@ -15,7 +15,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"aleutian-ai/ragctl/internal/backend"
+	"github.com/aleutian-ai/depctl/internal/backend"
 )
 
 // ErrExtensionMissing means the vector extension isn't installed and this
@@ -33,7 +33,7 @@ type Adapter struct {
 	pool *pgxpool.Pool
 }
 
-// pools holds one connection pool per database per process. ragctl builds
+// pools holds one connection pool per database per process. depctl builds
 // a backend per operation; a fresh pool each time would leak connections.
 var (
 	poolsMu sync.Mutex

@@ -6,9 +6,9 @@ import (
 	"net/http"
 	"time"
 
-	"aleutian-ai/ragctl/internal/config"
-	"aleutian-ai/ragctl/internal/executil"
-	"aleutian-ai/ragctl/internal/httplimit"
+	"github.com/aleutian-ai/depctl/internal/config"
+	"github.com/aleutian-ai/depctl/internal/executil"
+	"github.com/aleutian-ai/depctl/internal/httplimit"
 )
 
 // livenessTimeout bounds a single liveness check — this is a quick

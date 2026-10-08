@@ -20,7 +20,7 @@ Stop `internal/data/generation/build.go`'s `normalizeSources` from walking past 
 ## Live verification
 Measured the real repo directly (`github.com/googleapis/google-cloud-go`): the buggy unscoped walk touches **13,399** directories containing `.go` files; correctly scoped to just the root module (excluding all 216 nested `go.mod` boundaries), only **23**.
 
-Re-ran the exact failing case from STRESS-005 — `ragctl sync --dependency cloud.google.com/go` against real `hashicorp/terraform` inside the Podman/Linux container — with the fix in place: `OK cloud.google.com/go v0.123.0`, `1 synced, 0 failed, 0 skipped`, and the entire script (fresh clone of terraform + scan + this targeted sync) completed in **35 seconds total**. Before the fix, this single dependency alone consumed the full 30+ minute batch budget in [STRESS-005](../../planned/49-full-loop-stress-testing/STRESS-005-full-cold-sync-real-scale.md)'s original run and still failed with `context deadline exceeded`.
+Re-ran the exact failing case from STRESS-005 — `depctl sync --dependency cloud.google.com/go` against real `hashicorp/terraform` inside the Podman/Linux container — with the fix in place: `OK cloud.google.com/go v0.123.0`, `1 synced, 0 failed, 0 skipped`, and the entire script (fresh clone of terraform + scan + this targeted sync) completed in **35 seconds total**. Before the fix, this single dependency alone consumed the full 30+ minute batch budget in [STRESS-005](../../planned/49-full-loop-stress-testing/STRESS-005-full-cold-sync-real-scale.md)'s original run and still failed with `context deadline exceeded`.
 
 ## Acceptance criteria
 - [x] A dependency whose repository contains nested Go modules no longer has those sibling modules' content normalized as its own.

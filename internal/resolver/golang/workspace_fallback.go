@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"aleutian-ai/ragctl/internal/executil"
+	"github.com/aleutian-ai/depctl/internal/executil"
 )
 
 // skipWorkspaceScanDirs are directory names never worth descending into
@@ -50,7 +50,7 @@ func synthesizeWorkspace(ctx context.Context, root string) (goWorkPath string, c
 		return "", nil, err
 	}
 
-	dir, err := os.MkdirTemp("", "ragctl-goworkspace-")
+	dir, err := os.MkdirTemp("", "depctl-goworkspace-")
 	if err != nil {
 		return "", nil, fmt.Errorf("create workspace scratch dir: %w", err)
 	}

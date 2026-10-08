@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"aleutian-ai/ragctl/internal/daemon/api"
+	"github.com/aleutian-ai/depctl/internal/daemon/api"
 )
 
 // listenUnix starts a bare HTTP server on a fresh temp socket running
@@ -18,7 +18,7 @@ func listenUnix(t *testing.T, handler http.HandlerFunc) string {
 	t.Helper()
 	// Not t.TempDir(): its path is nested under the test name and can
 	// overrun sun_path's ~104-byte limit on macOS for a long test name.
-	dir, err := os.MkdirTemp("", "ragctl-client-test-")
+	dir, err := os.MkdirTemp("", "depctl-client-test-")
 	if err != nil {
 		t.Fatalf("MkdirTemp: %v", err)
 	}

@@ -1,8 +1,8 @@
-# Repo corpus for exercising ragctl's resolvers and (later) its
+# Repo corpus for exercising depctl's resolvers and (later) its
 # acquisition layer against real projects. One line per repo:
 #   <ecosystem/category>  <org>/<repo>
 # "ecosystem" is just a corpus subdirectory name here, not necessarily
-# something ragctl's resolvers recognize (e.g. "research" holds reference
+# something depctl's resolvers recognize (e.g. "research" holds reference
 # material with no package manifest of its own).
 #
 # Run with: go run ./hack/fetch-corpus [-root DIR] [-concurrency N]

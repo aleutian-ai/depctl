@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"aleutian-ai/ragctl/internal/symbolgraph"
+	"github.com/aleutian-ai/depctl/internal/symbolgraph"
 )
 
 // TestDaemonResolutionStoreRoundTripsThroughRealDaemon proves
@@ -21,7 +21,7 @@ func TestDaemonResolutionStoreRoundTripsThroughRealDaemon(t *testing.T) {
 	isolateEnv(t)
 	requireGo(t)
 	runInitForTest(t)
-	useRealRagctlBinary(t)
+	useRealDepctlBinary(t)
 
 	scanDepFixture(t) // registers example.com/app depending on example.com/foo (local replace)
 	ctx := context.Background()
@@ -60,7 +60,7 @@ func TestDaemonResolutionStoreUnknownProjectPropagatesError(t *testing.T) {
 	isolateEnv(t)
 	requireGo(t)
 	runInitForTest(t)
-	useRealRagctlBinary(t)
+	useRealDepctlBinary(t)
 
 	ctx := context.Background()
 	c, err := ensureDaemon(ctx)

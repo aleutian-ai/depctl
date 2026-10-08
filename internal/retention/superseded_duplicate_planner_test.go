@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"aleutian-ai/ragctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/domain"
 )
 
 // TestPlanSupersededDuplicateGCFindsSameVersionSibling is POINT-004's

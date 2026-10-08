@@ -17,9 +17,9 @@ import (
 
 	bolt "go.etcd.io/bbolt"
 
-	"aleutian-ai/ragctl/internal/config"
-	bboltstore "aleutian-ai/ragctl/internal/control/bbolt"
-	"aleutian-ai/ragctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/config"
+	bboltstore "github.com/aleutian-ai/depctl/internal/control/bbolt"
+	"github.com/aleutian-ai/depctl/internal/domain"
 )
 
 const testEmbeddingModel = "nomic-embed-text"
@@ -381,7 +381,7 @@ func TestDoctorEmptyActiveGenerationsReportsBudgetExceeded(t *testing.T) {
 // (epic 49) found live: a kill landing after a dependency's reference
 // commits but before its matching build ever reaches ACTIVE. No prior
 // doctor check catches this (there's no active generation at all for
-// checkEmptyActiveGenerations to inspect), and `ragctl describe` doesn't
+// checkEmptyActiveGenerations to inspect), and `depctl describe` doesn't
 // either — confirmed live, only checkReferencedButNeverBuilt does.
 func TestDoctorFlagsReferencedButNeverBuilt(t *testing.T) {
 	ctx := context.Background()
@@ -548,17 +548,17 @@ func TestDoctorEmbeddingBackendReflectsLiveDaemonState(t *testing.T) {
 func TestDoctorVectorBackendReflectsLiveDaemonState(t *testing.T) {
 	env := healthyDoctorEnv(t)
 	env.vectorReadiness = newVectorReadiness()
-	env.vectorReadiness.set(vectorStateStarting, "ragctl-qdrant")
+	env.vectorReadiness.set(vectorStateStarting, "depctl-qdrant")
 
 	r := resultNamed(t, runChecks(context.Background(), env), "vector backend")
-	if r.Severity != SeverityWarning || !strings.Contains(r.Detail, "ragctl-qdrant") {
+	if r.Severity != SeverityWarning || !strings.Contains(r.Detail, "depctl-qdrant") {
 		t.Errorf("vector backend check = %s (%s), want WARN naming the starting container", r.Severity, r.Detail)
 	}
 }
 
 // TestDoctorVectorBackendReadyDetailDistinguishesManaged is WATCH-017's
 // last acceptance criterion: once a backend is ready, the detail line
-// must say whether it's ragctl's own managed container or a
+// must say whether it's depctl's own managed container or a
 // user-supplied one, not just "ready".
 func TestDoctorVectorBackendReadyDetailDistinguishesManaged(t *testing.T) {
 	env := healthyDoctorEnv(t)

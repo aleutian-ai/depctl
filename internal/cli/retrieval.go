@@ -10,15 +10,15 @@ import (
 	"sync"
 	"time"
 
-	"aleutian-ai/ragctl/internal/backend"
-	"aleutian-ai/ragctl/internal/backend/keyword"
-	"aleutian-ai/ragctl/internal/config"
-	bboltstore "aleutian-ai/ragctl/internal/control/bbolt"
-	badgerstore "aleutian-ai/ragctl/internal/data/badger"
-	"aleutian-ai/ragctl/internal/data/generation"
-	"aleutian-ai/ragctl/internal/domain"
-	"aleutian-ai/ragctl/internal/embedding"
-	"aleutian-ai/ragctl/internal/registry"
+	"github.com/aleutian-ai/depctl/internal/backend"
+	"github.com/aleutian-ai/depctl/internal/backend/keyword"
+	"github.com/aleutian-ai/depctl/internal/config"
+	bboltstore "github.com/aleutian-ai/depctl/internal/control/bbolt"
+	badgerstore "github.com/aleutian-ai/depctl/internal/data/badger"
+	"github.com/aleutian-ai/depctl/internal/data/generation"
+	"github.com/aleutian-ai/depctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/embedding"
+	"github.com/aleutian-ai/depctl/internal/registry"
 )
 
 // readinessSettleTimeout is how long auto mode waits for a readiness probe
@@ -378,7 +378,7 @@ func hasStaleVectors(ctx context.Context, store *bboltstore.Store, cfg config.Co
 
 // errStaleVectors is vector mode's answer while active generations hold
 // vectors made with other embedding settings.
-var errStaleVectors = errors.New("the embedding settings changed since some versions were embedded; the next `ragctl sync` re-embeds them (it reuses their stored chunks)")
+var errStaleVectors = errors.New("the embedding settings changed since some versions were embedded; the next `depctl sync` re-embeds them (it reuses their stored chunks)")
 
 // switchMu keeps concurrent syncs from switching at once: a second drop
 // could delete vectors the first had already re-embedded.

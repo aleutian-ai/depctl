@@ -1,4 +1,4 @@
-// Package retention implements ragctl's grace-period bookkeeping
+// Package retention implements depctl's grace-period bookkeeping
 // (RET-002) and GC eligibility planning (RET-003): keeping a dependency
 // version's knowledge retained for a configurable window after a
 // project stops referencing it, then computing which versions — and
@@ -10,7 +10,7 @@ import (
 	"fmt"
 	"time"
 
-	"aleutian-ai/ragctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/domain"
 )
 
 // ControlStore is the narrow slice of *bbolt.Store this package needs —

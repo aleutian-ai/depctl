@@ -1,8 +1,8 @@
 # Epic: Registry Coverage
 
-The knowledge registry (epic 07) works well once a manifest exists, but coverage today is 100% manual: 6 built-in manifests ship with the binary, and every other package needs someone to hand-write YAML before ragctl can sync it at all. This epic addresses the coverage gap without weakening the registry's trust-boundary property (docs/tickets/completed/07-knowledge-registry, SEC-001) — nothing here lets ragctl silently trust an un-reviewed source, it only reduces how much manual typing is needed to get a real source registered or to degrade gracefully when one isn't.
+The knowledge registry (epic 07) works well once a manifest exists, but coverage today is 100% manual: 6 built-in manifests ship with the binary, and every other package needs someone to hand-write YAML before depctl can sync it at all. This epic addresses the coverage gap without weakening the registry's trust-boundary property (docs/tickets/completed/07-knowledge-registry, SEC-001) — nothing here lets depctl silently trust an un-reviewed source, it only reduces how much manual typing is needed to get a real source registered or to degrade gracefully when one isn't.
 
-Website/blog/video acquisition (a separate, already-real gap — a manifest can *declare* a `website` source but ragctl has no HTTP client to actually fetch one) is tracked separately: `docs/tickets/backlog/24-website-acquisition`. Nothing here duplicates it.
+Website/blog/video acquisition (a separate, already-real gap — a manifest can *declare* a `website` source but depctl has no HTTP client to actually fetch one) is tracked separately: `docs/tickets/backlog/24-website-acquisition`. Nothing here duplicates it.
 
 ## Tickets
 - [REG-005](REG-005-no-manifest-fallback.md) — fall back to indexing the resolved repo itself when no registry manifest matches, instead of failing the dependency's sync outright.

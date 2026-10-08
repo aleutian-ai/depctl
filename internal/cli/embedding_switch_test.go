@@ -7,12 +7,12 @@ import (
 	"strings"
 	"testing"
 
-	"aleutian-ai/ragctl/internal/backend"
-	"aleutian-ai/ragctl/internal/backend/backendtest"
-	"aleutian-ai/ragctl/internal/backend/embedded"
-	"aleutian-ai/ragctl/internal/config"
-	bboltstore "aleutian-ai/ragctl/internal/control/bbolt"
-	"aleutian-ai/ragctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/backend"
+	"github.com/aleutian-ai/depctl/internal/backend/backendtest"
+	"github.com/aleutian-ai/depctl/internal/backend/embedded"
+	"github.com/aleutian-ai/depctl/internal/config"
+	bboltstore "github.com/aleutian-ai/depctl/internal/control/bbolt"
+	"github.com/aleutian-ai/depctl/internal/domain"
 )
 
 // switchFixture is an install with two active generations embedded by
@@ -27,7 +27,7 @@ func switchFixture(t *testing.T, vb backend.VectorBackend) (*bboltstore.Store, c
 	cfg.Vector.Backend = "qdrant" // seedActiveGeneration's backend name
 	cfg.Embedding.Model, cfg.Embedding.QueryPrompt, cfg.Embedding.DocumentPrompt, cfg.Embedding.Dimensions = "new-model", "", "", 0
 
-	ns := backend.Namespace{Name: "ragctl-test", Dimensions: 4, Distance: "cosine"}
+	ns := backend.Namespace{Name: "depctl-test", Dimensions: 4, Distance: "cosine"}
 	if err := vb.EnsureNamespace(ctx, ns); err != nil {
 		t.Fatalf("EnsureNamespace: %v", err)
 	}
@@ -138,7 +138,7 @@ func TestSwitchEmbeddingNeedsANewRemoteCollectionForANewSize(t *testing.T) {
 		t.Errorf("Count = %d, want all 3 points kept", n)
 	}
 
-	ns.Name = "ragctl-new"
+	ns.Name = "depctl-new"
 	if err := switchEmbedding(ctx, store, cfg, vb, ns, &bytes.Buffer{}); err != nil {
 		t.Fatalf("switchEmbedding into a new collection: %v", err)
 	}

@@ -57,8 +57,8 @@ func TestCanonicalRootNormalizesTrailingSlashAndDot(t *testing.T) {
 }
 
 // TestCanonicalRootResolvesSymlinkedAncestor is PROJ-002's regression
-// test: found live when `ragctl scan /tmp/foo` (a literal, absolute path
-// through macOS's symlinked /tmp -> /private/tmp) and `ragctl serve`'s
+// test: found live when `depctl scan /tmp/foo` (a literal, absolute path
+// through macOS's symlinked /tmp -> /private/tmp) and `depctl serve`'s
 // own startup scan (relative ".", which os.Getwd() resolves via the
 // symlink-resolving getcwd() syscall) registered the SAME physical
 // directory as two different projects with two different IDs.

@@ -9,7 +9,7 @@
 Live-verified gap (found running the real MCP-first scenario end to end after WATCH-014 shipped): a fresh install with Ollama/the embedding model both ready still fails every `sync_project` action with a raw error —
 ```
 FAIL  github.com/spf13/cobra v1.10.2: replicate: generation: replication failed:
-ensure namespace ragctl: qdrant EnsureNamespace:
+ensure namespace depctl: qdrant EnsureNamespace:
 dial tcp 127.0.0.1:6333: connect: connection refused
 ```
 — because nothing checks Qdrant's reachability before `generation.Replicate` tries to use it. Give the vector backend the exact same background-readiness treatment WATCH-014 gave the embedding backend: checked once at daemon startup, off any client's request path, surfaced as one clean, actionable error instead of a raw dial failure repeated once per dependency.
@@ -57,11 +57,11 @@ Every call site that calls `buildVectorBackend` for real work — not a diagnost
 - `internal/cli/daemon.go`'s `engine.fullQueryService` (~line 398, the search path) — checked before `buildVectorBackend`, same "outside the `sync.Once`" placement WATCH-014 used so a "still unreachable" answer is never memoized as the final build outcome.
 - `internal/cli/gc.go`'s `RunGC` (~line 69, where it calls `buildVectorBackend(cfg)`) — `engine.GC` (`internal/cli/daemon.go:483`) is a one-line wrapper around `RunGC(ctx, e.store, e.badgerStore, e.cfg, dryRun, out)`; `RunGC` gains the same `*vectorReadiness` parameter `RunSync` does, and `engine.GC` passes `e.vectorReadiness`.
 
-`api.Health` (`internal/daemon/api/api.go`) gains `VectorState`/`VectorDetail`, mirroring `EmbeddingState`/`EmbeddingDetail` exactly — read live from a new `Engine.VectorReadiness(ctx) (state, detail string)` method (`internal/daemon/server.go`), wired into `handleHealth` the same way. `ragctl daemon status` gains a `vector:` line next to its existing `embedding:` one (`internal/cli/daemon.go`'s `runDaemonStatus`, reusing the `embeddingStatusLabel`-style formatter pattern).
+`api.Health` (`internal/daemon/api/api.go`) gains `VectorState`/`VectorDetail`, mirroring `EmbeddingState`/`EmbeddingDetail` exactly — read live from a new `Engine.VectorReadiness(ctx) (state, detail string)` method (`internal/daemon/server.go`), wired into `handleHealth` the same way. `depctl daemon status` gains a `vector:` line next to its existing `embedding:` one (`internal/cli/daemon.go`'s `runDaemonStatus`, reusing the `embeddingStatusLabel`-style formatter pattern).
 
 ## Inputs / Outputs
 - Input: the daemon's own configured `vector.backend`/`endpoint` — no new config surface (WATCH-016 adds `vector.managed`, not this ticket).
-- Output: `ragctl daemon status`'s new `vector:` line; `/v1/health`'s `vector_state`/`vector_detail`; actionable errors from `sync`/GC/search instead of the raw `dial tcp ... connection refused` currently surfacing through `generation.Replicate`.
+- Output: `depctl daemon status`'s new `vector:` line; `/v1/health`'s `vector_state`/`vector_detail`; actionable errors from `sync`/GC/search instead of the raw `dial tcp ... connection refused` currently surfacing through `generation.Replicate`.
 
 ## Failure behavior
 - Qdrant unreachable: `sync`/GC/search fail immediately with `"vector backend unreachable: qdrant not reachable at http://127.0.0.1:6333: <underlying error>"`, once per call rather than once per dependency inside a sync loop.
@@ -76,7 +76,7 @@ Every call site that calls `buildVectorBackend` for real work — not a diagnost
 ## Acceptance criteria
 - [x] The daemon checks vector-backend reachability in the background at startup, never on a client's request path.
 - [x] `sync`, GC, and search fail fast with an actionable message while Qdrant is unreachable, instead of a raw dial error (repeated per dependency, in sync's case).
-- [x] `ragctl daemon status` and `/v1/health` surface the live state, next to the existing embedding readiness line.
+- [x] `depctl daemon status` and `/v1/health` surface the live state, next to the existing embedding readiness line.
 - [x] `checkBackendReachable`/`probeBackend` (doctor/status's existing live probes) are unchanged — this ticket adds a second, separate mechanism, not a replacement.
 
 ## Post-implementation note

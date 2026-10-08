@@ -6,9 +6,9 @@ import (
 	"reflect"
 	"testing"
 
-	"aleutian-ai/ragctl/internal/backend"
-	"aleutian-ai/ragctl/internal/backend/backendtest"
-	"aleutian-ai/ragctl/internal/backend/keyword"
+	"github.com/aleutian-ai/depctl/internal/backend"
+	"github.com/aleutian-ai/depctl/internal/backend/backendtest"
+	"github.com/aleutian-ai/depctl/internal/backend/keyword"
 )
 
 // searchIndexFixture: generation "both" is in the vector store and the
@@ -18,7 +18,7 @@ func searchIndexFixture(t *testing.T) (*searchIndex, backend.Namespace) {
 	t.Helper()
 	ctx := context.Background()
 	idx := &searchIndex{name: "embedded", vector: backendtest.New(), keyword: keyword.New(filepath.Join(t.TempDir(), "keyword.db"))}
-	ns := backend.Namespace{Name: "ragctl-test", Dimensions: 2, Distance: "cosine"}
+	ns := backend.Namespace{Name: "depctl-test", Dimensions: 2, Distance: "cosine"}
 	if err := idx.EnsureNamespace(ctx, ns); err != nil {
 		t.Fatalf("EnsureNamespace: %v", err)
 	}
@@ -42,7 +42,7 @@ func searchIndexFixture(t *testing.T) (*searchIndex, backend.Namespace) {
 func TestSearchIndexFusesKeywordAndVectorRankings(t *testing.T) {
 	ctx := context.Background()
 	idx := &searchIndex{name: "embedded", vector: backendtest.New(), keyword: keyword.New(filepath.Join(t.TempDir(), "keyword.db"))}
-	ns := backend.Namespace{Name: "ragctl-test", Dimensions: 2, Distance: "cosine"}
+	ns := backend.Namespace{Name: "depctl-test", Dimensions: 2, Distance: "cosine"}
 	if err := idx.EnsureNamespace(ctx, ns); err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +113,7 @@ func TestSearchIndexCountIsTheLargestAcrossIndexes(t *testing.T) {
 func TestSearchIndexCountWithAVectorStoreThatHasNoNamespaceYet(t *testing.T) {
 	ctx := context.Background()
 	kw := keyword.New(filepath.Join(t.TempDir(), "keyword.db"))
-	ns := backend.Namespace{Name: "ragctl-test"}
+	ns := backend.Namespace{Name: "depctl-test"}
 	if err := kw.EnsureNamespace(ctx, ns); err != nil {
 		t.Fatal(err)
 	}

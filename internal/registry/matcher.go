@@ -1,7 +1,7 @@
 package registry
 
 import (
-	"aleutian-ai/ragctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/domain"
 )
 
 // build indexes every loaded manifest by ecosystem+package for O(1)

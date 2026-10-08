@@ -1,4 +1,4 @@
-// Package badger is ragctl's data-plane store: high-volume normalized
+// Package badger is depctl's data-plane store: high-volume normalized
 // content (knowledge objects, chunks, manifests, the content-hash index,
 // and the embedding cache).
 package badger
@@ -26,7 +26,7 @@ const (
 	blockCacheSize = 128 << 20
 )
 
-// Store is ragctl's Badger database; every data-plane method hangs off it.
+// Store is depctl's Badger database; every data-plane method hangs off it.
 type Store struct {
 	db *bg.DB
 }

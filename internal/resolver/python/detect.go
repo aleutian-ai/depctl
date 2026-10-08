@@ -1,4 +1,4 @@
-// Package python is ragctl's Python ecosystem resolver: detects Python
+// Package python is depctl's Python ecosystem resolver: detects Python
 // projects via their lock/manifest files and resolves exact dependency
 // versions, preferring lockfiles (uv, then Poetry) over unpinned
 // manifests (requirements.txt). See docs/tickets/completed/20-python-resolver.

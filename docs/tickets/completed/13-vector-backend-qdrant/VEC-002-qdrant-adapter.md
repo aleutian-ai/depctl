@@ -14,7 +14,7 @@ Implement `VectorBackend` against Qdrant's HTTP API as the first, reference vect
 
 ## Simplicity constraints
 - Use a small hand-written HTTP client (`net/http` + `encoding/json`) rather than a generated Qdrant SDK, per the plan's explicit "do not require a generated client if a small HTTP client keeps dependency weight lower."
-- One collection per `ragctl` install (configurable name), filtered by metadata for ecosystem/package/version/generation — do not create one Qdrant collection per dependency version.
+- One collection per `depctl` install (configurable name), filtered by metadata for ecosystem/package/version/generation — do not create one Qdrant collection per dependency version.
 
 ## Design
 - Package: `internal/backend/qdrant`.
@@ -23,7 +23,7 @@ Implement `VectorBackend` against Qdrant's HTTP API as the first, reference vect
 vector:
   backend: qdrant
   endpoint: http://127.0.0.1:6333
-  collection: ragctl
+  collection: depctl
   batch_size: 256
 ```
 - `type Client struct { endpoint, collection string; httpClient *http.Client }` implementing `backend.VectorBackend`.

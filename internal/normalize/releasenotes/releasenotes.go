@@ -1,4 +1,4 @@
-// Package releasenotes implements ragctl's release-note normalizer
+// Package releasenotes implements depctl's release-note normalizer
 // (NORM-005): a thin decorator over the Markdown and plain-text
 // normalizers, not a parser of its own. It tags content from recognized
 // release-note sources with content_type=release_note and, for Markdown
@@ -11,9 +11,9 @@ import (
 	"regexp"
 	"strings"
 
-	"aleutian-ai/ragctl/internal/domain"
-	"aleutian-ai/ragctl/internal/normalize/markdown"
-	"aleutian-ai/ragctl/internal/normalize/plaintext"
+	"github.com/aleutian-ai/depctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/normalize/markdown"
+	"github.com/aleutian-ai/depctl/internal/normalize/plaintext"
 )
 
 // knownFilenames are recognized release-note filenames, matched

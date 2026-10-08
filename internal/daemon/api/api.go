@@ -1,4 +1,4 @@
-// Package api defines the wire contract of the local ragctl daemon API:
+// Package api defines the wire contract of the local depctl daemon API:
 // the route paths plus the JSON request and response types shared by the
 // server (internal/daemon) and its clients (internal/daemon/client), so
 // the two can't drift. Nothing here talks to storage or the network.
@@ -92,7 +92,7 @@ type Health struct {
 	VectorDetail string `json:"vector_detail,omitempty"`
 }
 
-// Status is the `ragctl status` snapshot; text and --json both render
+// Status is the `depctl status` snapshot; text and --json both render
 // this one struct.
 type Status struct {
 	Projects             int           `json:"projects"`
@@ -131,7 +131,7 @@ type BackendStatus struct {
 	Healthy bool   `json:"healthy"`
 }
 
-// SyncResult is the outcome of one sync run, matching what `ragctl
+// SyncResult is the outcome of one sync run, matching what `depctl
 // sync` summarizes.
 type SyncResult struct {
 	ProjectID string `json:"project_id"`
@@ -141,7 +141,7 @@ type SyncResult struct {
 }
 
 // ResolveRequest asks the daemon to scan and resolve a directory, the
-// work behind `ragctl scan`. Root must be absolute: the daemon's working
+// work behind `depctl scan`. Root must be absolute: the daemon's working
 // directory is not the caller's.
 type ResolveRequest struct {
 	Root string `json:"root"`
@@ -152,7 +152,7 @@ type ResolveResult struct {
 	ProjectIDs []string `json:"project_ids"`
 }
 
-// SyncRequest is one `ragctl sync` invocation. An empty ProjectID means
+// SyncRequest is one `depctl sync` invocation. An empty ProjectID means
 // every registered project, as the CLI's missing --project does.
 type SyncRequest struct {
 	ProjectID string `json:"project_id,omitempty"`
@@ -248,7 +248,7 @@ type ObservedTiming struct {
 // Confidence is "low" below a real sample size, "medium"/"high" above
 // it depending on how skewed the observed durations are — never treat
 // RemainingSeconds as precise without checking Confidence. This is
-// information only: ragctl never uses it to decide anything itself
+// information only: depctl never uses it to decide anything itself
 // (BATCH-001's own non-goal) — an agent or human decides what to do
 // with a large Pending list (keep waiting, request a specific
 // dependency via sync_project, accept partial coverage, etc.).
@@ -276,7 +276,7 @@ type PlanRequest struct {
 	ProjectID string `json:"project_id,omitempty"`
 }
 
-// GCRequest is one `ragctl gc` invocation.
+// GCRequest is one `depctl gc` invocation.
 type GCRequest struct {
 	DryRun bool `json:"dry_run"`
 	// Orphans selects GC-001/GC-002's orphan-generation eligibility path
@@ -387,7 +387,7 @@ type ReleaseChange struct {
 	Excerpt   string `json:"excerpt"`
 }
 
-// KnowledgeStatusResponse mirrors query.Status's wire shape — ragctl's
+// KnowledgeStatusResponse mirrors query.Status's wire shape — depctl's
 // fleet-wide sync-coverage summary, not to be confused with Status
 // above (daemon/process health).
 type KnowledgeStatusResponse struct {
@@ -405,19 +405,19 @@ type ProjectRef struct {
 }
 
 // ProjectSummary is one registered project's ID and root, for
-// `ragctl project list`.
+// `depctl project list`.
 type ProjectSummary struct {
 	ID   string `json:"id"`
 	Root string `json:"root"`
 }
 
-// ProjectListResponse is `ragctl project list`'s result.
+// ProjectListResponse is `depctl project list`'s result.
 type ProjectListResponse struct {
 	Projects []ProjectSummary `json:"projects"`
 }
 
 // ProjectGetRequest asks for one project's full detail, the work behind
-// `ragctl project show` and `ragctl deps`.
+// `depctl project show` and `depctl deps`.
 type ProjectGetRequest struct {
 	ProjectID string `json:"project_id"`
 }
@@ -436,7 +436,7 @@ type ProjectGetResponse struct {
 	Dependencies  []DependencyInfo `json:"dependencies,omitempty"`
 }
 
-// DependencyInfo is one resolved dependency, the wire shape `ragctl
+// DependencyInfo is one resolved dependency, the wire shape `depctl
 // deps` renders.
 type DependencyInfo struct {
 	Ecosystem string `json:"ecosystem"`
@@ -445,7 +445,7 @@ type DependencyInfo struct {
 	Direct    bool   `json:"direct"`
 }
 
-// DescribeRequest is one `ragctl describe` invocation.
+// DescribeRequest is one `depctl describe` invocation.
 type DescribeRequest struct {
 	Args          []string `json:"args"`
 	CheckLiveness bool     `json:"check_liveness"`
@@ -507,7 +507,7 @@ type Error struct {
 	Kind string `json:"kind,omitempty"`
 }
 
-// ExportMem0Request is one `ragctl export mem0` invocation. Endpoint and
+// ExportMem0Request is one `depctl export mem0` invocation. Endpoint and
 // APIKeyEnv override the daemon's own config.ExportConfig.Mem0 when set
 // — the CLI's --endpoint/--api-key-env flags, same precedence as the
 // config-or-flag convention VectorConfig already uses.
@@ -531,7 +531,7 @@ type ExportMem0Response struct {
 	Results []ExportMem0Result `json:"results"`
 }
 
-// ExportGraphitiRequest is one `ragctl export graphiti` invocation.
+// ExportGraphitiRequest is one `depctl export graphiti` invocation.
 // Endpoint and AuthTokenEnv override the daemon's own
 // config.ExportConfig.Graphiti when set.
 type ExportGraphitiRequest struct {
@@ -555,7 +555,7 @@ type ExportGraphitiResponse struct {
 	Results []ExportGraphitiResult `json:"results"`
 }
 
-// ExportCogneeRequest is one `ragctl export cognee` invocation. Endpoint
+// ExportCogneeRequest is one `depctl export cognee` invocation. Endpoint
 // and AuthTokenEnv override the daemon's own config.ExportConfig.Cognee
 // when set.
 type ExportCogneeRequest struct {

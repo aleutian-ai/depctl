@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"time"
 
-	"aleutian-ai/ragctl/internal/backend"
-	"aleutian-ai/ragctl/internal/domain"
-	"aleutian-ai/ragctl/internal/retention"
+	"github.com/aleutian-ai/depctl/internal/backend"
+	"github.com/aleutian-ai/depctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/retention"
 )
 
 // SupersededDuplicateResult reports what happened for one

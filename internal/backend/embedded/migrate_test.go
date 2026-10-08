@@ -10,7 +10,7 @@ import (
 
 	bolt "go.etcd.io/bbolt"
 
-	"aleutian-ai/ragctl/internal/backend"
+	"github.com/aleutian-ai/depctl/internal/backend"
 )
 
 // writeLegacy builds a file in the v0.3.0 layout: "dims", a "points"
@@ -24,7 +24,7 @@ func writeLegacy(t *testing.T, path string, points map[string][]float32) {
 	}
 	defer db.Close()
 	err = db.Update(func(tx *bolt.Tx) error {
-		ns, _ := tx.CreateBucketIfNotExists([]byte("ragctl-old"))
+		ns, _ := tx.CreateBucketIfNotExists([]byte("depctl-old"))
 		ns.Put(dimsKey, binary.LittleEndian.AppendUint32(nil, 4))
 		pb, _ := ns.CreateBucketIfNotExists([]byte("points"))
 		ib, _ := ns.CreateBucketIfNotExists([]byte("ids"))
@@ -52,17 +52,17 @@ func TestLegacyFileIsConvertedOnOpen(t *testing.T) {
 	})
 
 	s := New(path)
-	res, err := s.Query(ctx, backend.QueryRequest{Namespace: "ragctl-old", Vector: []float32{1, 0, 0, 0}, TopK: 5, Filter: &backend.Filter{Version: "v1"}})
+	res, err := s.Query(ctx, backend.QueryRequest{Namespace: "depctl-old", Vector: []float32{1, 0, 0, 0}, TopK: 5, Filter: &backend.Filter{Version: "v1"}})
 	if err != nil {
 		t.Fatalf("Query after conversion: %v", err)
 	}
 	if len(res.Points) != 2 || res.Points[0].ID != "near" || res.Points[0].Metadata.Generation != "gen-1" || res.Points[0].Metadata.SourceType != "godoc" || res.Points[0].Metadata.Authority != 90 {
 		t.Errorf("Query(v1) = %+v, want near then far from gen-1, with metadata", res.Points)
 	}
-	if n, err := s.Count(ctx, "ragctl-old", nil); err != nil || n != 3 {
+	if n, err := s.Count(ctx, "depctl-old", nil); err != nil || n != 3 {
 		t.Errorf("Count after conversion = %d, %v; want 3", n, err)
 	}
-	if err := s.EnsureNamespace(ctx, backend.Namespace{Name: "ragctl-old", Dimensions: 4, Distance: "cosine"}); err != nil {
+	if err := s.EnsureNamespace(ctx, backend.Namespace{Name: "depctl-old", Dimensions: 4, Distance: "cosine"}); err != nil {
 		t.Errorf("the dimension didn't survive conversion: %v", err)
 	}
 	if _, err := os.Stat(path + ".migrating"); !os.IsNotExist(err) {
@@ -73,7 +73,7 @@ func TestLegacyFileIsConvertedOnOpen(t *testing.T) {
 func TestUpsertRejectsAPointThatContradictsItsGeneration(t *testing.T) {
 	ctx := context.Background()
 	s := New(filepath.Join(t.TempDir(), "vectors.db"))
-	ns := backend.Namespace{Name: "ragctl-test", Dimensions: 2, Distance: "cosine"}
+	ns := backend.Namespace{Name: "depctl-test", Dimensions: 2, Distance: "cosine"}
 	if err := s.EnsureNamespace(ctx, ns); err != nil {
 		t.Fatal(err)
 	}

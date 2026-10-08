@@ -26,9 +26,9 @@ func TestVersionStaleWarning(t *testing.T) {
 }
 
 func TestVersionFreshnessLabel(t *testing.T) {
-	prev := ragctlVersion
-	ragctlVersion = "def456"
-	defer func() { ragctlVersion = prev }()
+	prev := depctlVersion
+	depctlVersion = "def456"
+	defer func() { depctlVersion = prev }()
 
 	if got := versionFreshnessLabel("def456"); got != "def456" {
 		t.Errorf("matching version label = %q, want the bare version, no staleness note", got)
@@ -54,7 +54,7 @@ func TestVersionFreshnessLabel(t *testing.T) {
 func TestDaemonStatusFlagsStaleVersion(t *testing.T) {
 	isolateEnv(t)
 	runInitForTest(t)
-	useRealRagctlBinary(t)
+	useRealDepctlBinary(t)
 
 	if _, err := ensureDaemon(t.Context()); err != nil {
 		t.Fatalf("ensureDaemon: %v", err)
@@ -75,12 +75,12 @@ func TestDaemonStatusFlagsStaleVersion(t *testing.T) {
 		t.Fatalf("status before any rebuild should report a current version, got:\n%s", got)
 	}
 
-	// The daemon subprocess was spawned from useRealRagctlBinary's own
+	// The daemon subprocess was spawned from useRealDepctlBinary's own
 	// binary and already reported its real build version; simulate this
 	// process itself now being a different (upgraded) build.
-	prev := ragctlVersion
-	ragctlVersion = "a-totally-different-build"
-	t.Cleanup(func() { ragctlVersion = prev })
+	prev := depctlVersion
+	depctlVersion = "a-totally-different-build"
+	t.Cleanup(func() { depctlVersion = prev })
 
 	got := statusCmd()
 	if !strings.Contains(got, "stale") {

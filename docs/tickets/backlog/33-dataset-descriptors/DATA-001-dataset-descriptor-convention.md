@@ -2,14 +2,14 @@
 
 **Epic:** Dataset descriptors
 **Status:** backlog
-**Depends on:** none (dev-tool only; no ragctl domain change)
+**Depends on:** none (dev-tool only; no depctl domain change)
 **Estimated size:** small
 
 ## Goal
 Define a `dataset.json` sidecar file written next to every dataset `hack/fetch-geodata` downloads, answering "what do I actually have on disk?" — logical dataset identity, where it came from, and when it was fetched.
 
 ## Non-goals
-- No parsing/validation of dataset.json by the ragctl binary — this is a `hack/*` dev-tool convention, not a ragctl feature. `ragctl` itself has no dataset concept.
+- No parsing/validation of dataset.json by the depctl binary — this is a `hack/*` dev-tool convention, not a depctl feature. `depctl` itself has no dataset concept.
 - No content hashing, HTTP metadata, or spatial inspection here — those are DATA-002/DATA-003, this ticket is just the file shape and where it's written.
 
 ## Simplicity constraints

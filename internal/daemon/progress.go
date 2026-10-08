@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"aleutian-ai/ragctl/internal/daemon/api"
+	"github.com/aleutian-ai/depctl/internal/daemon/api"
 )
 
 // SyncProgress holds the live counters of one sync run (SCOPE-001):

@@ -1,5 +1,5 @@
 // Command verify-sync inspects what a real sync actually produced, for a
-// given ragctl data directory: not just "did it succeed" but what content
+// given depctl data directory: not just "did it succeed" but what content
 // each synced generation holds, and whether its resolved commit is
 // independently verifiable against the real repository — the two
 // questions "OK" in a sync log doesn't answer on its own.
@@ -20,10 +20,10 @@ import (
 	"sort"
 	"strings"
 
-	bbolt "aleutian-ai/ragctl/internal/control/bbolt"
-	badger "aleutian-ai/ragctl/internal/data/badger"
-	"aleutian-ai/ragctl/internal/domain"
-	"aleutian-ai/ragctl/internal/source/git"
+	bbolt "github.com/aleutian-ai/depctl/internal/control/bbolt"
+	badger "github.com/aleutian-ai/depctl/internal/data/badger"
+	"github.com/aleutian-ai/depctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/source/git"
 )
 
 type genReport struct {

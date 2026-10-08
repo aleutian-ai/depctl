@@ -6,7 +6,7 @@
 **Estimated size:** small
 
 ## Goal
-Provide example Promptfoo configuration under `examples/promptfoo/` covering security/correctness-relevant scenarios for agents using `ragctl` via MCP.
+Provide example Promptfoo configuration under `examples/promptfoo/` covering security/correctness-relevant scenarios for agents using `depctl` via MCP.
 
 ## Non-goals
 - No Go code changes — this is documentation/examples only.
@@ -26,10 +26,10 @@ Provide a `promptfooconfig.yaml` and prompt fixtures exercising:
 3. stale docs regression — verify a superseded generation's content does not leak into a query scoped to the active generation.
 ```
 
-Each case configures Promptfoo to call the `ragctl` MCP server (per CLIENT-003's generic MCP client documentation) and assert on the response.
+Each case configures Promptfoo to call the `depctl` MCP server (per CLIENT-003's generic MCP client documentation) and assert on the response.
 
 ## Inputs / Outputs
-- Input: a running `ragctl serve` instance with fixture data loaded.
+- Input: a running `depctl serve` instance with fixture data loaded.
 - Output: Promptfoo pass/fail report.
 
 ## Failure behavior
@@ -40,4 +40,4 @@ N/A (example/documentation ticket) — assertions failing is the expected signal
 
 ## Acceptance criteria
 - [ ] `examples/promptfoo/promptfooconfig.yaml` covers the three named scenarios.
-- [ ] README in the examples directory explains prerequisites (a running `ragctl serve` with fixture data).
+- [ ] README in the examples directory explains prerequisites (a running `depctl serve` with fixture data).

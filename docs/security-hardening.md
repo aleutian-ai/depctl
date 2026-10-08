@@ -1,10 +1,10 @@
 # Security hardening guide
 
-`ragctl` runs locally, shells out to real subprocesses (`git`, ecosystem tooling), and acquires third-party content (dependency source repos, documentation) that gets served back to an AI coding agent over MCP. Epic 29 (`SEC-001..005`) hardens the five places that combination is actually risky — each one enforced in code and covered by a real, CI-run test, not just documented as a policy. This guide shows each one with a concrete example; see [SECURITY.md](../SECURITY.md) for the vulnerability-reporting policy itself and `docs/tickets/completed/29-security-hardening/` for each ticket's full implementation note.
+`depctl` runs locally, shells out to real subprocesses (`git`, ecosystem tooling), and acquires third-party content (dependency source repos, documentation) that gets served back to an AI coding agent over MCP. Epic 29 (`SEC-001..005`) hardens the five places that combination is actually risky — each one enforced in code and covered by a real, CI-run test, not just documented as a policy. This guide shows each one with a concrete example; see [SECURITY.md](../SECURITY.md) for the vulnerability-reporting policy itself and `docs/tickets/completed/29-security-hardening/` for each ticket's full implementation note.
 
 ## SEC-001: every piece of content carries its trust class
 
-Every `domain.KnowledgeObject` ragctl ever stores carries a `TrustClass` — assigned from the registry source's own declared type, never left blank:
+Every `domain.KnowledgeObject` depctl ever stores carries a `TrustClass` — assigned from the registry source's own declared type, never left blank:
 
 ```go
 const (
@@ -53,7 +53,7 @@ A real `search_dependency_docs` response shape:
 }
 ```
 
-This is deliberately *not* phrased as "don't trust this" — that would undermine the actual point of pointing an agent at ragctl instead of training-data recall. The property being defended is narrower and specific: a coding agent must never interpret imperative-sounding text inside a fetched README or changelog ("run this script," "curl this URL") as something *it* should now execute. `search_dependency_docs`, `get_dependency_version`, `list_project_dependencies`, `get_release_changes`, `knowledge_status`, `sync_project`, `scan_project`, and `explain_call_site` all carry it (`internal/mcp/tools.go`).
+This is deliberately *not* phrased as "don't trust this" — that would undermine the actual point of pointing an agent at depctl instead of training-data recall. The property being defended is narrower and specific: a coding agent must never interpret imperative-sounding text inside a fetched README or changelog ("run this script," "curl this URL") as something *it* should now execute. `search_dependency_docs`, `get_dependency_version`, `list_project_dependencies`, `get_release_changes`, `knowledge_status`, `sync_project`, `scan_project`, and `explain_call_site` all carry it (`internal/mcp/tools.go`).
 
 ## SEC-003: every external fetch has a real, enforced size/redirect ceiling
 
@@ -70,8 +70,8 @@ These aren't advisory — `internal/httplimit.ReadLimited` fails with a typed, n
 
 Two separate guarantees, both enforced:
 
-1. **A resolver only ever runs against a project root ragctl itself just registered.** `requireRegisteredProjectRoot` (`internal/cli/scan.go`) does a fresh `store.GetProject` read-back immediately before every `Resolver.Resolve` call — a resolver command (`go list`, etc.) can never be pointed at an arbitrary path that was never through `ragctl scan`.
-2. **Fetched dependency content is never `eval`'d or imported as live code.** `internal/normalize/pydoc`/`tsdoc` shell out to a real `python3`/`node` — but only to run *ragctl's own* embedded extraction script (piped over stdin, doing static AST/text parsing), never to import or execute the target package's own files. This is checked on every `go test ./...` run, not just documented:
+1. **A resolver only ever runs against a project root depctl itself just registered.** `requireRegisteredProjectRoot` (`internal/cli/scan.go`) does a fresh `store.GetProject` read-back immediately before every `Resolver.Resolve` call — a resolver command (`go list`, etc.) can never be pointed at an arbitrary path that was never through `depctl scan`.
+2. **Fetched dependency content is never `eval`'d or imported as live code.** `internal/normalize/pydoc`/`tsdoc` shell out to a real `python3`/`node` — but only to run *depctl's own* embedded extraction script (piped over stdin, doing static AST/text parsing), never to import or execute the target package's own files. This is checked on every `go test ./...` run, not just documented:
 
 ```bash
 go test ./internal/cli/... -run TestExtractionScriptsNeverDynamicallyExecuteTargetContent -v
@@ -79,7 +79,7 @@ go test ./internal/cli/... -run TestExtractionScriptsNeverDynamicallyExecuteTarg
 
 That test scans both extraction scripts for real dynamic-execution primitives (Python's bare `exec(`/`eval(`; Node's `require('child_process')`, `vm.runInContext`, `new Function(...)`, `eval(`) and fails the build if either script ever gains one.
 
-## SEC-005: ragctl's own telemetry never leaves the machine — CI-checked, not just claimed
+## SEC-005: depctl's own telemetry never leaves the machine — CI-checked, not just claimed
 
 Three `go test`-native checks, run automatically under `go test ./...` (and therefore in CI), in `internal/cli/no_telemetry_test.go`:
 
@@ -96,8 +96,8 @@ go test ./internal/cli/... -run "TestNoTelemetry|TestRealSyncMakesNoUnexpectedNe
 --- PASS: TestRealSyncMakesNoUnexpectedNetworkCalls
 ```
 
-- **`TestNoTelemetrySDKInDependencyGraph`** inspects the real, actually-linked module graph (`runtime/debug.ReadBuildInfo()`) against a denylist of known analytics SDKs (PostHog, Segment, Mixpanel, Amplitude, Sentry, Bugsnag, Rollbar, Datadog, New Relic, Honeycomb) — this fails the build the moment any dependency (direct *or* transitive) pulls one in, not just ragctl's own code.
+- **`TestNoTelemetrySDKInDependencyGraph`** inspects the real, actually-linked module graph (`runtime/debug.ReadBuildInfo()`) against a denylist of known analytics SDKs (PostHog, Segment, Mixpanel, Amplitude, Sentry, Bugsnag, Rollbar, Datadog, New Relic, Honeycomb) — this fails the build the moment any dependency (direct *or* transitive) pulls one in, not just depctl's own code.
 - **`TestNoTelemetryHostLiteralsInSource`** walks every `.go` file for known telemetry-collector hostnames.
 - **`TestRealSyncMakesNoUnexpectedNetworkCalls`** runs a genuine `syncVersion` — real local git fixture, real bbolt/Badger, real `ollama`/`qdrant` HTTP clients against two `httptest` servers — with a custom `http.Transport.DialContext` recording every outbound TCP dial, then asserts every single one landed on one of the two explicitly-configured fixture endpoints and nothing else. This test was verified to actually catch a violation (deliberately narrowing the allowlist and confirming the expected failure) before being restored — it isn't a check that merely looks plausible.
 
-This is the invariant that makes the observability layers in [observability-guide.md](observability-guide.md) safe to leave configured: `observability.otel.endpoint`/`observability.metrics.listen` are the *only* network destinations ragctl's own instrumentation ever writes to, and only once you explicitly set them — there is no default collector or metrics backend ragctl reports to on its own.
+This is the invariant that makes the observability layers in [observability-guide.md](observability-guide.md) safe to leave configured: `observability.otel.endpoint`/`observability.metrics.listen` are the *only* network destinations depctl's own instrumentation ever writes to, and only once you explicitly set them — there is no default collector or metrics backend depctl reports to on its own.

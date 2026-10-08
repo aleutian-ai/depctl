@@ -9,7 +9,7 @@
 Given two `dataset.json` snapshots of the same dataset `id` fetched at different times, report what changed — archive hash, ETag, file/feature counts, CRS — without any geospatial diffing.
 
 ## Non-goals
-- No geometry-level diffing (features added/removed/moved) — that's a future data-analysis adapter, explicitly out of scope for ragctl.
+- No geometry-level diffing (features added/removed/moved) — that's a future data-analysis adapter, explicitly out of scope for depctl.
 - No automatic scheduling of re-fetches or alerting — this is a comparison report a user runs on demand.
 
 ## Simplicity constraints

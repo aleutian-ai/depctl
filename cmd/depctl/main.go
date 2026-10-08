@@ -1,4 +1,4 @@
-// Command ragctl is the entry point for the ragctl CLI and daemon.
+// Command depctl is the entry point for the depctl CLI and daemon.
 package main
 
 import (
@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"os"
 
-	"aleutian-ai/ragctl/internal/cli"
+	"github.com/aleutian-ai/depctl/internal/cli"
 )
 
 func main() {

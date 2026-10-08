@@ -20,7 +20,7 @@ Create the initial repository directory layout and required top-level files so t
 ## Design
 Create top-level directories:
 ```
-cmd/ragctl
+cmd/depctl
 internal/
 pkg/
 schemas/
@@ -28,7 +28,7 @@ docs/
 examples/
 testdata/
 ```
-Add a minimal `cmd/ragctl/main.go` with a `func main()` that prints a placeholder message, so `go build ./...` has something to compile.
+Add a minimal `cmd/depctl/main.go` with a `func main()` that prints a placeholder message, so `go build ./...` has something to compile.
 
 Required files at repo root:
 ```

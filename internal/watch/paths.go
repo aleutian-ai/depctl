@@ -1,5 +1,5 @@
 // Package watch detects changes to registered projects' dependency
-// manifests, so `ragctl watch` re-resolves and syncs a project only when
+// manifests, so `depctl watch` re-resolves and syncs a project only when
 // one of the files its resolver reads actually changes.
 package watch
 
@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"slices"
 
-	"aleutian-ai/ragctl/internal/domain"
+	"github.com/aleutian-ai/depctl/internal/domain"
 )
 
 // manifestFiles lists, per ecosystem, the files that ecosystem's resolver

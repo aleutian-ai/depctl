@@ -20,7 +20,7 @@ Define the YAML schema for a "KnowledgePackage" manifest — the data format tha
 - File: `schemas/knowledge-package.schema.json` (JSON Schema draft used to validate manifest YAML after conversion to JSON, or validate directly against YAML-as-JSON).
 - Manifest shape (mirrors the design spec example):
   ```yaml
-  apiVersion: ragctl.dev/v1alpha1
+  apiVersion: depctl.dev/v1alpha1
   kind: KnowledgePackage
   metadata:
     name: grpc-go
