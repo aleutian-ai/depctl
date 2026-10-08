@@ -16,6 +16,8 @@ Every key `config.yaml` can hold, with the default a fresh `ragctl init` writes.
 | `embedding.query_prompt` | `task: code retrieval \| query: {q}` | Wraps each search question the way the model was trained; empty sends the question as is. |
 | `embedding.document_prompt` | `title: {title} \| text: {text}` | Wraps each chunk; `{title}` is its qualified symbol (e.g. `pgxpool.New`), else its file path, else `none`. Empty sends the text as is. |
 | `embedding.dimensions` | `256` | Keeps the first N values of each vector (EmbeddingGemma 2 is a Matryoshka model); `0` keeps all. |
+
+Changing `embedding.model`, `query_prompt`, `document_prompt` or `dimensions` on an install that already has vectors: run `ragctl daemon stop` so the daemon reads the new config, then `ragctl sync`. The sync re-embeds every active version from its stored chunks (nothing is re-fetched or rebuilt). Until then, search doesn't use the old vectors: `auto` searches by keyword, and `vector` returns an error saying to sync. With a remote vector store, changing the size also needs a new `vector.collection`, since a collection has one vector size and may be shared with another install.
 | `embedding.endpoint` | `http://127.0.0.1:11434` | Ollama URL. |
 | `vector.backend` | `embedded` | Vector store: `embedded` (a bbolt file, no service), `qdrant`, `pgvector` or `weaviate`. Also the key active generations are recorded under, in every retrieval mode. |
 | `vector.endpoint` | empty | Qdrant/Weaviate URL or Postgres connection URL. For `embedded`, an optional file path (default `vectors.db` next to `control.db`). `ragctl init --vector-backend qdrant` sets `http://127.0.0.1:6333`. |

@@ -1,0 +1,1274 @@
+[
+  {
+    "id": "dev-agent-001",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/BurntSushi/toml",
+    "question": "How do I use underscores to make large integers more readable in TOML?",
+    "gold": {
+      "chunk_ids": [
+        "chk_zaa67guhij3jrc5qdyoag3fqmtm7jch3wxjzwuof33mhqcaokotq"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-002",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/BurntSushi/toml",
+    "question": "How does BurntSushi/toml parse multi-line basic strings, including line ending backslash continuation and newline normalization?",
+    "gold": {
+      "chunk_ids": [
+        "chk_gk7566piqftruehp62ushalkonq57ati54wftkrogzmsd4psy5oa"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-003",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/BurntSushi/toml",
+    "question": "How does the decoder map TOML types to Go types?",
+    "gold": {
+      "chunk_ids": [
+        "chk_4p4bmxwv4cthyae6wzabpy5q7z42rym3hsc43ukc7jd5ttff3aaq"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-004",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/BurntSushi/toml",
+    "question": "What is TOML's objective and how does it map to a hash table?",
+    "gold": {
+      "chunk_ids": [
+        "chk_cpzhxn7hbns7ser4o3wbud4omfs6dyeghpx47voutqlt7addxiha"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-005",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/BurntSushi/toml",
+    "question": "What does Undecoded return?",
+    "gold": {
+      "chunk_ids": [
+        "chk_npjfsf56fiid2hv2z7n4yqxgvihldvk3tfuem5zv6ta6gyjevl7a"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-006",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/BurntSushi/toml",
+    "question": "How are special float values expressed?",
+    "gold": {
+      "chunk_ids": [
+        "chk_dofrhprh6mqhpoyuct4zmkzrxnspdwyjblqumtbwdnsdkmpz7seq"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-007",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/BurntSushi/toml",
+    "question": "What is Primitive and how do I use PrimitiveDecode to decode a Primitive value?",
+    "gold": {
+      "chunk_ids": [
+        "chk_tqwbscsvxfu5qgdi4d2a7ixouq4ixdygfjjllbl6qj7dfsbixi3a"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-008",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/BurntSushi/toml",
+    "question": "how does TOML handle fractional seconds precision beyond milliseconds in date-times",
+    "gold": {
+      "chunk_ids": [
+        "chk_bhsasacam4t5fcpvgs4md5pydru6iandkeddvbtmowyunug5fyuq"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-009",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/BurntSushi/toml",
+    "question": "[[product]] with empty table element ordering behavior",
+    "gold": {
+      "chunk_ids": [
+        "chk_ru4uqjza4vlwn2pq6x6gvm3uxdw6wnocaffgswpcmj3kdtbgjdra"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-010",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/dgraph-io/badger/v4",
+    "question": "badger merge Get",
+    "gold": {
+      "chunk_ids": [
+        "chk_xxjen7bqtyyhyp7rcuoe3aep6hu3g55obijti6uigjm3dyjfqbaa"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-011",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/dgraph-io/badger/v4",
+    "question": "Stream.Backup",
+    "gold": {
+      "chunk_ids": [
+        "chk_s2xb5wre3q2pu6iyoequ2rflbbse3p3qtlak3dcnjpcu7lsi3mma"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-012",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/dgraph-io/badger/v4",
+    "question": "Cancel badger.WriteBatch",
+    "gold": {
+      "chunk_ids": [
+        "chk_wqste7z4dpja3hbqfchmiwhyyuk7zjpdcv7slldzk2xz4dxxqpia"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-013",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/dgraph-io/badger/v4",
+    "question": "badger BypassLockGuard option",
+    "gold": {
+      "chunk_ids": [
+        "chk_nvqpw2afgunxm5s66yosemu3rb4tlt5b7y2fl7kemzaolw332gkq"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-014",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/dgraph-io/badger/v4",
+    "question": "How to release a leased sequence",
+    "gold": {
+      "chunk_ids": [
+        "chk_gcdxxz4ewct7bitstpj5ugxu63x67oy2p3jbxbwqvpz7plul6jwq"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-015",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/dgraph-io/badger/v4",
+    "question": "How does the merge iterator read multiple tables and what is its read performance?",
+    "gold": {
+      "chunk_ids": [
+        "chk_xqkhcjisg455esiordgjoluibrupu2rmdqdmomccinstfq3o2ddq"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-016",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/dgraph-io/badger/v4",
+    "question": "ManifestChangeSet",
+    "gold": {
+      "chunk_ids": [
+        "chk_shpp7mjgxmpyphpv6rfx5ywoinjbplewfdwrhs3vpcrrm4uu6b6a"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-017",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/dgraph-io/badger/v4",
+    "question": "How do I run the benchmarks against RocksDB, Bolt, and LMDB?",
+    "gold": {
+      "chunk_ids": [
+        "chk_hl7bfpgbps3rboor4xnbmd4kvjlcinbe5b5qfkukc7zthcojrfoa"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-018",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/dgraph-io/badger/v4",
+    "question": "ManifestChange.Level",
+    "gold": {
+      "chunk_ids": [
+        "chk_7bo5xlnczijqwnxelpibf4vdv7widzpaxfqq6zfetyy3cgbu33pq"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-019",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/fsnotify/fsnotify",
+    "question": "Why does Remove() return ErrNonExistentWatch?",
+    "gold": {
+      "chunk_ids": [
+        "chk_233z4tnagp5x2n5b72ru4fldzyq7wytuwyk7n3raz7ccmb7mhpka"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-020",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/fsnotify/fsnotify",
+    "question": "What happens when I call Add on a path that already has an active watch?",
+    "gold": {
+      "chunk_ids": [
+        "chk_5olxm2rs57siefvvpo4vsa5mvucxtb27mfbvc4mjesdf36nscgva"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-021",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/fsnotify/fsnotify",
+    "question": "how to create a new watcher with fsnotify.NewWatcher",
+    "gold": {
+      "chunk_ids": [
+        "chk_igvax6knzphmois75bhugd22p5gfmmeef3ojflsmk6up4lvuwydq"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-022",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/fsnotify/fsnotify",
+    "question": "kqueue skip dangling symlinks ENOENT watchDirectoryFiles",
+    "gold": {
+      "chunk_ids": [
+        "chk_h3hiwfz3twqsr3a5iys5d2lgnsuylsqqc34iga6zkqjt5gw6x2ua"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-023",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/fsnotify/fsnotify",
+    "question": "kqueue Close race condition",
+    "gold": {
+      "chunk_ids": [
+        "chk_3jec2edzinbo5suyg6qmhw3v42kmadv7kluljyawtmyeg7d676jq"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-024",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/fsnotify/fsnotify",
+    "question": "What does Event.Has do?",
+    "gold": {
+      "chunk_ids": [
+        "chk_pwev7lkryts4tmuizrkbfpxezyl34ywpywxl7zqxixpyopkfuk4a"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-025",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/fsnotify/fsnotify",
+    "question": "Events channel type",
+    "gold": {
+      "chunk_ids": [
+        "chk_gphz7aw2jijpsm2exkg5rxxfrvp2g7wmfzmur6mhlod6zp2fzunq"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-026",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/fsnotify/fsnotify",
+    "question": "Added support for polling on Windows",
+    "gold": {
+      "chunk_ids": [
+        "chk_q7j7mselrxobuwpi6kj2hyqwm7eeiqygzmyevjgp4l6dyikr7xga"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-027",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/fsnotify/fsnotify",
+    "question": "WatchFlags",
+    "gold": {
+      "chunk_ids": [
+        "chk_6ti7mhqfwf737j7nr4p5yyc7em6bhb2xjhhwcrsaho7vefpuyffa"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-028",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/google/uuid",
+    "question": "SetNodeInterface",
+    "gold": {
+      "chunk_ids": [
+        "chk_aatvyj5rfhqtingo7zlatpoubub5hoyjhg5gzsegd65mk6vsst7a"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-029",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/google/uuid",
+    "question": "NullUUID Scan",
+    "gold": {
+      "chunk_ids": [
+        "chk_uftb6qc2uh74ewsccr3vlanuegfiyqpqhfx77s77vo2jblahzbza"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-030",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/google/uuid",
+    "question": "DisableRandPool",
+    "gold": {
+      "chunk_ids": [
+        "chk_upvkw7wln4pdugwd3kg3wurlikt6gh4ztw3tbxbnvlawgc6h5zgq"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-031",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/google/uuid",
+    "question": "uuid.NewHash",
+    "gold": {
+      "chunk_ids": [
+        "chk_itsvximbu4gs6kqdmdy6gbbdwtttt4z2dm7oqbocivduzbh65ega"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-032",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/google/uuid",
+    "question": "uuid package",
+    "gold": {
+      "chunk_ids": [
+        "chk_an65erhdlygme2q64fiqml42zr6m3pmkk5vx525d75ej3qgrwbpa"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-033",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/google/uuid",
+    "question": "ClockSequence",
+    "gold": {
+      "chunk_ids": [
+        "chk_ap5lesumaequhkrvu64gh45ulcaf4nnfkyna3iosisdk7nlqtmua"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-034",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/google/uuid",
+    "question": "SetRand",
+    "gold": {
+      "chunk_ids": [
+        "chk_howhyajtce7hzrv4upmwicbt5kvn4qeyb4cz3us7xjvmmrt2bofa"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-035",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/google/uuid",
+    "question": "NewDCESecurity",
+    "gold": {
+      "chunk_ids": [
+        "chk_nfa2wmr5ad2bxxgxrjwhgu3jhwn77r4nqpwv4hj7ndrsnrvtwjfa"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-036",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/google/uuid",
+    "question": "uuid.EnableRandPool",
+    "gold": {
+      "chunk_ids": [
+        "chk_v7pzfe3dmqdebiruhtnvobw2qq5oilokj3w73p7dqdsbo4porwya"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-037",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/jackc/pgx/v5",
+    "question": "RowToStructByNameLax field matching behavior",
+    "gold": {
+      "chunk_ids": [
+        "chk_ji2hvi6nd6ahlryzpwwrzih5rmtol5zhxdahj6bthc4rgbdv7ccq"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-038",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/jackc/pgx/v5",
+    "question": "pgx.Pipeline SendQueryParams",
+    "gold": {
+      "chunk_ids": [
+        "chk_n5onwhypofshkl5xcfqjkr5qqrmvln5x55g2k3l3fvycob7wc55q"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-039",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/jackc/pgx/v5",
+    "question": "What is the valid way to initialize a ConnConfig for ConnectConfig?",
+    "gold": {
+      "chunk_ids": [
+        "chk_5yojj2co4bbt6f33y3xq7qudixqvxhbhsqlpb5qhbmxhhecaadpq"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-040",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/jackc/pgx/v5",
+    "question": "How does pgx Prepare create a prepared statement and use name with placeholders?",
+    "gold": {
+      "chunk_ids": [
+        "chk_zr4o5kraazlvb5kxxqqtwf3erxarjz7idoflo7fkf4u7l7fjqj5a"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-041",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/jackc/pgx/v5",
+    "question": "Add StrictNamedArgs",
+    "gold": {
+      "chunk_ids": [
+        "chk_hh2vddowxbf34tnebt3fluldabqd47nqyoni5f7vozjva4h5eaea"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-042",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/jackc/pgx/v5",
+    "question": "pgxpool.Stat EmptyAcquireWaitTime",
+    "gold": {
+      "chunk_ids": [
+        "chk_awvfgpac5o3ov3atzuu23phg737bjg3dgnwfyysy32mhuhxmt2sq"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-043",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/jackc/pgx/v5",
+    "question": "Add AppendRows function",
+    "gold": {
+      "chunk_ids": [
+        "chk_gmg3vdfflovnj7iblz3v4dwgqksuftalxb4z73mi37lphhdij2kq"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-044",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/jackc/pgx/v5",
+    "question": "How does pgx handle ownership of values read from the connection read buffer?",
+    "gold": {
+      "chunk_ids": [
+        "chk_c7xmysz7iznry7ji4qtjlba7wbpdauwzg33mculb7tee3ccwevwa"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-045",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/jackc/pgx/v5",
+    "question": "How does BatchResults.Close read unread results and invoke registered callbacks?",
+    "gold": {
+      "chunk_ids": [
+        "chk_twgtppfkbpmzyb53cw5td4xn2mmtl5q3t5b4qzr2birxwwey6lha"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-046",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/modelcontextprotocol/go-sdk",
+    "question": "Close",
+    "gold": {
+      "chunk_ids": [
+        "chk_6xchy4o5r46xl4wqnz4m2der2it4n5dqvclipbgn6yqtnqtquofq"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-047",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/modelcontextprotocol/go-sdk",
+    "question": "How to contribute to the SDK",
+    "gold": {
+      "chunk_ids": [
+        "chk_5e4wvzlyoxj6hz3pbh4kzphorw7ukhsbo44pzcditnlmllojsqaq"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-048",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/modelcontextprotocol/go-sdk",
+    "question": "ProtectedResourceMetadata supported features",
+    "gold": {
+      "chunk_ids": [
+        "chk_dy7jpsqq5lcqf37635ncdeophy55ey5t7gax5iv4ny66mwvvfo3q"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-049",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/modelcontextprotocol/go-sdk",
+    "question": "mcp.NewLoggingHandler",
+    "gold": {
+      "chunk_ids": [
+        "chk_qmpgp57lilpy7tinl3k7xjxz2fvfhpdlomqonpqxif375npmz4bq"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-050",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/modelcontextprotocol/go-sdk",
+    "question": "How does SessionStore protect sessions from concurrent access?",
+    "gold": {
+      "chunk_ids": [
+        "chk_gmffsxm5m7tqhaaqjjxuydt2zwlku3p3sptfjpvy24zigqyt65da"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-051",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/modelcontextprotocol/go-sdk",
+    "question": "How do I call a tool using ClientSession.CallTool with CallToolParams?",
+    "gold": {
+      "chunk_ids": [
+        "chk_tg6a2bgs2bqji6wp5ojnlagk3squmx22okke6rpxxqmcfbtoxycq"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-052",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/modelcontextprotocol/go-sdk",
+    "question": "ListResourcesParams Cursor",
+    "gold": {
+      "chunk_ids": [
+        "chk_mu4e7uvtn3sirvtmbhz46igdobzd2qc47cva2zk7azbt5t2vcccq"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-053",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/modelcontextprotocol/go-sdk",
+    "question": "How are messages routed to streams based on the context used in requests?",
+    "gold": {
+      "chunk_ids": [
+        "chk_u5dr4o4d2d4f3prblsu3ogn2xtibgxxftipczdigf2ir6o344ktq"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-054",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/modelcontextprotocol/go-sdk",
+    "question": "How does the server session lifecycle work between the legacy and stateless protocol models, and how do I close and wait on the session?",
+    "gold": {
+      "chunk_ids": [
+        "chk_zhq4zlpcd74tktndyblxciffq5rbl6ixycc6axccolx53ntegciq"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-055",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/oklog/ulid/v2",
+    "question": "What does MonotonicRead return when an increment would overflow available entropy space?",
+    "gold": {
+      "chunk_ids": [
+        "chk_ql3qksezpijiovh555nllcxp2g7duhjkbjubpnpyutmzy7wakj4q"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-056",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/oklog/ulid/v2",
+    "question": "How to contribute to the project",
+    "gold": {
+      "chunk_ids": [
+        "chk_utgc5hczbowejgajny6c47mlsjcbaud27zzk6sfsgu7oztuvbspq"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-057",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/oklog/ulid/v2",
+    "question": "ulid.New",
+    "gold": {
+      "chunk_ids": [
+        "chk_ujjkt6445egik6yl2ydswzq3nkg3ornksx3kbit6chregzzp6d5q"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-058",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/oklog/ulid/v2",
+    "question": "How does ULID ensure monotonic sort order and handle the same millisecond?",
+    "gold": {
+      "chunk_ids": [
+        "chk_uik4b2pes7dot5cuizcax4aomq6thcoaxoz3hj6mvuz3tbzbznha"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-059",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/oklog/ulid/v2",
+    "question": "ParseStrict",
+    "gold": {
+      "chunk_ids": [
+        "chk_safirxwijovfnyvahjxevolt2hw5jc7wfkhhafqstsrjpq734t5q"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-060",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/oklog/ulid/v2",
+    "question": "How to convert a ULID to its lexicographically sortable string representation",
+    "gold": {
+      "chunk_ids": [
+        "chk_xjsn2zqebdawls2llabmlhiildsggugdx2aqg5sffh6rq5qijlmq"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-061",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/oklog/ulid/v2",
+    "question": "How do I set a custom entropy source for ULID generation?",
+    "gold": {
+      "chunk_ids": [
+        "chk_wgq6tjn6mn4pxbn5xmusidyhm6ed2toemmsap2ptb656fqzdmyya"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-062",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/oklog/ulid/v2",
+    "question": "How are ULID components encoded with byte order?",
+    "gold": {
+      "chunk_ids": [
+        "chk_tnnpzfde63b4gexc3cnermmnr3s6ytkrlashplkn2plfwc2xh55a"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-063",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/oklog/ulid/v2",
+    "question": "How to create a custom sql/driver.Valuer that returns the ULID as a string instead of bytes",
+    "gold": {
+      "chunk_ids": [
+        "chk_ppjllcqxztzrnh6zepbwd2vzwjkzsb4gfwnia7xpq4hbr7cbrnea"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-064",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/prometheus/client_golang",
+    "question": "NegotiateContentEncoding",
+    "gold": {
+      "chunk_ids": [
+        "chk_zfs2id4jaxh2z2usavu5us5t3kw4pq4brbbwh52jca24mtvnnzpq"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-065",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/prometheus/client_golang",
+    "question": "Add CollectAndFormat method",
+    "gold": {
+      "chunk_ids": [
+        "chk_bpzfj7fundghdq3t3lky3l2xyckrf3en7r5vh373iqiyiw6k54ea"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-066",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/prometheus/client_golang",
+    "question": "NewConstNativeHistogram",
+    "gold": {
+      "chunk_ids": [
+        "chk_cjhstl52xdhzg4qry4l5woh33ganel327grlf2u5eqlatfinmagq"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-067",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/prometheus/client_golang",
+    "question": "GetMetricWith",
+    "gold": {
+      "chunk_ids": [
+        "chk_uoesoidrnef3akvmhy3smvqsqxc6ohczbrlqdvwsfwalrjwhjgka"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-068",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/prometheus/client_golang",
+    "question": "WriteToTextfile",
+    "gold": {
+      "chunk_ids": [
+        "chk_jpt44jurba2mmzvsesvo5h6t2skz7hjjhlgp4uifyomvxpqrcasa"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-069",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/prometheus/client_golang",
+    "question": "WithLookbackDelta",
+    "gold": {
+      "chunk_ids": [
+        "chk_4qwk2l5ik74maauhxgiirwgif4mfvmnfg4667klzxw62w5kct7za"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-070",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/prometheus/client_golang",
+    "question": "NewMetricWithTimestamp",
+    "gold": {
+      "chunk_ids": [
+        "chk_cf34ndkx3ngemb4jx6qdeolsgutzntgl4mh53ymvnels2sorqita"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-071",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/prometheus/client_golang",
+    "question": "WrapCollectorWithPrefix",
+    "gold": {
+      "chunk_ids": [
+        "chk_gvjvgdigtdwvm6hozarfjybvbolpozjkhhaum56fkrlwgovlcjpq"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-072",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/prometheus/client_golang",
+    "question": "NewSummary panic registration",
+    "gold": {
+      "chunk_ids": [
+        "chk_fyqwcpywbn7c3al4bxf5gxen6utyorgjdoxqhzaayt6lzrnfxjnq"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-073",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/spf13/cobra",
+    "question": "how to file a bug or feature request",
+    "gold": {
+      "chunk_ids": [
+        "chk_7iedlkflprskfovqutdwt32du5siw4mcp55imij5jmhqyvd6b6pa"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-074",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/spf13/cobra",
+    "question": "InitDefaultCompletionCmd",
+    "gold": {
+      "chunk_ids": [
+        "chk_zvpnwkhyfdka4rp7jqdzw7p426duik6hsqq7prtelrsz2xl2kcga"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-075",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/spf13/cobra",
+    "question": "How do I generate a markdown doc for a single command?",
+    "gold": {
+      "chunk_ids": [
+        "chk_ly7e7rkfijb5ovw43iylchpxq7qp6biegzeda2nvglaaubxqbyva"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-076",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/spf13/cobra",
+    "question": "GenReSTTree generate ReST page command descendants directory",
+    "gold": {
+      "chunk_ids": [
+        "chk_jzxoloqicznau3mw76pwtk24th4ixajwetsexkppe2wt5qh67bja"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-077",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/spf13/cobra",
+    "question": "helm GenPowerShellCompletion",
+    "gold": {
+      "chunk_ids": [
+        "chk_w53py2pvtllhv3o3pe3wvkc2gggzn6uogvlpvq5c77gotttcbhgq"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-078",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/spf13/cobra",
+    "question": "What does Context return if the command was executed with Execute or ExecuteC?",
+    "gold": {
+      "chunk_ids": [
+        "chk_xvtecgw3tspbzgxdbt6v6ppfcdiarfkpxk2i3y4rxifbhby6m5fa"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-079",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/spf13/cobra",
+    "question": "How do I define aliases for ValidArgs using ArgAliases?",
+    "gold": {
+      "chunk_ids": [
+        "chk_6oxp76dz6bmgnep7sliovw76s22rfy3mnjmhc23446wge25tablq"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-080",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/spf13/cobra",
+    "question": "MarkZshCompPositionalArgumentFile",
+    "gold": {
+      "chunk_ids": [
+        "chk_4bhylngo3p4p4di6qrxqxqvdthpwbp43eebeddgtjwwkmlrtk5na"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-081",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "github.com/spf13/cobra",
+    "question": "The MIT License",
+    "gold": {
+      "chunk_ids": [
+        "chk_bg3w7mlbrgje4ls7ztrqoq6f3lxudmf6d5sbdsxbgl6vr6uwto4a"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-082",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "go.etcd.io/bbolt",
+    "question": "bbolt Check consistency",
+    "gold": {
+      "chunk_ids": [
+        "chk_hzgfmohf73dxy7rvulylw7n473d5oke7zz6dkl22atyt22cirqkq"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-083",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "go.etcd.io/bbolt",
+    "question": "bbolt.Compact txMaxSize",
+    "gold": {
+      "chunk_ids": [
+        "chk_uobntpg2uavuvg2rffbdezq6snsa5cok7yb72p4n2f5ppnbkceqq"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-084",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "go.etcd.io/bbolt",
+    "question": "bbolt surgery",
+    "gold": {
+      "chunk_ids": [
+        "chk_6btx6zwixa3y23gojwiy3tq4lzkphmm4k7peonrh56tycvbmqcha"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-085",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "go.etcd.io/bbolt",
+    "question": "bbolt dump usage",
+    "gold": {
+      "chunk_ids": [
+        "chk_r7rzqb2qtdlvh7g6tz27cau6pabgqxzi5lwqjtoyzcvsqsrqyvuq"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-086",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "go.etcd.io/bbolt",
+    "question": "InBucket",
+    "gold": {
+      "chunk_ids": [
+        "chk_btffqfwwztyycambujnqfs6zyoeboqg6b2dxn6ds5y4mdtohkhzq"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-087",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "go.etcd.io/bbolt",
+    "question": "bbolt page-item --key-only",
+    "gold": {
+      "chunk_ids": [
+        "chk_n4mtmpkeptyb2cscujcy25wmpdk7ny6tzqkytgdnznedjdj3giwq"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-088",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "go.etcd.io/bbolt",
+    "question": "bbolt surgery meta update",
+    "gold": {
+      "chunk_ids": [
+        "chk_ga4roolqeedehjvekiypkgpefmoteteyqababmvt6moch2coasda"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-089",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "go.etcd.io/bbolt",
+    "question": "bbolt check",
+    "gold": {
+      "chunk_ids": [
+        "chk_gyvjy6eo2erhnnpt6yrumjgktiy7lhlldcuwuuwm7wgtxmv5lufa"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-090",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "go.etcd.io/bbolt",
+    "question": "bbolt info",
+    "gold": {
+      "chunk_ids": [
+        "chk_om5j5edpl5ryfogs6da5hiptg257fwshlty2x6skxkiujadtwx5q"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-091",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "go.opentelemetry.io/otel",
+    "question": "What is the difference between MeterImpl and asyncImpl?",
+    "gold": {
+      "chunk_ids": [
+        "chk_ujezhjydx5j766tghsnmoz7uhizrbzeecewpl6ecz4aghfgd3bka"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-092",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "go.opentelemetry.io/otel",
+    "question": "tls.client.not_after",
+    "gold": {
+      "chunk_ids": [
+        "chk_4a7isaq3a4tde6vbhh7npoqpkfhb3bwnus6cnp5eo63rbl2ef4ca"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-093",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "go.opentelemetry.io/otel",
+    "question": "NetPeerName attribute",
+    "gold": {
+      "chunk_ids": [
+        "chk_tbfpudzzzf4ysn3pmtlkoo7mvexlbgh6khkgeu7ei33xgsfolbla"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-094",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "go.opentelemetry.io/otel",
+    "question": "K8SStatefulSetAnnotation",
+    "gold": {
+      "chunk_ids": [
+        "chk_snum6owhnziriyq376sve35sryjd3fzmtiplynzdoxfyeub5oeua"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-095",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "go.opentelemetry.io/otel",
+    "question": "ServerActiveConnectionsObservable",
+    "gold": {
+      "chunk_ids": [
+        "chk_npcnfzq37ylb3vzenomgwhwua6let6dyuypsui4kbw37rcqmv7da"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-096",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "go.opentelemetry.io/otel",
+    "question": "How to record an HTTP request with method, server address, port, and additional attributes?",
+    "gold": {
+      "chunk_ids": [
+        "chk_ayrjmfxi3nltarf6lmjtwb3fy55bj2i6n7mq7g4m6i2ixy4ayqsq"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-097",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "go.opentelemetry.io/otel",
+    "question": "KestrelUpgradedConnectionsName",
+    "gold": {
+      "chunk_ids": [
+        "chk_xjj3vtsgohw6775ujkwldm6e6emr5m2ueames7ykew7y7nf2bnzq"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-098",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "go.opentelemetry.io/otel",
+    "question": "EnduserRole attribute semantic conventions",
+    "gold": {
+      "chunk_ids": [
+        "chk_q6eznxds5zqkgcvxblal57aceimrj6o5lai57pid62cllvilqwxa"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-099",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "go.opentelemetry.io/otel",
+    "question": "cicd.pipeline.task.run.url.full attribute KeyValue",
+    "gold": {
+      "chunk_ids": [
+        "chk_yxc5mpqjldco4ezgu2rjdk6fbjiwmlhucxkqqbn5iar6eol2wu7a"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-100",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "gopkg.in/yaml.v3",
+    "question": "What does Unmarshal do when it returns a TypeError?",
+    "gold": {
+      "chunk_ids": [
+        "chk_zqekktiv27plmgds7f4ehonbuihbcvlqo4bzxg64viyvrtvg3q7q"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-101",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "gopkg.in/yaml.v3",
+    "question": "What does the Marshaler interface do?",
+    "gold": {
+      "chunk_ids": [
+        "chk_xpofcz2umld7puqcrpieosutmtk3lamayvschs2wuzibz4pbnatq"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-102",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "gopkg.in/yaml.v3",
+    "question": "Why does the yaml package encode octals as 0777 instead of 0o777?",
+    "gold": {
+      "chunk_ids": [
+        "chk_pb2z3ywatq7qbv4d4doanp7vqlawqqhkn2bajefn3ktqtgjdl6xa"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-103",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "gopkg.in/yaml.v3",
+    "question": "What is yaml.Node",
+    "gold": {
+      "chunk_ids": [
+        "chk_wafnf3lzx6qb4yk3ml3vkdqrqx522rgxnmvaocbq43dunie7zdwq"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-104",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "gopkg.in/yaml.v3",
+    "question": "What does yaml.Unmarshal do with struct field tags and key matching?",
+    "gold": {
+      "chunk_ids": [
+        "chk_7yvkbiqe7fvmmkarkgph3gnyvkf45pu7rlmr72ej62uvzlgbkt4a"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-105",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "gopkg.in/yaml.v3",
+    "question": "How does the yaml tag control field marshalling, including keys, omitempty, and inline flags?",
+    "gold": {
+      "chunk_ids": [
+        "chk_k27jngn36fdqqlaoxve2bet6bvkw22x42mxfsstwownafylpk67q"
+      ]
+    }
+  },
+  {
+    "id": "dev-agent-106",
+    "source": "generated (agent)",
+    "kind": "agent",
+    "dependency": "gopkg.in/yaml.v3",
+    "question": "How do I unmarshal YAML into a struct with renamed fields and flow sequences?",
+    "gold": {
+      "chunk_ids": [
+        "chk_tesozltid2pq5ueuiilqvj5hbbj3nkscf2rtpo4yvsyji5gxu5aa"
+      ]
+    }
+  }
+]

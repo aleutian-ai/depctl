@@ -164,6 +164,22 @@ func (s *Store) Upsert(ctx context.Context, req backend.UpsertRequest) error {
 	})
 }
 
+// DropNamespace deletes the namespace and every point in it, including
+// its dimension, so it can be recreated at another size. Dropping a
+// namespace that doesn't exist is a no-op.
+func (s *Store) DropNamespace(ctx context.Context, name string) error {
+	db, err := s.db()
+	if err != nil {
+		return err
+	}
+	return db.Update(func(tx *bolt.Tx) error {
+		if tx.Bucket([]byte(name)) == nil {
+			return nil
+		}
+		return tx.DeleteBucket([]byte(name))
+	})
+}
+
 // Delete removes points matching req.IDs (in every generation) or
 // req.Filter (a union). A request with no IDs and an empty filter
 // deletes nothing.

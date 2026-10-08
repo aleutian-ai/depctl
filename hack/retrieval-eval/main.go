@@ -8,12 +8,14 @@
 //	go run ./hack/retrieval-eval gen  -config <config.yaml> -out generated.json [-per-dep 25]
 //	go run ./hack/retrieval-eval index -config <config.yaml> -name eg2-270m -embed embeddinggemma-2:270m \
 //	    [-query-format 'task: code retrieval | query: {q}'] [-doc-format 'title: {title} | text: {text}'] [-dims 256]
-//	go run ./hack/retrieval-eval run  -config <config.yaml> -questions a.json,b.json [-report report.md]
+//	go run ./hack/retrieval-eval run  -config <config.yaml> -questions a.json,b.json [-report report.md] \
+//	    [-split tune] [-misses misses.md] [-rerank <chat model>]
 //
 // index embeds every chunk with any Ollama embedding model, optional
 // prompt formats and optional truncation, into eval-<name>.db beside the
 // install's files (with eval-<name>.json describing it). {title} is the
-// chunk's qualified symbol, else its source path, else "none". run
+// chunk's qualified symbol, else its source path, else "none";
+// {section_title} adds a prose chunk's heading path. run
 // compares keyword search, the install's own vectors (ragctl as shipped)
 // and every eval index, each alone and fused with keyword search.
 //
@@ -99,6 +101,7 @@ func main() {
 	perDep := fs.Int("per-dep", 25, "gen: questions to generate per dependency")
 	model := fs.String("model", "ornith-1.5:9b", "gen: Ollama chat model")
 	seed := fs.Int64("seed", 1, "gen: sampling seed")
+	style := fs.String("style", "paraphrase", "gen: \"paraphrase\" (no identifiers from the text) or \"agent\" (asked mid-task by a coding agent, naming the identifiers it has; IDs start with dev-)")
 	questions := fs.String("questions", "", "run: comma-separated question files")
 	name := fs.String("name", "", "index: name of the eval index")
 	embedModel := fs.String("embed", "", "index: Ollama embedding model")
@@ -108,6 +111,10 @@ func main() {
 	daemonProject := fs.String("daemon-project", "", "run: also ask every question through the running daemon's search API, for this project ID (start the daemon after the other methods' stores are closed: use -daemon-only)")
 	daemonOnly := fs.Bool("daemon-only", false, "run: only the daemon method (its daemon holds the stores open)")
 	report := fs.String("report", "", "run: also write the report to this file")
+	half := fs.String("split", "all", "run: only ask the \"tune\" or \"test\" half (\"all\" = both); decide changes on tune")
+	misses := fs.String("misses", "", "run: write the last method's misses (right answer not first) here, with what ranked above it")
+	rerankModel := fs.String("rerank", "", "run: also rerank the shipped hybrid's top 20 with this Ollama chat model")
+	symbols := fs.Bool("symbol", false, "run: also fuse a third ranking into the shipped hybrid: API docs whose symbol the question names")
 	fs.Parse(os.Args[2:])
 	if *cfgPath == "" {
 		log.Fatal("-config is required")
@@ -116,9 +123,16 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	if *questions != "" && os.Args[1] != "run" {
+		qs, err := readQuestions(strings.Split(*questions, ","))
+		if err != nil {
+			log.Fatal(err)
+		}
+		c.only(qs) // gen and index cover just the dependencies these ask about
+	}
 	switch os.Args[1] {
 	case "gen":
-		if err := generate(c, *model, *perDep, *seed, *out); err != nil {
+		if err := generate(c, *model, *perDep, *seed, *style, *out); err != nil {
 			log.Fatal(err)
 		}
 	case "index":
@@ -129,7 +143,7 @@ func main() {
 			log.Fatal(err)
 		}
 	case "run":
-		if err := run(c, strings.Split(*questions, ","), *report, *daemonProject, *daemonOnly); err != nil {
+		if err := run(c, strings.Split(*questions, ","), runOptions{report: *report, daemonProject: *daemonProject, daemonOnly: *daemonOnly, split: *half, misses: *misses, rerank: *rerankModel, symbol: *symbols}); err != nil {
 			log.Fatal(err)
 		}
 	default:
@@ -176,7 +190,7 @@ func loadCorpus(cfgPath string) (*corpus, error) {
 
 var identRE = regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+|[a-z][a-z0-9]*[A-Z][A-Za-z0-9]*|[A-Z][a-z0-9]+[A-Z][A-Za-z0-9]*|[a-z0-9]+_[a-z0-9_]+`)
 
-func generate(c *corpus, model string, perDep int, seed int64, out string) error {
+func generate(c *corpus, model string, perDep int, seed int64, style, out string) error {
 	rng := rand.New(rand.NewSource(seed))
 	var qs []Question
 	rejected := 0
@@ -197,16 +211,26 @@ func generate(c *corpus, model string, perDep int, seed int64, out string) error
 			if made == perDep {
 				break
 			}
-			q, err := askModel(model, dep, string(ch.Content))
+			prompt := paraphrasePrompt
+			if style == "agent" {
+				prompt = agentPrompt
+			}
+			q, err := askModel(model, fmt.Sprintf(prompt, dep, string(ch.Content)))
 			if err != nil {
 				return err
 			}
-			if q == "" || leaks(q, string(ch.Content), ch.Metadata["symbol"]) {
+			// A paraphrase must not reuse the chunk's words; an agent's
+			// question names identifiers but mustn't copy a sentence.
+			if q == "" || style != "agent" && leaks(q, string(ch.Content), ch.Metadata["symbol"]) || style == "agent" && copies(q, string(ch.Content)) {
 				rejected++
 				continue
 			}
 			made++
-			qs = append(qs, Question{ID: fmt.Sprintf("gen-%03d", len(qs)+1), Source: "generated", Kind: "paraphrase", Dependency: dep, Question: q, Gold: Gold{ChunkIDs: []string{ch.ID}}})
+			id, source := fmt.Sprintf("gen-%03d", len(qs)+1), "generated"
+			if style == "agent" {
+				id, source = fmt.Sprintf("dev-agent-%03d", len(qs)+1), "generated (agent)"
+			}
+			qs = append(qs, Question{ID: id, Source: source, Kind: style, Dependency: dep, Question: q, Gold: Gold{ChunkIDs: []string{ch.ID}}})
 			log.Printf("%-40s %s", dep, q)
 		}
 	}
@@ -215,8 +239,9 @@ func generate(c *corpus, model string, perDep int, seed int64, out string) error
 	return os.WriteFile(out, b, 0o644)
 }
 
-func askModel(model, dep, content string) (string, error) {
-	prompt := fmt.Sprintf(`Below is a piece of documentation from the Go dependency %s.
+// paraphrasePrompt asks for a question in plain words, without the
+// documentation's identifiers or phrasing.
+const paraphrasePrompt = `Below is a piece of documentation from the Go dependency %s.
 
 Write ONE question that a developer who has NOT read this documentation would ask, and that this documentation answers. Rules:
 - Describe what they want to do in plain words.
@@ -225,7 +250,22 @@ Write ONE question that a developer who has NOT read this documentation would as
 - Output only the question, on one line.
 
 Documentation:
-%s`, dep, content)
+%s`
+
+// agentPrompt asks for the question a coding agent would search with
+// while working: it knows some names (a type, a function it saw in the
+// code) but not the answer.
+const agentPrompt = `Below is a piece of documentation from the Go dependency %s.
+
+A coding agent is in the middle of a task in a project that uses this dependency, and needs this documentation. Write the ONE search query it would type. Rules:
+- It may name the package, type or function it is working with, as code does (e.g. pgxpool.Config), but must not quote sentences from the text.
+- Ask about the specific thing it needs: a behavior, an option, an error, a default, how to do something.
+- Output only the query, on one line.
+
+Documentation:
+%s`
+
+func askModel(model, prompt string) (string, error) {
 	body, _ := json.Marshal(map[string]any{
 		"model": model, "prompt": prompt, "stream": false, "think": false,
 		"options": map[string]any{"num_ctx": 4096, "temperature": 0.3},
@@ -246,6 +286,18 @@ Documentation:
 	return strings.Trim(q, `"`), nil
 }
 
+// copies reports a question that copies a five-word run from content.
+func copies(q, content string) bool {
+	lq := strings.ToLower(q)
+	words := strings.Fields(strings.ToLower(content))
+	for i := 0; i+5 <= len(words); i++ {
+		if strings.Contains(lq, strings.Join(words[i:i+5], " ")) {
+			return true
+		}
+	}
+	return false
+}
+
 // leaks reports a generated question that reuses the chunk's identifiers
 // or copies a five-word run from it, which would make it an easy keyword
 // match rather than a real paraphrase.
@@ -259,13 +311,7 @@ func leaks(q, content, symbol string) bool {
 			return true
 		}
 	}
-	words := strings.Fields(strings.ToLower(content))
-	for i := 0; i+5 <= len(words); i++ {
-		if strings.Contains(lq, strings.Join(words[i:i+5], " ")) {
-			return true
-		}
-	}
-	return false
+	return copies(q, content)
 }
 
 // --- evaluation
@@ -309,18 +355,56 @@ func (t *tally) add(rank, lenientRank int) {
 	}
 }
 
-func run(c *corpus, files []string, reportPath, daemonProject string, daemonOnly bool) error {
+// runOptions are run's flags.
+type runOptions struct {
+	report, daemonProject string
+	daemonOnly            bool
+	split                 string // "all", "tune" or "test"
+	misses                string // file for the last method's misses
+	rerank                string // Ollama chat model reranking the shipped hybrid, or ""
+	symbol                bool   // add the symbol-match signal
+}
+
+func readQuestions(files []string) ([]Question, error) {
 	var qs []Question
 	for _, f := range files {
 		b, err := os.ReadFile(f)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		var part []Question
 		if err := json.Unmarshal(b, &part); err != nil {
-			return fmt.Errorf("%s: %w", f, err)
+			return nil, fmt.Errorf("%s: %w", f, err)
 		}
 		qs = append(qs, part...)
+	}
+	return qs, nil
+}
+
+// only narrows the corpus to the dependencies qs ask about, so an index
+// built for them skips the rest of the install.
+func (c *corpus) only(qs []Question) {
+	keep := map[string]bool{}
+	for _, q := range qs {
+		keep[q.Dependency] = true
+	}
+	for dep := range c.byDep {
+		if !keep[dep] {
+			delete(c.byDep, dep)
+		}
+	}
+}
+
+func run(c *corpus, files []string, opts runOptions) error {
+	all, err := readQuestions(files)
+	if err != nil {
+		return err
+	}
+	var qs []Question
+	for _, q := range all {
+		if opts.split == "all" || split(q.ID) == opts.split {
+			qs = append(qs, q)
+		}
 	}
 	// A question whose right answer isn't in the corpus would count as a
 	// miss for every method and quietly skew the comparison: refuse it.
@@ -377,10 +461,10 @@ func run(c *corpus, files []string, reportPath, daemonProject string, daemonOnly
 	}
 	// Reciprocal rank fusion of each list's top 50 (k = 60, the usual
 	// constant): a simple hybrid that needs no score calibration.
-	fuse := func(a, b func(Question, backend.Filter, int) ([]string, error)) func(Question, backend.Filter, int) ([]string, error) {
+	fuse := func(lists ...func(Question, backend.Filter, int) ([]string, error)) func(Question, backend.Filter, int) ([]string, error) {
 		return func(q Question, f backend.Filter, k int) ([]string, error) {
 			score := map[string]float64{}
-			for _, search := range []func(Question, backend.Filter, int) ([]string, error){a, b} {
+			for _, search := range lists {
 				got, err := search(q, f, 50)
 				if err != nil {
 					return nil, err
@@ -426,11 +510,17 @@ func run(c *corpus, files []string, reportPath, daemonProject string, daemonOnly
 		methods = append(methods, method{"vector: " + ix.Name, v}, method{"hybrid: keyword + " + ix.Name, fuse(keywordSearch, v)})
 	}
 
-	if daemonOnly {
+	if opts.symbol {
+		methods = append(methods, method{"hybrid + symbol match", fuse(keywordSearch, shipped, c.symbolSearch)})
+	}
+	if opts.rerank != "" {
+		methods = append(methods, method{"rerank: " + opts.rerank + " over the shipped hybrid's top 20", rerank(c, opts.rerank, fuse(keywordSearch, shipped), timed)})
+	}
+	if opts.daemonOnly {
 		methods = nil
 	}
-	if daemonProject != "" {
-		search, err := daemonSearch(dir, daemonProject, timed)
+	if opts.daemonProject != "" {
+		search, err := daemonSearch(dir, opts.daemonProject, timed)
 		if err != nil {
 			return err
 		}
@@ -439,6 +529,7 @@ func run(c *corpus, files []string, reportPath, daemonProject string, daemonOnly
 
 	results := map[string]map[string]*tally{} // method -> group -> tally
 	var perQuestion []string
+	var missLog strings.Builder
 	for _, q := range qs {
 		f := c.versions[q.Dependency]
 		answer := "prose (README, guides)"
@@ -476,6 +567,13 @@ func run(c *corpus, files []string, reportPath, daemonProject string, daemonOnly
 				results[m.name][g].add(rank, lenient)
 			}
 			line += fmt.Sprintf(" %3s", rankLabel(rank))
+			if m.name == methods[len(methods)-1].name && rank != 1 {
+				fmt.Fprintf(&missLog, "## %s (%s, %s) rank %s\n%s\nright: %s\n", q.ID, q.Dependency, answer, rankLabel(rank), q.Question, describe(gold[q.ID][0]))
+				for i, id := range got[:min(3, len(got))] {
+					fmt.Fprintf(&missLog, "  %d. %s\n", i+1, describe(c.chunks[id]))
+				}
+				missLog.WriteString("\n")
+			}
 		}
 		perQuestion = append(perQuestion, line)
 	}
@@ -520,10 +618,126 @@ func run(c *corpus, files []string, reportPath, daemonProject string, daemonOnly
 	}
 	b.WriteString("\n```\n" + strings.Join(perQuestion, "\n") + "\n```\n")
 	fmt.Print(b.String())
-	if reportPath != "" {
-		return os.WriteFile(reportPath, []byte(b.String()), 0o644)
+	if opts.misses != "" {
+		if err := os.WriteFile(opts.misses, []byte(missLog.String()), 0o644); err != nil {
+			return err
+		}
+	}
+	if opts.report != "" {
+		return os.WriteFile(opts.report, []byte(b.String()), 0o644)
 	}
 	return nil
+}
+
+// symbolSearch ranks the dependency's API docs by how much of their
+// qualified symbol the question names, counting only identifier-shaped
+// words in it (dotted, camelCase or snake_case, matched with their case):
+// all of it ("pgxpool.Config.MaxConns"), the last two parts
+// ("Config.MaxConns"), or just the name ("MaxConns"). Chunks it names
+// nothing of are left out, so a question without identifiers adds nothing.
+func (c *corpus) symbolSearch(q Question, f backend.Filter, k int) ([]string, error) {
+	idents := map[string]bool{}
+	for _, id := range identRE.FindAllString(q.Question, -1) {
+		idents[id] = true
+		parts := strings.Split(id, ".")
+		for i := range parts { // "pgxpool.Config.MaxConns" also names "Config.MaxConns" and "MaxConns"
+			idents[strings.Join(parts[i:], ".")] = true
+		}
+	}
+	if len(idents) == 0 {
+		return nil, nil
+	}
+	type hit struct {
+		id    string
+		score int
+	}
+	var hits []hit
+	for _, ch := range c.byDep[f.Dependency] {
+		sym := ch.Metadata["symbol"]
+		if sym == "" {
+			continue
+		}
+		full := sym
+		if p := ch.Metadata["package"]; p != "" {
+			full = p + "." + sym
+		}
+		parts := strings.Split(full, ".")
+		score := 0
+		switch {
+		case idents[full]:
+			score = 3
+		case len(parts) >= 2 && idents[strings.Join(parts[len(parts)-2:], ".")]:
+			score = 2
+		case idents[parts[len(parts)-1]] && identRE.MatchString(parts[len(parts)-1]):
+			score = 1
+		}
+		if score > 0 {
+			hits = append(hits, hit{ch.ID, score})
+		}
+	}
+	sort.SliceStable(hits, func(i, j int) bool { return hits[i].score > hits[j].score })
+	var out []string
+	for _, h := range hits[:min(k, len(hits))] {
+		out = append(out, h.id)
+	}
+	return out, nil
+}
+
+// describe is a chunk in one line for the misses file: its title, section
+// and the start of its text.
+func describe(ch domain.Chunk) string {
+	return fmt.Sprintf("[%s | %s] %s", title(ch), ch.Metadata["heading_path"], trim(strings.Join(strings.Fields(string(ch.Content)), " "), 110))
+}
+
+// rerank asks a chat model to reorder base's top 20: a listwise reranker,
+// to see how much a better ordering of the same candidates is worth.
+func rerank(c *corpus, model string, base func(Question, backend.Filter, int) ([]string, error), timed func(string, func() ([]string, error)) ([]string, error)) func(Question, backend.Filter, int) ([]string, error) {
+	return func(q Question, f backend.Filter, k int) ([]string, error) {
+		cands, err := base(q, f, 20)
+		if err != nil {
+			return nil, err
+		}
+		return timed("rerank "+model, func() ([]string, error) {
+			var p strings.Builder
+			fmt.Fprintf(&p, "A developer using the Go dependency %s asked:\n%s\n\nBelow are %d passages from its documentation. Rank them by how well they answer the question, best first. Output only the passage numbers, comma-separated, best first, at least the best 5.\n\n", q.Dependency, q.Question, len(cands))
+			for i, id := range cands {
+				ch := c.chunks[id]
+				fmt.Fprintf(&p, "[%d] %s\n%s\n\n", i+1, title(ch), trim(string(ch.Content), 700))
+			}
+			body, _ := json.Marshal(map[string]any{
+				"model": model, "prompt": p.String(), "stream": false, "think": false,
+				"options": map[string]any{"num_ctx": 12288, "temperature": 0},
+			})
+			resp, err := http.Post("http://127.0.0.1:11434/api/generate", "application/json", bytes.NewReader(body))
+			if err != nil {
+				return nil, err
+			}
+			defer resp.Body.Close()
+			var r struct {
+				Response string `json:"response"`
+			}
+			if err := json.NewDecoder(resp.Body).Decode(&r); err != nil {
+				return nil, err
+			}
+			answer := regexp.MustCompile(`(?s)<think>.*?</think>`).ReplaceAllString(r.Response, "")
+			var out []string
+			used := map[int]bool{}
+			for _, n := range regexp.MustCompile(`\d+`).FindAllString(answer, -1) {
+				var i int
+				fmt.Sscan(n, &i)
+				if i >= 1 && i <= len(cands) && !used[i] {
+					used[i] = true
+					out = append(out, cands[i-1])
+				}
+			}
+			for i, id := range cands { // anything the model left out keeps its order after
+				if !used[i+1] {
+					out = append(out, id)
+				}
+			}
+			return out[:min(k, len(out))], nil
+		})
+	}
 }
 
 // daemonSearch asks questions through the install's daemon, exactly as an
@@ -660,7 +874,7 @@ func buildIndex(c *corpus, ix evalIndex) error {
 			batch := chunks[start:min(start+64, len(chunks))]
 			texts := make([]string, len(batch))
 			for i, ch := range batch {
-				texts[i] = strings.NewReplacer("{title}", title(ch), "{text}", string(ch.Content)).Replace(ix.DocFormat)
+				texts[i] = strings.NewReplacer("{title}", title(ch), "{section_title}", sectionTitle(ch), "{text}", string(ch.Content)).Replace(ix.DocFormat)
 			}
 			vecs, err := emb.Embed(ctx, texts)
 			if err != nil {
@@ -693,6 +907,15 @@ func title(ch domain.Chunk) string {
 		return p
 	}
 	return "none"
+}
+
+// sectionTitle is title, plus the heading path for a prose chunk with
+// one ("README.md > Usage > Pools"), so its title says where it sits.
+func sectionTitle(ch domain.Chunk) string {
+	if h := ch.Metadata["heading_path"]; h != "" && ch.Metadata["symbol"] == "" {
+		return title(ch) + " > " + h
+	}
+	return title(ch)
 }
 
 // truncate keeps a Matryoshka embedding's first dims values (0 = all).

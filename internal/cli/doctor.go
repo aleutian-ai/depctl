@@ -732,7 +732,7 @@ func checkEmbeddingModel(ctx context.Context, env *doctorEnv) (Severity, string)
 		}
 	}
 	if len(mismatched) > 0 {
-		return SeverityUnhealthy, fmt.Sprintf("%d active generation(s) were embedded with a different model than the configured %q: %s", len(mismatched), want, summarize(mismatched))
+		return SeverityUnhealthy, fmt.Sprintf("%d active generation(s) were embedded with a different model than the configured %q: %s; search doesn't use vectors until `ragctl sync` re-embeds them", len(mismatched), want, summarize(mismatched))
 	}
 	if keywordOnly > 0 {
 		return SeverityOK, fmt.Sprintf("the rest use %q; %d searched by keyword until the next sync with embeddings available adds their vectors", want, keywordOnly)

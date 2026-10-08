@@ -551,8 +551,9 @@ func (e *engine) baseQueryService() *query.Service {
 //
 // retrieval.mode (LOCAL-002) picks the service per call: keyword mode
 // always uses keyword search; auto uses it whenever the embedder or
-// vector store isn't ready right now; vector mode fails with the
-// readiness error, as before.
+// vector store isn't ready right now, or the stored vectors were made
+// with other embedding settings; vector mode fails with the readiness
+// or stale-vectors error.
 func (e *engine) fullQueryService(ctx context.Context) (*query.Service, error) {
 	switch e.cfg.Retrieval.ModeOrDefault() {
 	case config.RetrievalKeyword:
@@ -561,10 +562,13 @@ func (e *engine) fullQueryService(ctx context.Context) (*query.Service, error) {
 		// Wait briefly for a readiness check still in progress (just after
 		// the daemon starts), so early searches aren't silently
 		// keyword-only; a settled state answers at once.
-		if !e.embeddingReadiness.readyWithin(searchReadinessWait) || !e.vectorReadiness.readyWithin(searchReadinessWait) {
+		if !e.embeddingReadiness.readyWithin(searchReadinessWait) || !e.vectorReadiness.readyWithin(searchReadinessWait) || hasStaleVectors(ctx, e.store, e.cfg) {
 			return e.keywordQueryService()
 		}
 	default:
+		if hasStaleVectors(ctx, e.store, e.cfg) {
+			return nil, errStaleVectors
+		}
 		if err := e.embeddingReadiness.checkReady(); err != nil {
 			return nil, err
 		}

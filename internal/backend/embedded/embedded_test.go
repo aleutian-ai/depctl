@@ -55,6 +55,28 @@ func TestEmbeddedSpecifics(t *testing.T) {
 		}
 	})
 
+	t.Run("DropNamespaceAllowsANewDimension", func(t *testing.T) {
+		dns := backend.Namespace{Name: "ragctl-drop", Dimensions: 4, Distance: "cosine"}
+		if err := s.EnsureNamespace(ctx, dns); err != nil {
+			t.Fatalf("EnsureNamespace: %v", err)
+		}
+		if err := s.Upsert(ctx, backend.UpsertRequest{Namespace: dns.Name, Points: []backend.Point{{ID: "p", Vector: []float32{1, 0, 0, 0}, Metadata: meta}}}); err != nil {
+			t.Fatalf("Upsert: %v", err)
+		}
+		for range 2 { // dropping a missing namespace is a no-op
+			if err := s.DropNamespace(ctx, dns.Name); err != nil {
+				t.Fatalf("DropNamespace: %v", err)
+			}
+		}
+		dns.Dimensions = 2
+		if err := s.EnsureNamespace(ctx, dns); err != nil {
+			t.Fatalf("EnsureNamespace at a new size after the drop: %v", err)
+		}
+		if n, err := s.Count(ctx, dns.Name, nil); err != nil || n != 0 {
+			t.Errorf("Count after the drop = %d (err %v), want 0", n, err)
+		}
+	})
+
 	t.Run("UnsupportedDistanceIsRejected", func(t *testing.T) {
 		if err := s.EnsureNamespace(ctx, backend.Namespace{Name: "ragctl-dot", Dimensions: 4, Distance: "dot"}); err == nil {
 			t.Fatal("EnsureNamespace with distance \"dot\" succeeded, want an error")

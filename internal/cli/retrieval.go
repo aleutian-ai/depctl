@@ -2,10 +2,12 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"path/filepath"
 	"sort"
+	"sync"
 	"time"
 
 	"aleutian-ai/ragctl/internal/backend"
@@ -14,6 +16,7 @@ import (
 	bboltstore "aleutian-ai/ragctl/internal/control/bbolt"
 	badgerstore "aleutian-ai/ragctl/internal/data/badger"
 	"aleutian-ai/ragctl/internal/data/generation"
+	"aleutian-ai/ragctl/internal/domain"
 	"aleutian-ai/ragctl/internal/embedding"
 	"aleutian-ai/ragctl/internal/registry"
 )
@@ -22,6 +25,13 @@ import (
 // that's still running before deciding without it, so a sync right at
 // daemon startup doesn't needlessly build keyword-only.
 const readinessSettleTimeout = 10 * time.Second
+
+// namespaceDropper is a vector store that can delete a whole namespace.
+// Only the embedded store implements it: its file is this install's
+// alone, while a remote collection may be shared with another install.
+type namespaceDropper interface {
+	DropNamespace(ctx context.Context, name string) error
+}
 
 // searchIndex is every search index an install writes, as one
 // VectorBackend (LOCAL-001/002): the keyword index (auto and keyword
@@ -299,8 +309,9 @@ func hasKeywordOnlyGenerations(ctx context.Context, store *bboltstore.Store, cfg
 	return false
 }
 
-// backfillVectors adds vectors to active generations built while the
-// embedder was unavailable (auto mode). Their chunks are already stored,
+// backfillVectors adds vectors to active generations that have none:
+// built while the embedder was unavailable (auto mode), or cleared by
+// switchEmbedding. Their chunks are already stored,
 // so this only embeds and writes vectors: nothing is fetched or rebuilt.
 // A generation built without vectors is the one whose replica records no
 // embedding model.
@@ -332,7 +343,108 @@ func backfillVectors(ctx context.Context, store *bboltstore.Store, badgerStore *
 		if err := store.PutBackendReplica(ctx, replica); err != nil {
 			return fmt.Errorf("record vectors for %s %s: %w", gen.Dependency.Dependency.Name, gen.Dependency.Version, err)
 		}
-		fmt.Fprintf(out, "%-12s %s %s (added vectors; it was synced while embeddings were unavailable)\n", "VECTORS", gen.Dependency.Dependency.Name, gen.Dependency.Version)
+		fmt.Fprintf(out, "%-12s %s %s (added vectors from its stored chunks)\n", "VECTORS", gen.Dependency.Dependency.Name, gen.Dependency.Version)
 	}
+	return nil
+}
+
+// staleVectorGenerations returns the replicas of active generations whose
+// vectors were made with other embedding settings (model, prompts or
+// size) than cfg's. Generations built without vectors aren't stale.
+func staleVectorGenerations(ctx context.Context, store *bboltstore.Store, cfg config.Config) ([]domain.BackendReplica, error) {
+	pointers, err := store.ListActivePointers(ctx, cfg.Vector.Backend)
+	if err != nil {
+		return nil, fmt.Errorf("list active generations: %w", err)
+	}
+	want := cfg.Embedding.Prompts().Identity(cfg.Embedding.Model)
+	var stale []domain.BackendReplica
+	for _, p := range pointers {
+		replica, err := store.GetBackendReplica(ctx, p.GenerationID, cfg.Vector.Backend)
+		if err == nil && replica.EmbeddingModel != "" && replica.EmbeddingModel != want {
+			stale = append(stale, replica)
+		}
+	}
+	return stale, nil
+}
+
+// hasStaleVectors reports whether the embedding settings changed since
+// some active generation was embedded. Until a sync re-embeds them, their
+// vectors can't be compared with a question's, so search doesn't use
+// vectors at all.
+func hasStaleVectors(ctx context.Context, store *bboltstore.Store, cfg config.Config) bool {
+	stale, err := staleVectorGenerations(ctx, store, cfg)
+	return err == nil && len(stale) > 0
+}
+
+// errStaleVectors is vector mode's answer while active generations hold
+// vectors made with other embedding settings.
+var errStaleVectors = errors.New("the embedding settings changed since some versions were embedded; the next `ragctl sync` re-embeds them (it reuses their stored chunks)")
+
+// switchMu keeps concurrent syncs from switching at once: a second drop
+// could delete vectors the first had already re-embedded.
+var switchMu sync.Mutex
+
+// switchEmbeddingOnce is switchEmbedding under switchMu; a sync that waited
+// finds nothing stale left.
+func switchEmbeddingOnce(ctx context.Context, store *bboltstore.Store, cfg config.Config, vb backend.VectorBackend, ns backend.Namespace, out io.Writer) error {
+	switchMu.Lock()
+	defer switchMu.Unlock()
+	return switchEmbedding(ctx, store, cfg, vb, ns, out)
+}
+
+// switchEmbedding clears vectors made with other embedding settings than
+// cfg's, and marks their generations as built without vectors, so
+// backfillVectors re-embeds them. Their chunks are already stored:
+// nothing is fetched or rebuilt, and keyword search covers them
+// meanwhile.
+//
+// The embedded store drops the whole namespace, since its file is this
+// install's alone. A remote collection may be shared with another
+// install, so only this install's points are deleted, and if the vector
+// size changed while the collection still holds them, nothing is changed:
+// a collection has one size, so the user picks a new vector.collection.
+func switchEmbedding(ctx context.Context, store *bboltstore.Store, cfg config.Config, vb backend.VectorBackend, ns backend.Namespace, out io.Writer) error {
+	stale, err := staleVectorGenerations(ctx, store, cfg)
+	if err != nil || len(stale) == 0 {
+		return err
+	}
+	dropper, owned := vb.(namespaceDropper)
+	if owned {
+		// Dropped before any replica is cleared: if this stops part way,
+		// the rest are still stale and the next sync drops again.
+		if err := dropper.DropNamespace(ctx, ns.Name); err != nil {
+			return fmt.Errorf("drop old vectors: %w", err)
+		}
+		if err := vb.EnsureNamespace(ctx, ns); err != nil {
+			return err
+		}
+	} else {
+		for _, r := range stale {
+			if r.Dimensions == ns.Dimensions {
+				continue
+			}
+			n, err := vb.Count(ctx, ns.Name, &backend.Filter{Generation: r.GenerationID})
+			if err != nil {
+				return err
+			}
+			if n > 0 {
+				return fmt.Errorf("the embedding size changed from %d to %d, and collection %q at %s still holds this install's old vectors; a collection has one size, so set vector.collection to a new name and sync again (then delete %q if no other install uses it)",
+					r.Dimensions, ns.Dimensions, ns.Name, vectorLocation(cfg), ns.Name)
+			}
+		}
+	}
+	for _, r := range stale {
+		if !owned {
+			if err := vb.Delete(ctx, backend.DeleteRequest{Namespace: ns.Name, Filter: &backend.Filter{Generation: r.GenerationID}}); err != nil {
+				return fmt.Errorf("delete old vectors: %w", err)
+			}
+		}
+		r.EmbeddingModel, r.Dimensions, r.UpdatedAt = "", 0, time.Now()
+		if err := store.PutBackendReplica(ctx, r); err != nil {
+			return fmt.Errorf("record old vectors removed: %w", err)
+		}
+	}
+	fmt.Fprintf(out, "%-12s embedding settings changed: re-embedding %d version(s) with %q (keyword search covers them meanwhile)\n",
+		"VECTORS", len(stale), cfg.Embedding.Prompts().Identity(cfg.Embedding.Model))
 	return nil
 }

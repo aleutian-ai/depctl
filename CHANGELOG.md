@@ -7,7 +7,8 @@
 
 ### Better semantic search by default
 - Fresh installs use [`embeddinggemma-2:270m`](https://ollama.com/library/embeddinggemma-2) (378 MB, Apache-2.0) instead of `nomic-embed-text-v2-moe` (957 MB). With its code-retrieval prompts and vectors kept to 256 dimensions, hybrid search on the eval's held-out questions scores 0.583 MRR against 0.528 with nomic, with the right doc in the top 3 for 69% of questions against 60%. The vector store is about 3x smaller. Ollama is still optional; when it's running, ragctl pulls the model itself.
-- New config keys `embedding.query_prompt`, `embedding.document_prompt` and `embedding.dimensions`. A config without them behaves exactly as before, so **existing installs keep their model**. Switching an existing install to the new model currently means deleting `vectors.db` and rebuilding (see `docs/retrieval-eval.md`); `doctor` flags a model, prompt or size mismatch.
+- New config keys `embedding.query_prompt`, `embedding.document_prompt` and `embedding.dimensions`. A config without them behaves exactly as before, so **existing installs keep their model**. To switch, set those keys and the model (see `docs/internal/config.md`), run `ragctl daemon stop`, then `ragctl sync`.
+- **Changing embedding settings re-embeds automatically.** When the model, prompts or size differ from what a version was embedded with, the next sync clears the old vectors and re-embeds every active version from its stored chunks: nothing is re-fetched or rebuilt. Until then, `auto` searches by keyword instead of comparing incompatible vectors, and `vector` mode says to sync. Before, the old vectors stayed and searches or syncs failed with a dimension mismatch. With a remote vector store, a new size needs a new `vector.collection` (a collection may be shared with another install, so ragctl never drops one).
 
 ### Fixes
 - Searches in `auto` mode right after the daemon starts now wait up to 3 seconds for the Ollama check instead of quietly falling back to keyword-only results.
@@ -16,6 +17,7 @@
 
 ### Retrieval eval
 - `hack/retrieval-eval` measures keyword, vector and hybrid search on a real synced install, using 48 hand-written and 275 generated questions. On 12 Go dependencies, keyword and vector search performed the same within noise (MRR 0.527 against 0.496), and a hybrid of the two was measurably better (0.556). See `docs/retrieval-eval.md`. Its held-out half (162 questions) is now a frozen benchmark; new questions use `dev-` IDs and only ever join the tune half.
+- Code-aware experiments on the tune half: a symbol-match signal and heading-path titles for prose made no measurable difference; reranking the top 20 with a 9B chat model helped (+0.058 MRR) but costs about 5 s per search, so nothing changed in ragctl. The eval tool gained agent-style question generation (`gen -style agent`), `-split`, `-misses`, `-symbol` and `-rerank`.
 
 ## v0.3.1 — 2026-10-07
 

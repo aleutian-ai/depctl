@@ -40,6 +40,7 @@ The vector store is built by `buildVectorBackend` (internal/cli/pipeline.go). `v
 **internal/backend/embedded** (embedded.go, migrate.go) — see [Embedded and keyword stores](#embedded-and-keyword-stores)
 - `Store`, `New(path)` — one bbolt file; one open handle per path per process, shared by every `Store` for that path. Opening waits at most 2s for bbolt's file lock and then reports the file as in use by another ragctl process (normally the daemon).
 - `ErrDimensionMismatch` — the namespace exists with a different dimension (e.g. the embedding model changed), or a point/query vector has the wrong length.
+- `DropNamespace(ctx, name)` — deletes a namespace with its points and dimension, so it can be recreated at another size; a missing namespace is a no-op. Not part of `VectorBackend`: only the embedded store has it, because its file belongs to one install, while a remote collection may be shared. The embedding switch (`internal/cli`'s `switchEmbedding`) uses it. The freed pages are reused for the new vectors; the file doesn't shrink.
 - `Upsert` writes the whole request in one transaction. `Query` scores every point in the generations the filter selects and returns an error if the namespace doesn't exist.
 
 **internal/backend/keyword** (keyword.go, tokenize.go, migrate.go)

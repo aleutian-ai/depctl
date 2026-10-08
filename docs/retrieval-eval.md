@@ -90,6 +90,25 @@ Same corpus and questions. Every setup was chosen on the **tune half** and is re
 
 **Latency.** Searching with the 270m model took 18 ms median, against 16 ms for nomic, both mostly embedding the question. Two setups show about 750 ms in the raw report. That's an artifact of the eval switching between seven models on every question, which forces Ollama to reload them; it isn't a property of those setups.
 
+## Code-aware experiments (2026-10-08)
+
+Three ideas for going past the shipped default, each measured on the **tune half only** (the frozen benchmark stays unread until something is adopted). Baseline: the shipped hybrid, MRR 0.631 on 161 tune questions (0.660 on 267 with the agent questions below).
+
+**Agent-style questions.** The generated questions deliberately avoid the docs' identifiers, but a coding agent mid-task usually names the type or function it's working with. `gen -style agent` writes those: 106 questions (`questions-dev-agent.json`, IDs `dev-agent-*`, so always in the tune half), from the same 12 dependencies, e.g. "What does yaml.Unmarshal do with struct field tags and key matching?". On them keyword search alone does as well as hybrid (MRR 0.724 vs 0.704), and both find the right doc in the top 3 for 87%: questions that name identifiers are the easy case.
+
+| Experiment (tune half) | MRR change | 95% interval | Cost | Verdict |
+|---|---|---|---|---|
+| Rerank the hybrid's top 20 with a 9B chat model (`ornith-1.5:9b`, listwise) | +0.058 | [+0.002, +0.117] | 5.4 s median, 14 s p95 per search | better, barely; far too slow for a default |
+| Rerank with a 3B chat model (`ministral-3:3b`) | −0.084 | — | 2.6 s median | worse: mostly echoes the input order |
+| Symbol signal: a third fused ranking of API docs whose qualified symbol the question names (agent questions included) | +0.002 | [−0.010, +0.014] | under 1 ms | no measurable difference |
+| Prose chunk titles with their heading path (`README.md > Usage > Pools`) | −0.005 | [−0.021, +0.010] | a re-embed | no measurable difference |
+
+**What this shows:**
+- **The symbol signal is already there.** The keyword index stores each API doc under its qualified symbol, so a separate symbol ranking adds nothing. (A first version matched bare names like `Close` against ordinary English words and lost 0.09 MRR: identifiers must be matched as identifiers.)
+- **Headings don't help prose.** Each prose chunk already starts with its own heading line.
+- **Ordering is where the headroom is.** The right answer is in the top 10 for 88% of tune questions but first for 52%. A good reranker closes part of that gap, mostly for API docs (0.681 → 0.768), but a general chat model is slow and also demoted 3 of 6 exact identifier lookups from first place. A small dedicated reranking model would be the thing to try next, if one runs in Ollama; none is installed here, and Ollama has no rerank API.
+- **Nothing ships from this round.** The default stays the hybrid with EmbeddingGemma 2.
+
 ## Caveats
 
 - **Generated questions may still lean towards keyword search.** A question written from one chunk can share ordinary words with it even after the filter. The hand-written set, where this matters less, shows the same order (keyword 0.498, vector 0.430, hybrid 0.526), though with only 48 questions.
@@ -102,7 +121,7 @@ Same corpus and questions. Every setup was chosen on the **tune half** and is re
 - **Running without Ollama is a sound choice.** `retrieval.mode: keyword` (or `auto` while Ollama is down) costs no measurable quality on this kind of corpus. It's faster, and it's better at exact names.
 - **Hybrid search is now what `auto` does** when Ollama is available (built 2026-10-07). On the held-out test half it scores 0.528 MRR against keyword's 0.513 and vector's 0.466, and finds the right doc in its top 10 for 83% of questions against 78% and 75%.
 - **Task prefixes aren't worth adding for nomic.** They made no difference for `nomic-embed-text-v2-moe` here. EmbeddingGemma 2 is the opposite: it needs its prompts (see above).
-- **Switching an existing install's model or size needs a re-index.** Vectors from different models or sizes can't share a store: `doctor` flags the mismatch and syncs fail with a dimension mismatch. Until there's a command for it, stop the daemon, delete `vectors.db` and run `ragctl sync --rebuild` for each dependency (keyword search keeps working meanwhile).
+- **Switching an existing install** to the new default: set the four `embedding` lines (`model`, `query_prompt`, `document_prompt`, `dimensions`; see `docs/internal/config.md`), run `ragctl daemon stop`, then `ragctl sync`. The sync re-embeds every active version from its stored chunks, and keyword search covers them until then. Checked on the sandbox install, both ways: EmbeddingGemma 2 → nomic → EmbeddingGemma 2, with the daemon reproducing each model's held-out score afterwards.
 
 ## The benchmark
 
@@ -125,4 +144,7 @@ go run ./hack/retrieval-eval run -config <config.yaml> \
 # the shipped product, through the daemon's search API (start the daemon first)
 go run ./hack/retrieval-eval run -config <config.yaml> -questions <same files> -daemon-only -daemon-project <project ID>
 go run ./hack/retrieval-eval gen -config <config.yaml> -out more.json -per-dep 25   # more questions (needs ornith-1.5:9b)
+go run ./hack/retrieval-eval gen -config <config.yaml> -questions <same files> -style agent -out dev.json   # agent-style dev- questions
+go run ./hack/retrieval-eval run -config <config.yaml> -questions <files> -split tune \
+  -symbol -rerank ornith-1.5:9b -misses misses.md   # experiments, tune half only
 ```

@@ -227,15 +227,24 @@ func RunSync(ctx context.Context, coordinator *daemon.BuildCoordinator, store *b
 		keywordPipeline = &syncPipeline{vb: idx, gitCache: gitCache, ns: backend.Namespace{Name: cfg.Vector.Collection}}
 		return keywordPipeline, nil
 	}
+	// While the embedding settings differ from what active generations
+	// were embedded with, new vectors can't share their store: auto builds
+	// keyword-only and vector mode fails, until switchEmbedding (below)
+	// clears the old ones.
+	staleVectors := mode != config.RetrievalKeyword && hasStaleVectors(ctx, store, cfg)
+	var getVectorPipeline func() (*syncPipeline, error)
 	getPipeline := func() (*syncPipeline, error) {
 		switch mode {
 		case config.RetrievalKeyword:
 			return getKeywordPipeline()
 		case config.RetrievalAuto:
-			if !vectorsReady(readiness, vecReadiness) {
+			if staleVectors || !vectorsReady(readiness, vecReadiness) {
 				return getKeywordPipeline()
 			}
 		default:
+			if staleVectors {
+				return nil, errStaleVectors
+			}
 			if err := readiness.checkReady(); err != nil {
 				return nil, err
 			}
@@ -243,6 +252,9 @@ func RunSync(ctx context.Context, coordinator *daemon.BuildCoordinator, store *b
 				return nil, err
 			}
 		}
+		return getVectorPipeline()
+	}
+	getVectorPipeline = func() (*syncPipeline, error) {
 		pipelineMu.Lock()
 		defer pipelineMu.Unlock()
 		if pipeline != nil {
@@ -286,7 +298,16 @@ func RunSync(ctx context.Context, coordinator *daemon.BuildCoordinator, store *b
 			fmt.Fprintf(out, "%-12s %v (will retry on the next sync)\n", "KEYWORD", err)
 		}
 	}
-	if !offline && mode != config.RetrievalKeyword && hasKeywordOnlyGenerations(ctx, store, cfg) {
+	if staleVectors && !offline && (mode == config.RetrievalVector || vectorsReady(readiness, vecReadiness)) {
+		if p, err := getVectorPipeline(); err != nil {
+			fmt.Fprintf(out, "%-12s %v (will retry on the next sync)\n", "VECTORS", err)
+		} else if err := switchEmbeddingOnce(ctx, store, cfg, p.vector, p.ns, out); err != nil {
+			fmt.Fprintf(out, "%-12s %v (will retry on the next sync)\n", "VECTORS", err)
+		} else {
+			staleVectors = false
+		}
+	}
+	if !offline && !staleVectors && mode != config.RetrievalKeyword && hasKeywordOnlyGenerations(ctx, store, cfg) {
 		if p, err := getPipeline(); err == nil && p.embedder != nil {
 			if err := backfillVectors(ctx, store, badgerStore, cfg, reg, p.embedder, p.vector, p.ns, out); err != nil {
 				fmt.Fprintf(out, "%-12s %v (will retry on the next sync)\n", "VECTORS", err)

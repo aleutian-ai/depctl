@@ -828,7 +828,8 @@ flowchart LR
 
 - **`embedding.Prompted`** wraps every embedder the pipeline builds (`buildEmbedder`). Search embeds questions with `EmbedQuery`; replication, backfill and the version-correctness check embed chunks with `EmbedDocuments`, titled by `generation.ChunkTitle`.
 - **Identity.** A replica records `Prompts.Identity(model)`: the plain model name when no prompts or size are set (every install before this), else the model plus the size and a prompt hash. `doctor` compares it with the config, so a prompt or size change is flagged like a model change.
-- **Existing installs** keep the model their config names, with no prompts. Moving one to the new default needs its vectors rebuilt; there's no command for that yet.
+- **Existing installs** keep the model their config names, with no prompts.
+- **Changing embedding settings.** While some active replica records another identity (`hasStaleVectors`), search and new builds don't use vectors: auto is keyword-only, vector mode errors. The next sync runs `switchEmbedding` before the vector backfill: it clears those generations' vectors (the embedded store drops its namespace; a possibly-shared remote collection only loses this install's generations, and a size change there needs a new `vector.collection`) and marks the replicas as built without vectors, so the existing backfill re-embeds them from Badger. Nothing is re-fetched or rebuilt.
 - **Without vectors** (keyword mode, Ollama down, or a generation built without them) search is keyword-only, as before.
 - **Scheduler queueing.** A request that arrives while its project is syncing joins a queued run only if it's compatible: a `--rebuild` never merges into a plain sync. Real and dry-run GC requests queue separately, so a real GC is never turned into a dry run.
 
